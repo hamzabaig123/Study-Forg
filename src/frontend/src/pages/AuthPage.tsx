@@ -2,23 +2,151 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/hooks/useAuth";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useInternetIdentityAuth, useLocalAccountAuth } from "@/hooks/useAuth";
+import { USE_LOCAL_ACCOUNTS } from "@/lib/authMode";
+import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import {
   ArrowRight,
+  Building2,
   CheckCircle2,
+  Globe,
   KeyRound,
+  LogIn,
   Mail,
   UserRound,
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+/**
+ * Sign-in screen.
+ *
+ * Which form it shows follows the backend the app is wired to: Internet
+ * Identity against a real canister, email/password accounts beside the dev mock
+ * backend. The two paths are separate components so neither has to branch
+ * mid-render.
+ */
 export default function AuthPage({
   mode,
 }: { mode: "login" | "register" | "verify" }) {
+  return USE_LOCAL_ACCOUNTS ? (
+    <LocalAccountAuthPage mode={mode} />
+  ) : (
+    <InternetIdentityAuthPage />
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Internet Identity                                                           */
+/* -------------------------------------------------------------------------- */
+
+function InternetIdentityAuthPage() {
+  const { isAuthenticated, isLoggingIn, loginError, login } =
+    useInternetIdentityAuth();
+  const [ssoDomain, setSsoDomain] = useState("");
+
+  if (isAuthenticated) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  return (
+    <main className="mx-auto flex min-h-screen max-w-lg items-center px-5 py-12">
+      <Card className="w-full shadow-elevated">
+        <CardHeader>
+          <div className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <LogIn />
+          </div>
+          <CardTitle>Sign in to StudyForge</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            StudyForge uses Internet Identity. It opens in a popup, keeps the
+            credential on this device, and needs no password.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            className="w-full"
+            disabled={isLoggingIn}
+            onClick={() => login()}
+            data-ocid="auth.internet_identity_button"
+          >
+            <KeyRound />
+            {isLoggingIn ? "Waiting for Internet Identity…" : "Continue"}
+          </Button>
+          <div className="flex items-center gap-3 py-1 text-xs text-muted-foreground">
+            <span className="h-px flex-1 bg-border" />
+            or use an account you already have
+            <span className="h-px flex-1 bg-border" />
+          </div>
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={isLoggingIn}
+            onClick={() => login({ provider: "google" })}
+            data-ocid="auth.google_button"
+          >
+            <Globe />
+            Continue with Google
+          </Button>
+          <Button
+            variant="outline"
+            className="w-full"
+            disabled={isLoggingIn}
+            onClick={() => login({ provider: "microsoft" })}
+            data-ocid="auth.microsoft_button"
+          >
+            <Globe />
+            Continue with Microsoft
+          </Button>
+          <div className="space-y-2 pt-2">
+            <Label htmlFor="sso-domain">Company or workspace domain</Label>
+            <div className="flex gap-2">
+              <Input
+                id="sso-domain"
+                value={ssoDomain}
+                onChange={(e) => setSsoDomain(e.target.value)}
+                placeholder="acme.com"
+                autoComplete="organization"
+              />
+              <Button
+                variant="outline"
+                disabled={isLoggingIn || ssoDomain.trim().length === 0}
+                onClick={() => login({ ssoDomain: ssoDomain.trim() })}
+                data-ocid="auth.sso_button"
+              >
+                <Building2 />
+                SSO
+              </Button>
+            </div>
+          </div>
+          {loginError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+              data-ocid="auth.login_error"
+            >
+              {loginError.message}
+            </p>
+          ) : null}
+          <p className="pt-3 text-center text-xs text-muted-foreground">
+            <Link to="/">Return to the public home page</Link>
+          </p>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/* Local development accounts                                                  */
+/* -------------------------------------------------------------------------- */
+
+function LocalAccountAuthPage({
+  mode,
+}: {
+  mode: "login" | "register" | "verify";
+}) {
   const { account, signIn, register, startDemo, verifyEmail, signOut } =
-    useAuth();
+    useLocalAccountAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");

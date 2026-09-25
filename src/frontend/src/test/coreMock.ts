@@ -9,18 +9,34 @@ import { vi } from "vitest";
  * a per-test variable. It closes over this module-level holder instead, and
  * tests mutate it through the setters below.
  */
+
+/** Stand-in for the `Identity` object Internet Identity hands the app. */
+export interface MockIdentity {
+  getPrincipal: () => { toString: () => string };
+}
+
+/** Arguments the app passes to `login()` to pick a sign-in flow. */
+export interface MockLoginOptions {
+  provider?: "google" | "microsoft";
+  ssoDomain?: string;
+}
+
+export interface MockAuthState {
+  isAuthenticated: boolean;
+  isInitializing: boolean;
+  isLoggingIn: boolean;
+  isLoginError: boolean;
+  isLoginIdle: boolean;
+  principal: string;
+  identity: MockIdentity | null;
+  loginError?: Error;
+  login: (options?: MockLoginOptions) => void;
+  clear: () => void;
+}
+
 export const coreMockState: {
   actor: MockActor | null;
-  auth: {
-    isAuthenticated: boolean;
-    isInitializing: boolean;
-    isLoggingIn: boolean;
-    isLoginError: boolean;
-    isLoginIdle: boolean;
-    principal: string;
-    login: () => void;
-    clear: () => void;
-  };
+  auth: MockAuthState;
 } = {
   actor: null,
   auth: {
@@ -30,6 +46,7 @@ export const coreMockState: {
     isLoginError: false,
     isLoginIdle: true,
     principal: "",
+    identity: null,
     login: () => {},
     clear: () => {},
   },
@@ -38,27 +55,27 @@ export const coreMockState: {
 export const DEFAULT_PRINCIPAL =
   "2vxsx-fae-aaaaa-aaaab-aaaca-aaaae-aaaaf-aaaag-aaaah-aaaai-aaaaj-aaaak-aaaba";
 
-export interface MockAuthState {
-  isAuthenticated: boolean;
-  isInitializing?: boolean;
-  isLoggingIn?: boolean;
-  isLoginError?: boolean;
-  isLoginIdle?: boolean;
-  principal?: string;
-  login?: () => void;
-  clear?: () => void;
+export function mockIdentity(principal: string): MockIdentity {
+  return { getPrincipal: () => ({ toString: () => principal }) };
 }
 
+/**
+ * A signed-in Internet Identity session by default, because most pages only
+ * render behind the auth guard. Pass `isAuthenticated: false` for a public or
+ * signed-out visit.
+ */
 export function createAuthState(
   overrides: Partial<MockAuthState> = {},
-): typeof coreMockState.auth {
+): MockAuthState {
+  const principal = overrides.principal ?? DEFAULT_PRINCIPAL;
   return {
     isAuthenticated: true,
     isInitializing: false,
     isLoggingIn: false,
     isLoginError: false,
     isLoginIdle: true,
-    principal: DEFAULT_PRINCIPAL,
+    principal,
+    identity: mockIdentity(principal),
     login: vi.fn(),
     clear: vi.fn(),
     ...overrides,
@@ -69,7 +86,7 @@ export function setMockActor(actor: MockActor | null): void {
   coreMockState.actor = actor;
 }
 
-export function setMockAuth(auth: typeof coreMockState.auth): void {
+export function setMockAuth(auth: MockAuthState): void {
   coreMockState.auth = auth;
 }
 
@@ -77,6 +94,9 @@ export function setMockAuth(auth: typeof coreMockState.auth): void {
  * Write a local account straight into storage so `useAuth` reports a signed-in
  * caller without running PBKDF2 in a test. Call it before rendering; `useAuth`
  * reads storage when it mounts.
+ *
+ * Local accounts only exist beside the dev mock backend, so a test that seeds
+ * one also pins that mode with `vi.mock("@/lib/authMode")`.
  */
 export function setLocalAccount(
   options: { signedIn?: boolean; emailVerified?: boolean; name?: string } = {},

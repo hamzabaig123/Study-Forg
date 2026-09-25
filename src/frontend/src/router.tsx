@@ -1,4 +1,6 @@
+import { LoadingState } from "@/components/common/LoadingState";
 import { RequireAuth } from "@/components/layout/RequireAuth";
+import { useBackend } from "@/hooks/useBackend";
 import AiSettings from "@/pages/AiSettings";
 import AiStudio from "@/pages/AiStudio";
 import Analytics from "@/pages/Analytics";
@@ -28,15 +30,43 @@ import {
   createRootRoute,
   createRoute,
   createRouter,
+  useRouterState,
 } from "@tanstack/react-router";
 
 /* -------------------------------------------------------------------------- */
 /* Route tree                                                                  */
 /* -------------------------------------------------------------------------- */
 
-const rootRoute = createRootRoute({
-  component: () => <Outlet />,
-});
+const rootRoute = createRootRoute({ component: RootRoute });
+
+/**
+ * Public pages that answer from backend data, held back until an actor exists.
+ *
+ * A query with no actor is disabled rather than pending, which reads as "loaded,
+ * nothing found" — so a shared link would flash "this note isn't available" and
+ * then show the note. The signed-in routes are covered by `RequireAuth`, which
+ * can do it after sending a signed-out visitor to the login screen.
+ */
+const BACKEND_GATED_PREFIXES = ["/shared", "/manage", "/r", "/qr"];
+
+function RootRoute() {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
+  const { actor } = useBackend();
+
+  if (
+    !actor &&
+    BACKEND_GATED_PREFIXES.includes(`/${pathname.split("/")[1] ?? ""}`)
+  ) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center px-6">
+        <LoadingState label="Loading your workspace…" />
+      </main>
+    );
+  }
+  return <Outlet />;
+}
 
 /** Public: marketing landing page. */
 const landingRoute = createRoute({

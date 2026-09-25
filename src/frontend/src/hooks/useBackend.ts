@@ -1,5 +1,9 @@
 import { type Backend, createActor } from "@/backend";
-import { createActorWithConfig } from "@caffeineai/core-infrastructure";
+import { USE_LOCAL_ACCOUNTS } from "@/lib/authMode";
+import {
+  createActorWithConfig,
+  useActor,
+} from "@caffeineai/core-infrastructure";
 import {
   type QueryClient,
   useQuery,
@@ -9,6 +13,12 @@ import {
 const mockModules = import.meta.glob("../mocks/backend.{ts,tsx,js,jsx}");
 
 const ACTOR_KEY = ["backend-actor"];
+
+export interface BackendState {
+  actor: Backend | null;
+  isFetching: boolean;
+  isReady: boolean;
+}
 
 /**
  * Created actors, one per `QueryClient`.
@@ -57,11 +67,13 @@ function peekActor(client: QueryClient): Backend | undefined {
 }
 
 /**
- * Resolve the backend actor before the first render needs it.
+ * Resolve the mock backend actor before the first render needs it.
  *
- * The canister actor is created asynchronously, so `main.tsx` awaits this
- * before mounting: without it every page would paint one frame with no data,
- * which reads as a blank screen or a false "nothing here yet".
+ * Only the mock backend is pre-resolved (see `main.tsx`): it is a plain object
+ * that exists independently of who is signed in, so waiting for it removes the
+ * frame where every page reads nothing. A canister actor cannot be resolved
+ * here because it belongs to the Internet Identity principal, which is still
+ * being restored while the app mounts.
  */
 export async function resolveBackendActor(
   client: QueryClient,
@@ -72,13 +84,8 @@ export async function resolveBackendActor(
   return actor;
 }
 
-/**
- * Single access point for the generated backend actor.
- *
- * `actor` is `null` until the bindings resolve; every query hook gates on
- * `enabled: !!actor && !isFetching` so nothing fires early.
- */
-export function useBackend() {
+/** One mock object shared by the whole app, so it is cached per `QueryClient`. */
+function useMockBackend(): BackendState {
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ACTOR_KEY,
@@ -91,4 +98,34 @@ export function useBackend() {
     isFetching: query.isFetching,
     isReady: !!query.data && !query.isFetching,
   };
+}
+
+/**
+ * Canister actor for the signed-in identity.
+ *
+ * `useActor` keys the actor to the principal and refetches every other query
+ * when it changes, so signing in as someone else cannot leave the previous
+ * user's data in the cache.
+ */
+function useCanisterBackend(): BackendState {
+  const { actor, isFetching } = useActor(createActor, { mockModules });
+  return {
+    actor,
+    isFetching,
+    isReady: actor !== null && !isFetching,
+  };
+}
+
+const MODE_SELECTED: () => BackendState = USE_LOCAL_ACCOUNTS
+  ? useMockBackend
+  : useCanisterBackend;
+
+/**
+ * Single access point for the backend actor.
+ *
+ * `actor` is `null` until it is available; every query hook gates on
+ * `enabled: !!actor && !isFetching` so nothing fires early.
+ */
+export function useBackend(): BackendState {
+  return MODE_SELECTED();
 }

@@ -2,7 +2,10 @@ import Landing from "@/pages/Landing";
 import { setLocalAccount, setMockActor } from "@/test/coreMock";
 import { renderWithProviders } from "@/test/render";
 import { screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// The signed-in test signs in through a local account.
+vi.mock("@/lib/authMode", () => ({ USE_LOCAL_ACCOUNTS: true }));
 
 describe("Landing page", () => {
   beforeEach(() => {

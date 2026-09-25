@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
+import { shortPrincipal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
 import { Flame, LogIn, LogOut, Menu, UserRound } from "lucide-react";
@@ -24,7 +25,11 @@ export function Header({
   showSidebarToggle = false,
   className,
 }: HeaderProps) {
-  const { isAuthenticated, displayName, account, signOut } = useAuth();
+  const { isAuthenticated, displayName, principal, account, signOut } =
+    useAuth();
+  // Internet Identity sign-in has no profile record, so the principal is the
+  // only thing worth showing.
+  const handle = displayName ?? (principal ? shortPrincipal(principal) : null);
 
   return (
     <header
@@ -82,7 +87,7 @@ export function Header({
                 >
                   <UserRound className="h-4 w-4" aria-hidden="true" />
                   <span className="max-w-[9rem] truncate font-mono text-xs">
-                    {displayName ?? "Signed in"}
+                    {handle ?? "Signed in"}
                   </span>
                 </Button>
               </DropdownMenuTrigger>
@@ -92,7 +97,7 @@ export function Header({
                 </DropdownMenuLabel>
                 <div className="px-2 pb-2">
                   <p className="break-all font-mono text-xs text-foreground">
-                    {account?.email}
+                    {account?.email ?? handle}
                   </p>
                 </div>
                 <DropdownMenuSeparator />

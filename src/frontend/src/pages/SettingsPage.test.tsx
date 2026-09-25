@@ -7,6 +7,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// The page reads the caller's profile from a local account.
+vi.mock("@/lib/authMode", () => ({ USE_LOCAL_ACCOUNTS: true }));
+
 const NOW = 1_700_000_000_000_000_000n;
 
 function makeSettings(overrides: Record<string, unknown> = {}) {
@@ -41,6 +44,36 @@ describe("SettingsPage", () => {
     expect(screen.getByDisplayValue("Pass the exam")).toBeInTheDocument();
     expect(screen.getByDisplayValue("20")).toBeInTheDocument();
     expect(screen.getByText("Synced")).toBeInTheDocument();
+  });
+
+  it("offers a save step on the first run, before any settings row exists", async () => {
+    const user = userEvent.setup();
+    const getMySettings = vi.fn().mockResolvedValue(null);
+    const saveMySettings = vi.fn().mockResolvedValue({
+      __kind__: "ok",
+      ok: makeSettings({ displayName: "Grace" }),
+    });
+    setMockActor(createMockActor({ getMySettings, saveMySettings }));
+
+    await renderWithProviders(<SettingsPage />);
+
+    // With no stored record the drafts fall back to the account profile.
+    const name = await screen.findByDisplayValue("Ada");
+    expect(screen.getByDisplayValue("20")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /save changes/i }),
+    ).not.toBeInTheDocument();
+
+    await user.clear(name);
+    await user.type(name, "Grace");
+
+    const save = await screen.findByRole("button", { name: /save changes/i });
+    await waitFor(() => expect(save).toBeEnabled());
+    await user.click(save);
+
+    await waitFor(() => {
+      expect(saveMySettings).toHaveBeenCalledWith("Grace", "", 20n, "light");
+    });
   });
 
   it("saves an edited profile through the backend", async () => {
@@ -171,6 +204,9 @@ describe("SettingsPage", () => {
     const getMySettings = vi.fn().mockResolvedValue(makeSettings());
     setMockActor(createMockActor({ getMySettings }));
     expect(window.localStorage.getItem(SESSION_KEY)).not.toBeNull();
+    window.localStorage.setItem("studyforge-theme", "dark");
+    window.localStorage.setItem("studyforge.ai.gemini_key", "secret-key");
+    window.localStorage.setItem("studyforge.note-draft.7", '{"title":"x"}');
 
     await renderWithProviders(<SettingsPage />);
 
@@ -196,5 +232,8 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(window.localStorage.getItem(SESSION_KEY)).toBeNull();
     });
+    expect(window.localStorage.getItem("studyforge-theme")).toBeNull();
+    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBeNull();
+    expect(window.localStorage.getItem("studyforge.note-draft.7")).toBeNull();
   });
 });
