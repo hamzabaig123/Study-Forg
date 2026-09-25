@@ -19,7 +19,7 @@ mixin (
   /// Create (or return the existing) public read-only share link for a
   /// chapter or topic.
   public shared ({ caller }) func createShare(target : Common.ShareTarget) : async Result.Result<Common.ShareLink, Common.ShareError> {
-    SharingLib.createShare(sharingState, caller, target);
+    await SharingLib.createShare(sharingState, caller, target);
   };
 
   /// List the caller's share links.

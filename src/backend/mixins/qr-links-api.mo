@@ -63,7 +63,7 @@ mixin (
     if (not allow(createWindows, caller.toText(), createLimit, createWindowNanos)) {
       return #err(#rateLimited);
     };
-    QrLinksLib.createLink(links, counters, targetUrl);
+    await QrLinksLib.createLink(links, counters, targetUrl);
   };
 
   /// Resolve a short code for redirect. Anonymous callers are allowed.

@@ -1,5 +1,6 @@
 import Map "mo:core/Map";
 import List "mo:core/List";
+import Random "mo:core/Random";
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import Time "mo:core/Time";
@@ -52,26 +53,16 @@ module {
     out;
   };
 
-  /// A tiny deterministic PRNG so code and token generation need no external
-  /// entropy source. Seeded from the clock plus a caller-supplied counter, which
-  /// is enough to make collisions vanishingly unlikely for a draft app;
-  /// uniqueness is still enforced against existing links.
-  func nextRandom(state : { var seed : Nat }) : Nat {
-    var x = state.seed;
-    if (x == 0) { x := 0x9E3779B97F4A7C15 };
-    x := (x * 6364136223846793005 + 1442695040888963407) % 18446744073709551557;
-    state.seed := x;
-    x;
-  };
-
-  /// Build a random string of `length` characters from `codeAlphabet`.
-  func randomString(state : { var seed : Nat }, length : Nat) : Text {
+  /// Build a random string of `length` characters from `codeAlphabet`. Uses
+  /// the platform CSPRNG so codes and secret edit tokens cannot be guessed
+  /// from previously issued ones; uniqueness is still enforced against
+  /// existing links.
+  func randomString(length : Nat) : async Text {
     var out = "";
     var i = 0;
     while (i < length) {
-      let r = nextRandom(state);
-      let idx = r % codeAlphabet.size();
-      out := out # codeAlphabet[idx].toText();
+      let index = await Random.natRange(0, codeAlphabet.size());
+      out := out # codeAlphabet[index].toText();
       i += 1;
     };
     out;
@@ -89,20 +80,19 @@ module {
   /// Generate a short code that is unique against the stored links.
   func generateCode(
     links : Map.Map<Types.LinkId, Types.ShortLink>,
-    state : { var seed : Nat },
-  ) : Types.ShortCode {
-    var candidate = randomString(state, codeLength);
+  ) : async Types.ShortCode {
+    var candidate = await randomString(codeLength);
     var attempts = 0;
     while (codeExists(links, candidate) and attempts < 100) {
-      candidate := randomString(state, codeLength);
+      candidate := await randomString(codeLength);
       attempts += 1;
     };
     candidate;
   };
 
   /// Generate a fresh secret edit token.
-  func generateEditToken(state : { var seed : Nat }) : Types.EditToken {
-    randomString(state, tokenLength);
+  func generateEditToken() : async Types.EditToken {
+    await randomString(tokenLength);
   };
 
   /// Split a URL into its scheme and the remainder after `://`. Returns null
@@ -250,7 +240,7 @@ module {
     links : Map.Map<Types.LinkId, Types.ShortLink>,
     counters : { var nextId : Types.LinkId },
     targetUrl : Text,
-  ) : { #ok : Types.CreatedLink; #err : Types.CreateLinkError } {
+  ) : async { #ok : Types.CreatedLink; #err : Types.CreateLinkError } {
     switch (validateTargetUrl(targetUrl)) {
       case (#err(message)) { return #err(#invalidUrl(message)) };
       case (#ok) {};
@@ -258,9 +248,8 @@ module {
     let now = Time.now();
     let id = counters.nextId;
     counters.nextId := id + 1;
-    let seed = { var seed = now.toNat() + id + 1 };
-    let code = generateCode(links, seed);
-    let editToken = generateEditToken(seed);
+    let code = await generateCode(links);
+    let editToken = await generateEditToken();
     let normalized = trimWhitespace(targetUrl);
     let link : Types.ShortLink = {
       id;

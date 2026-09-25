@@ -1,6 +1,7 @@
 import Map "mo:core/Map";
 import List "mo:core/List";
 import Nat "mo:core/Nat";
+import Random "mo:core/Random";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
 import Result "mo:core/Result";
@@ -20,10 +21,23 @@ module {
     counters : { var nextId : Common.Id };
   };
 
-  func nextId(state : State) : Common.Id {
-    let id = state.counters.nextId;
-    state.counters.nextId := id + 1;
-    id;
+  /// URL-safe alphabet for share tokens (no padding, no ambiguous separators).
+  let tokenAlphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+  /// Number of random characters in a share token.
+  let tokenLength = 24;
+
+  /// Generate a long random URL-safe token. Uses the platform CSPRNG so a
+  /// token cannot be guessed or enumerated from another one.
+  func newToken() : async Text {
+    let alphabet = tokenAlphabet.toArray();
+    var token = "";
+    var i = 0;
+    while (i < tokenLength) {
+      let index = await Random.natRange(0, alphabet.size());
+      token := token # Text.fromChar(alphabet[index]);
+      i += 1;
+    };
+    token;
   };
 
   func ownedChapter(state : State, owner : Principal, chapterId : Common.Id) : ?ContentTypes.Chapter {
@@ -87,13 +101,13 @@ module {
 
   /// Create (or return the existing) public read-only share link for a
   /// chapter or topic.
-  public func createShare(state : State, owner : Principal, target : Common.ShareTarget) : Result.Result<Common.ShareLink, Common.ShareError> {
+  public func createShare(state : State, owner : Principal, target : Common.ShareTarget) : async Result.Result<Common.ShareLink, Common.ShareError> {
     if (not targetOwned(state, owner, target)) { return #err(#notFound) };
     let key = targetKey(target);
     for (s in state.shares.values()) {
       if (s.owner == owner and targetKey(s.target) == key) { return #ok(toLink(s)) };
     };
-    let token = "sh_" # nextId(state).toText() # "_" # Time.now().toText();
+    let token = await newToken();
     let share : ShareTypes.Share = { token; owner; target; createdAt = Time.now() };
     state.shares.add(token, share);
     #ok(toLink(share));
