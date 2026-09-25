@@ -64,6 +64,15 @@ export function useAiProviders() {
     [refresh],
   );
 
+  /** For a provider that needs no key: use it, since the reviewer asked. */
+  const choose = useCallback(
+    (id: ProviderId) => {
+      setPreferredChoice(id);
+      refresh();
+    },
+    [refresh],
+  );
+
   const disconnect = useCallback(
     (id: ProviderId) => {
       removeKey(id);
@@ -84,7 +93,7 @@ export function useAiProviders() {
     refresh();
   }, [refresh]);
 
-  return { providers, connect, disconnect, chooseOffline, followKey };
+  return { providers, connect, choose, disconnect, chooseOffline, followKey };
 }
 
 export type ExtractionPhase = "idle" | "reading" | "extracting";

@@ -58,10 +58,13 @@ Because `src/frontend/env.json` is committed with `"undefined"` placeholders, a 
 
 ### AI Studio runs in the browser, not the canister
 
-`src/frontend/src/lib/ai/` + `src/hooks/useAi*` do the whole extraction: read the document (`lib/ai/document.ts`, pdf.js loaded from a CDN so no dependency is added), call the reviewer's own Gemini/OpenRouter/OpenAI key (`lib/ai/providers.ts`), or parse the text by rule when no key is connected (`lib/ai/questions.ts`).
+`src/frontend/src/lib/ai/` + `src/hooks/useAi*` do the whole extraction: read the document (`lib/ai/document.ts`, pdf.js loaded from a CDN so no dependency is added), call the reviewer's own Gemini or OpenRouter key or a local Ollama model (`lib/ai/providers.ts`), or parse the text by rule when neither is set up (`lib/ai/questions.ts`).
 
+- The catalogue is exactly three providers: **Google Gemini** (a fixed list of its current Flash models, newest first), **OpenRouter** (every model its `GET /api/v1/models` reply currently serves for free, i.e. ids ending in `:free`), and **Ollama** (the models its local `GET /api/tags` reports; it stores no key). OpenAI is not offered — its canister-side mixins are still in the repo, unused.
+- Live lists are fetched in the dialog, cached for ten minutes, and fall back to the seeded list plus an error line when the fetch fails. A chosen model is stored once in `studyforge.ai.model` as a JSON record keyed by provider id; a provider nobody chose keeps its `defaultModel`.
+- Ollama is only used when it is explicitly chosen — with nothing configured the studio parses offline rather than reaching for `http://localhost:11434`, which is usually not running on this machine.
 - The canister still exposes `getAiConfig`/`saveAiKey`/`generateDrafts`/`acceptDraft` and `src/mocks/backend.ts` still implements them, but **nothing in the frontend calls them**. Do not wire new UI back to those methods — they cannot run on this machine, which is why the old studio appeared broken.
-- Provider keys and the review queue are device-local: `studyforge.ai.provider`, `studyforge.ai.*_key`, and the `studyforge.ai-studio` prefix (the persisted queue). `src/lib/deviceCache.ts` lists all of them, so "Clear local data" erases the keys and the queue without touching account content.
+- Provider keys, the model choice and the review queue are device-local: `studyforge.ai.provider`, `studyforge.ai.model`, `studyforge.ai.*_key`, and the `studyforge.ai-studio` prefix (the persisted queue). `src/lib/deviceCache.ts` lists all of them, so "Clear local data" erases the keys and the queue without touching account content.
 - There is no `/ai-settings` route any more; the engine and key chooser is the dialog opened from the AI Studio page.
 
 ### TanStack search params

@@ -39,6 +39,14 @@ const SOURCE = {
   providerName: null,
 };
 
+/** What a running local Ollama answers `/api/tags` with. */
+const ollamaTags = vi.fn().mockResolvedValue({
+  ok: true,
+  json: async () => ({
+    models: [{ name: "qwen2.5vl:7b" }, { name: "llama3.1:8b" }],
+  }),
+});
+
 function contentActor(overrides: Partial<MockActor> = {}): MockActor {
   return createMockActor({
     listClasses: vi.fn().mockResolvedValue([{ id: 10n, name: "Grade 11" }]),
@@ -247,27 +255,75 @@ describe("AI Studio", () => {
       await screen.findByRole("button", { name: /connect ai key/i }),
     );
     const dialog = await screen.findByRole("dialog");
-    await user.click(within(dialog).getByRole("radio", { name: /openai/i }));
-    fireEvent.change(within(dialog).getByLabelText(/openai key/i), {
-      target: { value: "sk-test-1234567890" },
+    await user.click(within(dialog).getByRole("radio", { name: /gemini/i }));
+    fireEvent.change(within(dialog).getByLabelText(/gemini key/i), {
+      target: { value: "AIza-test-key-123456" },
     });
     await user.click(
-      within(dialog).getByRole("button", { name: /use openai/i }),
+      within(dialog).getByRole("button", { name: /use google gemini/i }),
     );
 
     await waitFor(() => {
-      expect(window.localStorage.getItem("studyforge.ai.openai_key")).toBe(
-        "sk-test-1234567890",
+      expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+        "AIza-test-key-123456",
       );
     });
     expect(window.localStorage.getItem("studyforge.ai.provider")).toBe(
-      "openAi",
+      "gemini",
     );
+    // The current Flash model is used unless the reviewer picks another.
+    expect(window.localStorage.getItem("studyforge.ai.model")).toBeNull();
     expect(
       await screen.findByText("Extract all MCQs and Q&A"),
     ).toBeInTheDocument();
     // The engine badge now names the connected provider, and the dialog is gone.
-    expect(screen.getAllByText("OpenAI").length).toBeGreaterThan(1);
+    expect(screen.getAllByText("Google Gemini").length).toBeGreaterThan(1);
     expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("offers a provider's models and remembers the one picked", async () => {
+    const user = userEvent.setup();
+    setMockActor(contentActor());
+    vi.stubGlobal("fetch", ollamaTags);
+
+    await renderWithProviders(<AiStudio />);
+    await user.click(
+      await screen.findByRole("button", { name: /connect ai key/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    // Gemini's list is fixed, so the picker opens on the newest Flash model.
+    const geminiModel = within(dialog).getByRole("combobox", {
+      name: /gemini model/i,
+    });
+    expect(geminiModel).toHaveTextContent("Gemini 3.8 Flash");
+
+    // Ollama needs no key; its models come from the local server.
+    await user.click(within(dialog).getByRole("radio", { name: /ollama/i }));
+    expect(
+      await within(dialog).findByText("No key needed"),
+    ).toBeInTheDocument();
+    const ollamaModel = within(dialog).getByRole("combobox", {
+      name: /ollama model/i,
+    });
+    expect(ollamaModel).toHaveTextContent("qwen2.5vl:7b");
+
+    await user.click(ollamaModel);
+    await user.click(
+      await screen.findByRole("option", { name: "llama3.1:8b" }),
+    );
+    await user.click(
+      within(dialog).getByRole("button", { name: /use ollama/i }),
+    );
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("studyforge.ai.provider")).toBe(
+        "ollama",
+      );
+    });
+    expect(
+      JSON.parse(localStorage.getItem("studyforge.ai.model") ?? "{}"),
+    ).toEqual({ ollama: "llama3.1:8b" });
+    vi.unstubAllGlobals();
   });
 });

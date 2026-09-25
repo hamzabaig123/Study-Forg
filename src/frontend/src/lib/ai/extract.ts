@@ -95,7 +95,7 @@ export async function extractQuestions(
   if (!active) {
     if (!source.text.trim()) {
       throw new NoReadableSourceError(
-        "This file has no readable text, so it needs a vision model. Connect a Google Gemini, OpenRouter or OpenAI key to extract from an image or a scanned PDF.",
+        "This file has no readable text, so it needs a vision model. Connect a Google Gemini or OpenRouter key, or point StudyForge at a local Ollama server, to extract from an image or a scanned PDF.",
       );
     }
     onProgress?.({ message: "Reading the document…", done: 1, total: 1 });

@@ -55,7 +55,7 @@ const STATUS_TABS = [
 const KIND_TABS = ["all", "mcq", "qa"] as const;
 
 export default function AiStudio() {
-  const { providers, connect, disconnect, chooseOffline, followKey } =
+  const { providers, connect, choose, disconnect, chooseOffline, followKey } =
     useAiProviders();
   const extraction = useAiExtraction();
   const { importDraft, importApproved, importingId, isImportingAll } =
@@ -454,6 +454,7 @@ export default function AiStudio() {
         onOpenChange={setSettingsOpen}
         providers={providers}
         onConnect={connect}
+        onChoose={choose}
         onDisconnect={disconnect}
         onChooseOffline={chooseOffline}
         onFollowKey={followKey}

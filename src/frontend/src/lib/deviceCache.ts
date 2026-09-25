@@ -8,6 +8,9 @@ const EXACT_KEYS = [
   "studyforge.ai.provider",
   "studyforge.ai.gemini_key",
   "studyforge.ai.openrouter_key",
+  // Per-provider model choices.
+  "studyforge.ai.model",
+  // Key left behind by the OpenAI provider this fork no longer offers.
   "studyforge.ai.openai_key",
   // Queue left behind by the studio before it moved to `studyforge.ai-studio`.
   "studyforge.ai.extraction_queue.v1",
