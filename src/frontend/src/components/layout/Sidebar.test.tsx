@@ -22,7 +22,6 @@ describe("Sidebar", () => {
       ["Analytics", "/analytics"],
       ["Share", "/share"],
       ["Export", "/export"],
-      ["AI Settings", "/ai-settings"],
     ];
 
     for (const [label, href] of expected) {

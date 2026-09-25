@@ -1,7 +1,6 @@
 import { LoadingState } from "@/components/common/LoadingState";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { useBackend } from "@/hooks/useBackend";
-import AiSettings from "@/pages/AiSettings";
 import AiStudio from "@/pages/AiStudio";
 import Analytics from "@/pages/Analytics";
 import AuthPage from "@/pages/AuthPage";
@@ -173,16 +172,23 @@ const topicDetailRoute = createRoute({
   component: TopicDetail,
 });
 
+/**
+ * AI Studio. `?topic=<id>` pre-selects where extracted drafts are saved, which
+ * is how the topic pages hand work over to this page.
+ */
 const aiStudioRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/ai-studio",
   component: AiStudio,
-});
-
-const aiSettingsRoute = createRoute({
-  getParentRoute: () => appRoute,
-  path: "/ai-settings",
-  component: AiSettings,
+  // The router parses `?topic=6` as a number, so the id is widened here rather
+  // than dropped by a string check.
+  validateSearch: (search: Record<string, unknown>): { topic?: string } => {
+    const topic =
+      typeof search.topic === "string" || typeof search.topic === "number"
+        ? String(search.topic).trim()
+        : "";
+    return { topic: topic || undefined };
+  },
 });
 
 const practiceRoute = createRoute({
@@ -259,7 +265,6 @@ const routeTree = rootRoute.addChildren([
     chapterDetailRoute,
     topicDetailRoute,
     aiStudioRoute,
-    aiSettingsRoute,
     practiceRoute,
     timedTestRoute,
     resultsRoute,

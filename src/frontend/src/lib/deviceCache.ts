@@ -9,9 +9,11 @@ const EXACT_KEYS = [
   "studyforge.ai.gemini_key",
   "studyforge.ai.openrouter_key",
   "studyforge.ai.openai_key",
+  // Queue left behind by the studio before it moved to `studyforge.ai-studio`.
+  "studyforge.ai.extraction_queue.v1",
 ];
 
-const KEY_PREFIXES = ["studyforge.note-draft."];
+const KEY_PREFIXES = ["studyforge.note-draft.", "studyforge.ai-studio"];
 
 export function clearDeviceCache(): void {
   for (const key of EXACT_KEYS) {

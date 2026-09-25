@@ -44,9 +44,6 @@ export const queryKeys = {
     all: ["shares"] as const,
     public: (token: string) => ["shares", "public", token] as const,
   },
-  ai: {
-    config: ["ai", "config"] as const,
-  },
 
   /* --- Dynamic QR links ------------------------------------------------ */
 

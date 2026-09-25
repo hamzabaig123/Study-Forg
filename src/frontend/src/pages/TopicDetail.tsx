@@ -296,9 +296,10 @@ export default function TopicDetail() {
               <Button asChild variant="outline" className="rounded-full">
                 <Link
                   to="/ai-studio"
+                  search={{ topic: topicId }}
                   data-ocid="topic_detail.empty_state.ai_studio_link"
                 >
-                  Generate with AI
+                  Extract with AI
                 </Link>
               </Button>
             </div>

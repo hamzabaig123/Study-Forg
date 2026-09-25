@@ -1,98 +1,273 @@
+/**
+ * Journey coverage for the rebuilt AI Studio.
+ *
+ * These drive the real pipeline — paste text, offline parse, review, import —
+ * against a mocked actor. A file upload is not exercised here because reading a
+ * PDF needs the browser's canvas and the pdf.js worker; the parsers themselves
+ * are covered in `lib/ai/questions.test.ts`.
+ */
+
+import { useStudioStore } from "@/lib/ai/studioStore";
 import AiStudio from "@/pages/AiStudio";
 import { createAuthState, setMockActor, setMockAuth } from "@/test/coreMock";
-import { createMockActor } from "@/test/mockActor";
+import { type MockActor, createMockActor } from "@/test/mockActor";
 import { renderWithProviders } from "@/test/render";
-import { screen } from "@testing-library/react";
+import { QuestionType } from "@/types";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const PASTED_QUESTIONS = `1. Which gas do plants absorb?
+A) Oxygen
+B) Carbon dioxide
+C) Nitrogen
+Answer: B
+
+2. Define photosynthesis.
+Answer: The process plants use to make food from light.`;
+
+const TARGET = {
+  classId: "10",
+  subjectId: "20",
+  chapterId: "30",
+  topicId: "40",
+};
+
+const SOURCE = {
+  fileName: "paper.pdf",
+  engine: "offline" as const,
+  providerName: null,
+};
+
+function contentActor(overrides: Partial<MockActor> = {}): MockActor {
+  return createMockActor({
+    listClasses: vi.fn().mockResolvedValue([{ id: 10n, name: "Grade 11" }]),
+    listSubjects: vi.fn().mockResolvedValue([{ id: 20n, name: "Physics" }]),
+    listChapters: vi.fn().mockResolvedValue([{ id: 30n, name: "Light" }]),
+    listTopics: vi
+      .fn()
+      .mockResolvedValue([{ id: 40n, name: "Photosynthesis" }]),
+    createQuestion: vi.fn().mockResolvedValue({ id: 907n }),
+    ...overrides,
+  });
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+  setMockAuth(createAuthState());
+  useStudioStore.setState({
+    drafts: [],
+    source: null,
+    target: { classId: null, subjectId: null, chapterId: null, topicId: null },
+    filters: { status: "all", kind: "all", query: "" },
+  });
+});
+
 describe("AI Studio", () => {
-  beforeEach(() => {
-    localStorage.clear();
-    setMockAuth(createAuthState({ isAuthenticated: true }));
-  });
-
-  it("shows the built-in AI state and a visible way to add a personal key when none is configured", async () => {
-    const actor = createMockActor({
-      getAiConfig: vi.fn().mockResolvedValue({
-        hasPersonalKey: false,
-        keyHint: [],
-      }),
-      listClasses: vi.fn().mockResolvedValue([]),
-    });
-    setMockActor(actor);
+  it("opens on an empty queue and states that parsing runs offline", async () => {
+    setMockActor(contentActor());
 
     await renderWithProviders(<AiStudio />);
 
     expect(
-      await screen.findByText(/using the built-in ai/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /add a personal key/i }),
-    ).toBeInTheDocument();
-    expect(screen.getAllByText(/no key required/i).length).toBeGreaterThan(0);
-  });
-
-  it("shows the personal-key state when a key is configured", async () => {
-    const actor = createMockActor({
-      getAiConfig: vi.fn().mockResolvedValue({
-        hasPersonalKey: true,
-        keyHint: ["sk-…1234"],
+      await screen.findByRole("heading", {
+        name: /turn a pdf or image into questions/i,
       }),
-      listClasses: vi.fn().mockResolvedValue([]),
-    });
-    setMockActor(actor);
-
-    await renderWithProviders(<AiStudio />);
-
-    expect(
-      await screen.findByText(/using your personal openai key/i),
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("link", { name: /manage key/i }),
-    ).toBeInTheDocument();
+    expect(screen.getAllByText("Offline parser").length).toBeGreaterThan(0);
+    expect(await screen.findByText(/no drafts yet/i)).toBeInTheDocument();
+    // Nothing may reach the question bank before the reviewer approves it.
+    expect(screen.queryByText(/approved$/i)).toBeNull();
   });
 
-  it("renders the document extraction uploader by default", async () => {
-    const actor = createMockActor({
-      getAiConfig: vi.fn().mockResolvedValue({
-        hasPersonalKey: false,
-        keyHint: [],
-      }),
-      listClasses: vi.fn().mockResolvedValue([]),
-    });
-    setMockActor(actor);
-
-    await renderWithProviders(<AiStudio />);
-
-    expect(
-      await screen.findByText(/upload document or image/i),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(/pdf \(text or scanned\), png, jpg, webp, or txt/i),
-    ).toBeInTheDocument();
-  });
-
-  it("switches to prompt question generator tab and displays prompt form", async () => {
+  it("parses pasted questions into a review queue without a key", async () => {
     const user = userEvent.setup();
-    const actor = createMockActor({
-      getAiConfig: vi.fn().mockResolvedValue({
-        hasPersonalKey: false,
-        keyHint: [],
-      }),
-      listClasses: vi.fn().mockResolvedValue([]),
-    });
-    setMockActor(actor);
+    setMockActor(contentActor());
 
     await renderWithProviders(<AiStudio />);
 
-    const promptTab = await screen.findByRole("tab", {
-      name: /prompt question generator/i,
+    await user.click(await screen.findByRole("tab", { name: /paste text/i }));
+    fireEvent.change(screen.getByLabelText(/questions to extract/i), {
+      target: { value: PASTED_QUESTIONS },
     });
-    await user.click(promptTab);
+    await user.click(
+      await screen.findByRole("button", {
+        name: /parse questions from text/i,
+      }),
+    );
 
     expect(
-      await screen.findByText(/no drafts generated yet/i),
+      await screen.findByText("Which gas do plants absorb?"),
     ).toBeInTheDocument();
+    expect(screen.getByText("Carbon dioxide")).toBeInTheDocument();
+    expect(screen.getByText("Define photosynthesis.")).toBeInTheDocument();
+    expect(screen.getByText(/2 drafts from pasted text/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/2 to review · 0 approved · 0 saved/),
+    ).toBeInTheDocument();
+  });
+
+  it("saves an approved MCQ into the selected topic", async () => {
+    const user = userEvent.setup();
+    const actor = contentActor();
+    setMockActor(actor);
+    useStudioStore.getState().replaceQueue(
+      [
+        {
+          id: "draft-1",
+          kind: "mcq",
+          question: "Which gas do plants absorb?",
+          options: ["Oxygen", "Carbon dioxide", "Nitrogen"],
+          correctIndex: 1,
+          answer: "Carbon dioxide",
+          explanation: "Plants take in CO2.",
+          inferred: false,
+          page: null,
+        },
+      ],
+      SOURCE,
+    );
+    useStudioStore.getState().setTarget(TARGET);
+
+    await renderWithProviders(<AiStudio />);
+
+    await user.click(await screen.findByRole("button", { name: "Approve" }));
+    await user.click(screen.getByRole("button", { name: /save 1 approved/i }));
+
+    await waitFor(() => {
+      expect(actor.createQuestion).toHaveBeenCalledWith(
+        40n,
+        "Which gas do plants absorb?",
+        QuestionType.multipleChoice,
+        {
+          __kind__: "multipleChoice",
+          multipleChoice: {
+            options: [
+              { id: 1n, text: "Oxygen" },
+              { id: 2n, text: "Carbon dioxide" },
+              { id: 3n, text: "Nitrogen" },
+            ],
+            correctOptionId: 2n,
+          },
+        },
+        "Plants take in CO2.",
+      );
+    });
+    expect(await screen.findByText("Saved")).toBeInTheDocument();
+  });
+
+  it("blocks a batch save until a topic is chosen", async () => {
+    const user = userEvent.setup();
+    setMockActor(contentActor());
+    useStudioStore.getState().replaceQueue(
+      [
+        {
+          id: "draft-1",
+          kind: "qa",
+          question: "Define photosynthesis.",
+          options: [],
+          correctIndex: null,
+          answer: "Making food from light.",
+          explanation: "",
+          inferred: false,
+          page: null,
+        },
+      ],
+      SOURCE,
+    );
+
+    await renderWithProviders(<AiStudio />);
+
+    await user.click(await screen.findByRole("button", { name: "Approve" }));
+    expect(
+      screen.getByRole("button", { name: /save 1 approved/i }),
+    ).toBeDisabled();
+    expect(
+      screen.getByText(/choose a target topic above/i),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Pick a topic")).toBeInTheDocument();
+  });
+
+  it("filters the queue by type and search text", async () => {
+    const user = userEvent.setup();
+    setMockActor(contentActor());
+    useStudioStore.getState().replaceQueue(
+      [
+        {
+          id: "draft-1",
+          kind: "mcq",
+          question: "Which gas do plants absorb?",
+          options: ["Oxygen", "Carbon dioxide"],
+          correctIndex: 1,
+          answer: "Carbon dioxide",
+          explanation: "",
+          inferred: false,
+          page: null,
+        },
+        {
+          id: "draft-2",
+          kind: "qa",
+          question: "Define photosynthesis.",
+          options: [],
+          correctIndex: null,
+          answer: "Making food from light.",
+          explanation: "",
+          inferred: false,
+          page: null,
+        },
+      ],
+      SOURCE,
+    );
+
+    await renderWithProviders(<AiStudio />);
+    await screen.findByText("Which gas do plants absorb?");
+
+    await user.click(screen.getByRole("button", { name: "Q&A" }));
+    expect(screen.getByText("Define photosynthesis.")).toBeInTheDocument();
+    expect(
+      screen.queryByText("Which gas do plants absorb?"),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "MCQs" }));
+    fireEvent.change(screen.getByLabelText(/search drafts/i), {
+      target: { value: "photosynthesis" },
+    });
+    expect(
+      await screen.findByText(/no drafts match these filters/i),
+    ).toBeInTheDocument();
+  });
+
+  it("connects a key from the in-page dialog and switches the engine", async () => {
+    const user = userEvent.setup();
+    setMockActor(contentActor());
+
+    await renderWithProviders(<AiStudio />);
+
+    await user.click(
+      await screen.findByRole("button", { name: /connect ai key/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /openai/i }));
+    fireEvent.change(within(dialog).getByLabelText(/openai key/i), {
+      target: { value: "sk-test-1234567890" },
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: /use openai/i }),
+    );
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("studyforge.ai.openai_key")).toBe(
+        "sk-test-1234567890",
+      );
+    });
+    expect(window.localStorage.getItem("studyforge.ai.provider")).toBe(
+      "openAi",
+    );
+    expect(
+      await screen.findByText("Extract all MCQs and Q&A"),
+    ).toBeInTheDocument();
+    // The engine badge now names the connected provider, and the dialog is gone.
+    expect(screen.getAllByText("OpenAI").length).toBeGreaterThan(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

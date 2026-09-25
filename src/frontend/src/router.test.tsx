@@ -47,7 +47,6 @@ describe("router", () => {
       "/chapters/$chapterId",
       "/topics/$topicId",
       "/ai-studio",
-      "/ai-settings",
       "/practice/$sessionId",
       "/test/$sessionId",
       "/results/$sessionId",
@@ -61,6 +60,25 @@ describe("router", () => {
         true,
       );
     }
+  });
+
+  it("no longer registers the removed AI settings page", () => {
+    const paths = collectPaths(router.routeTree as unknown as RouteNode);
+
+    // Provider keys are managed inside AI Studio now, so the route is gone.
+    expect(paths.has("/ai-settings")).toBe(false);
+  });
+
+  it("keeps the ?topic= handover from a topic page", async () => {
+    // A topic page links over with `?topic=<id>`. The router parses the bare
+    // number, so AI Studio's search validator has to accept it or the whole
+    // param is dropped and the target picker arrives empty.
+    window.history.replaceState({}, "", "/ai-studio?topic=6");
+    await router.load();
+
+    expect(router.state.location.pathname).toBe("/ai-studio");
+    expect(window.location.search).toContain("topic=");
+    expect(String(router.state.location.search.topic)).toBe("6");
   });
 });
 

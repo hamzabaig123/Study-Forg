@@ -10,7 +10,6 @@ import {
   NotebookPen,
   QrCode,
   Settings,
-  Settings2,
   Share2,
   Sparkles,
   X,
@@ -35,7 +34,6 @@ const SECONDARY_NAV: NavEntry[] = [
   { label: "QR Generator", to: "/qr", icon: QrCode },
   { label: "Share", to: "/share", icon: Share2 },
   { label: "Export", to: "/export", icon: Download },
-  { label: "AI Settings", to: "/ai-settings", icon: Settings2 },
   { label: "Settings", to: "/settings", icon: Settings },
 ];
 

@@ -36,8 +36,8 @@ const QUICK_ACTIONS = [
   },
   {
     to: "/ai-studio",
-    label: "Draft with AI",
-    detail: "Generate questions from your notes",
+    label: "Extract questions",
+    detail: "Turn a PDF or image into a question bank",
     icon: Sparkles,
     ocid: "dashboard.ai_studio_button",
   },
