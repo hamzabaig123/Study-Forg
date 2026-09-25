@@ -56,3 +56,16 @@ Because `src/frontend/env.json` is committed with `"undefined"` placeholders, a 
 - Do not set `VITE_USE_MOCK` for tests. Leaving it unset keeps `useBackend` on the `createActorWithConfig`/`useActor` seam that `src/test/setup.ts` mocks, which is how tests inject a fake actor with `setMockActor`.
 - A test that needs local accounts pins the mode itself: `vi.mock("@/lib/authMode", () => ({ USE_LOCAL_ACCOUNTS: true }))`, then `setLocalAccount(...)`. Internet Identity tests use `setMockAuth(createAuthState({ ... }))`, which now carries an `identity` stub alongside its flags.
 
+### AI Studio runs in the browser, not the canister
+
+`src/frontend/src/lib/ai/` + `src/hooks/useAi*` do the whole extraction: read the document (`lib/ai/document.ts`, pdf.js loaded from a CDN so no dependency is added), call the reviewer's own Gemini/OpenRouter/OpenAI key (`lib/ai/providers.ts`), or parse the text by rule when no key is connected (`lib/ai/questions.ts`).
+
+- The canister still exposes `getAiConfig`/`saveAiKey`/`generateDrafts`/`acceptDraft` and `src/mocks/backend.ts` still implements them, but **nothing in the frontend calls them**. Do not wire new UI back to those methods — they cannot run on this machine, which is why the old studio appeared broken.
+- Provider keys and the review queue are device-local: `studyforge.ai.provider`, `studyforge.ai.*_key`, and the `studyforge.ai-studio` prefix (the persisted queue). `src/lib/deviceCache.ts` lists all of them, so "Clear local data" erases the keys and the queue without touching account content.
+- There is no `/ai-settings` route any more; the engine and key chooser is the dialog opened from the AI Studio page.
+
+### TanStack search params
+
+`?topic=6` is parsed as the **number** `6`, so a validator written as `typeof search.topic === "string" ? … : undefined` silently drops the param and the router strips it from the URL. `src/router.tsx`'s AI Studio route accepts string or number and widens to string; keep new search validators doing the same. Note also that after `router.load()` a test sees the raw parsed search, not the validated one, so assert validated values via `router.navigate`.
+
+
