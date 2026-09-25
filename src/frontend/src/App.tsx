@@ -1,0 +1,17 @@
+import { ThemeProvider } from "@/components/theme/ThemeProvider";
+import { Toaster } from "@/components/ui/sonner";
+import { router } from "@/router";
+import { RouterProvider } from "@tanstack/react-router";
+
+/**
+ * App shell: theme provider, router, and the global toast surface.
+ * Query and Internet Identity providers live in main.tsx.
+ */
+export default function App() {
+  return (
+    <ThemeProvider>
+      <RouterProvider router={router} />
+      <Toaster position="top-right" richColors closeButton />
+    </ThemeProvider>
+  );
+}

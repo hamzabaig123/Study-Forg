@@ -1,0 +1,135 @@
+import { EmptyState } from "@/components/common/EmptyState";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { formatDateTime } from "@/lib/format";
+import { cn } from "@/lib/utils";
+import type { ShareLink } from "@/types";
+import { Check, Copy, Link2, Trash2 } from "lucide-react";
+import { useState } from "react";
+
+interface ShareLinkPanelProps {
+  shares: ShareLink[];
+  /** Absolute URL for a token, e.g. `${origin}/shared/${token}`. */
+  buildUrl: (token: string) => string;
+  onRevoke: (token: string) => void;
+  isRevoking: boolean;
+  revokingToken: string | null;
+  className?: string;
+}
+
+/**
+ * The list of existing public share links with copy and revoke controls.
+ * Revoking is destructive and irreversible, so it is styled as such.
+ */
+export function ShareLinkPanel({
+  shares,
+  buildUrl,
+  onRevoke,
+  isRevoking,
+  revokingToken,
+  className,
+}: ShareLinkPanelProps) {
+  const [copiedToken, setCopiedToken] = useState<string | null>(null);
+
+  async function copyLink(token: string) {
+    const url = buildUrl(token);
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopiedToken(token);
+      window.setTimeout(() => {
+        setCopiedToken((current) => (current === token ? null : current));
+      }, 2000);
+    } catch {
+      setCopiedToken(null);
+    }
+  }
+
+  return (
+    <Card
+      data-ocid="share.links_panel"
+      className={cn(
+        "gap-0 rounded-lg border-border/70 py-0 shadow-none",
+        className,
+      )}
+    >
+      <CardHeader className="flex-row items-center justify-between gap-3 border-b border-border/60 px-5 py-4">
+        <CardTitle className="flex items-center gap-2 font-display text-base font-semibold">
+          <Link2 className="size-4 text-muted-foreground" aria-hidden="true" />
+          Active share links
+        </CardTitle>
+        {shares.length > 0 ? (
+          <span className="numeric text-xs text-muted-foreground">
+            {shares.length} {shares.length === 1 ? "link" : "links"}
+          </span>
+        ) : null}
+      </CardHeader>
+      <CardContent className="px-0 py-0">
+        {shares.length === 0 ? (
+          <EmptyState
+            icon={Link2}
+            title="No share links yet"
+            description="Generate a link above to publish a chapter or topic as a read-only page anyone can open."
+            className="border-0 bg-transparent py-10"
+          />
+        ) : (
+          <ul className="divide-y divide-border/60">
+            {shares.map((share, index) => {
+              const url = buildUrl(share.token);
+              const isCopied = copiedToken === share.token;
+              const isRevokingThis =
+                isRevoking && revokingToken === share.token;
+              return (
+                <li
+                  key={share.token}
+                  data-ocid={`share.link.${index}`}
+                  className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-mono text-xs text-foreground">
+                      {url}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Created {formatDateTime(share.createdAt)}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="gap-1.5 rounded-full"
+                      onClick={() => void copyLink(share.token)}
+                      data-ocid={`share.copy_button.${index}`}
+                    >
+                      {isCopied ? (
+                        <Check
+                          className="size-3.5 text-success"
+                          aria-hidden="true"
+                        />
+                      ) : (
+                        <Copy className="size-3.5" aria-hidden="true" />
+                      )}
+                      {isCopied ? "Copied" : "Copy"}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="gap-1.5 rounded-full text-destructive hover:text-destructive"
+                      onClick={() => onRevoke(share.token)}
+                      disabled={isRevokingThis}
+                      data-ocid={`share.revoke_button.${index}`}
+                    >
+                      <Trash2 className="size-3.5" aria-hidden="true" />
+                      {isRevokingThis ? "Revoking…" : "Revoke"}
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>StudyForge</title>
+    <meta name="description" content="Built with caffeine.ai" />
+    <meta property="og:title" content="StudyForge" />
+    <meta property="og:description" content="Built with caffeine.ai" />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="https://caffeine.ai/imgs/share-logo.jpeg" />
+    <meta property="og:image:alt" content="Built with caffeine.ai" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:image" content="https://caffeine.ai/imgs/share-logo.jpeg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <script>
+      // Restore the saved theme before first paint so there is no flash.
+      (function () {
+        try {
+          var theme = localStorage.getItem("studyforge-theme");
+          var root = document.documentElement;
+          if (theme === "dark") {
+            root.classList.add("dark");
+            root.style.colorScheme = "dark";
+          } else if (theme === "frosted") {
+            root.classList.add("frosted");
+            root.style.colorScheme = "light";
+          } else {
+            root.style.colorScheme = "light";
+          }
+        } catch (e) {
+          /* localStorage unavailable — fall back to the light theme */
+        }
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

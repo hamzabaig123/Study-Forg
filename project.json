@@ -1,0 +1,22 @@
+{
+  "overview": "StudyForge is a study platform with a public dynamic QR code generator, a private notes workspace, and full study tools.",
+  "features": [
+    "Create dynamic QR codes that redirect to an editable destination",
+    "Download QR codes as PNG or SVG with custom colors and size",
+    "Track scans per day with device and country, no raw IPs",
+    "Manage links via a secret edit link: change target, pause, delete",
+    "Write notes in a block editor with autosave and search",
+    "Preview notes read-only and share them via a link with a QR code",
+    "Configure account, study profile, appearance, and privacy in Settings",
+    "Study tools: classes, subjects, chapters, topics, questions, practice, analytics"
+  ],
+  "category": "productivity",
+  "tags": [
+    "study",
+    "qr-code",
+    "notes",
+    "productivity",
+    "education"
+  ],
+  "last_updated": "2026-09-20T13:41:52.930Z"
+}

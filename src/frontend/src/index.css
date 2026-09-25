@@ -1,0 +1,467 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ---------------------------------------------------------------------------
+   StudyForge — "Forge & Ink"
+   Ember-warm primary on deep indigo-ink neutrals.
+   Three themes: :root (light parchment), .dark (ink), .frosted (glass).
+--------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: "Fraunces";
+  src: url("/assets/fonts/Fraunces.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "General Sans";
+  src: url("/assets/fonts/GeneralSans.woff2") format("woff2");
+  font-weight: 200 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("/assets/fonts/GeistMono.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --font-display: "Fraunces";
+    --font-body: "General Sans";
+    --font-mono: "Geist Mono";
+    --radius: 0.75rem;
+
+    /* Light — warm parchment */
+    --background: 0.985 0.008 85;
+    --foreground: 0.2 0.025 265;
+    --card: 1.0 0.004 85;
+    --card-foreground: 0.2 0.025 265;
+    --popover: 1.0 0.004 85;
+    --popover-foreground: 0.2 0.025 265;
+
+    --primary: 0.52 0.16 52;
+    --primary-foreground: 0.99 0.006 52;
+
+    --secondary: 0.94 0.014 80;
+    --secondary-foreground: 0.3 0.025 265;
+    --muted: 0.945 0.012 80;
+    --muted-foreground: 0.47 0.02 265;
+
+    --accent: 0.42 0.13 265;
+    --accent-foreground: 0.98 0.006 265;
+
+    --destructive: 0.53 0.2 27;
+    --destructive-foreground: 0.99 0.006 27;
+    --success: 0.5 0.14 152;
+    --success-foreground: 0.99 0.006 152;
+    --warning: 0.72 0.15 78;
+    --warning-foreground: 0.22 0.03 78;
+
+    --border: 0.89 0.014 80;
+    --input: 0.89 0.014 80;
+    --ring: 0.52 0.16 52;
+
+    --chart-1: 0.55 0.16 52;
+    --chart-2: 0.45 0.13 265;
+    --chart-3: 0.52 0.14 152;
+    --chart-4: 0.6 0.15 320;
+    --chart-5: 0.62 0.14 200;
+
+    --sidebar: 0.97 0.01 82;
+    --sidebar-foreground: 0.2 0.025 265;
+    --sidebar-primary: 0.52 0.16 52;
+    --sidebar-primary-foreground: 0.99 0.006 52;
+    --sidebar-accent: 0.94 0.014 80;
+    --sidebar-accent-foreground: 0.3 0.025 265;
+    --sidebar-border: 0.89 0.014 80;
+    --sidebar-ring: 0.52 0.16 52;
+
+    /* Glass surface tokens (frosted theme + optional accents) */
+    --glass: 0.99 0.006 85 / 0.62;
+    --glass-border: 0.99 0.006 85 / 0.75;
+    --glass-highlight: 1 0 0 / 0.6;
+    --glass-shadow: 0 8px 32px -8px oklch(0.2 0.025 265 / 0.18);
+
+    --gradient-primary: linear-gradient(
+      135deg,
+      oklch(0.58 0.17 58),
+      oklch(0.47 0.15 42)
+    );
+    --gradient-subtle: linear-gradient(
+      180deg,
+      oklch(0.985 0.008 85),
+      oklch(0.955 0.014 80)
+    );
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+
+    /* --- Surface extensions: QR tool, Notes workspace, Settings --------- */
+    /* Quiet ink wash for formula blocks, mono chips, and QR preview wells. */
+    --code: 0.955 0.01 265;
+    --code-foreground: 0.28 0.03 265;
+    /* Modal / dialog backdrop over any theme. */
+    --scrim: 0.2 0.025 265 / 0.42;
+    /* Low-chroma ember wash for success panels and active section rails. */
+    --ember-soft: 0.52 0.16 52 / 0.1;
+    --ember-soft-border: 0.52 0.16 52 / 0.32;
+  }
+
+  .dark {
+    --background: 0.155 0.022 265;
+    --foreground: 0.94 0.012 85;
+    --card: 0.195 0.024 265;
+    --card-foreground: 0.94 0.012 85;
+    --popover: 0.215 0.026 265;
+    --popover-foreground: 0.94 0.012 85;
+
+    --primary: 0.76 0.16 62;
+    --primary-foreground: 0.17 0.03 62;
+
+    --secondary: 0.245 0.026 265;
+    --secondary-foreground: 0.86 0.012 85;
+    --muted: 0.245 0.026 265;
+    --muted-foreground: 0.66 0.016 85;
+
+    --accent: 0.68 0.13 265;
+    --accent-foreground: 0.15 0.025 265;
+
+    --destructive: 0.63 0.19 27;
+    --destructive-foreground: 0.15 0.025 27;
+    --success: 0.68 0.15 152;
+    --success-foreground: 0.15 0.025 152;
+    --warning: 0.79 0.15 80;
+    --warning-foreground: 0.18 0.03 80;
+
+    --border: 0.3 0.028 265;
+    --input: 0.3 0.028 265;
+    --ring: 0.76 0.16 62;
+
+    --chart-1: 0.76 0.16 62;
+    --chart-2: 0.68 0.13 265;
+    --chart-3: 0.68 0.15 152;
+    --chart-4: 0.7 0.16 320;
+    --chart-5: 0.72 0.13 200;
+
+    --sidebar: 0.175 0.023 265;
+    --sidebar-foreground: 0.94 0.012 85;
+    --sidebar-primary: 0.76 0.16 62;
+    --sidebar-primary-foreground: 0.17 0.03 62;
+    --sidebar-accent: 0.245 0.026 265;
+    --sidebar-accent-foreground: 0.86 0.012 85;
+    --sidebar-border: 0.3 0.028 265;
+    --sidebar-ring: 0.76 0.16 62;
+
+    --glass: 0.22 0.026 265 / 0.55;
+    --glass-border: 0.94 0.012 85 / 0.12;
+    --glass-highlight: 0.94 0.012 85 / 0.08;
+    --glass-shadow: 0 8px 32px -8px oklch(0.08 0.02 265 / 0.6);
+
+    --gradient-primary: linear-gradient(
+      135deg,
+      oklch(0.8 0.16 66),
+      oklch(0.68 0.15 48)
+    );
+    --gradient-subtle: linear-gradient(
+      180deg,
+      oklch(0.155 0.022 265),
+      oklch(0.185 0.024 265)
+    );
+
+    --code: 0.135 0.02 265;
+    --code-foreground: 0.9 0.014 85;
+    --scrim: 0.08 0.02 265 / 0.66;
+    --ember-soft: 0.76 0.16 62 / 0.14;
+    --ember-soft-border: 0.76 0.16 62 / 0.36;
+  }
+
+  /* Frosted — translucent glass over a lit, cool-hued atmosphere.
+     A real third treatment: light-luminance text, blurred glass panels,
+     and a soft gradient backdrop rather than a tint of dark. */
+  .frosted {
+    --background: 0.72 0.05 250;
+    --foreground: 0.17 0.028 258;
+    --card: 0.99 0.008 250 / 0.55;
+    --card-foreground: 0.17 0.028 258;
+    --popover: 0.99 0.008 250 / 0.92;
+    --popover-foreground: 0.17 0.028 258;
+
+    --primary: 0.46 0.17 52;
+    --primary-foreground: 0.99 0.006 52;
+
+    --secondary: 0.99 0.008 250 / 0.5;
+    --secondary-foreground: 0.22 0.028 258;
+    --muted: 0.99 0.008 250 / 0.42;
+    --muted-foreground: 0.36 0.03 258;
+
+    --accent: 0.4 0.14 265;
+    --accent-foreground: 0.99 0.006 265;
+
+    --destructive: 0.5 0.2 27;
+    --destructive-foreground: 0.99 0.006 27;
+    --success: 0.44 0.14 152;
+    --success-foreground: 0.99 0.006 152;
+    --warning: 0.66 0.15 78;
+    --warning-foreground: 0.2 0.03 78;
+
+    --border: 0.99 0.008 250 / 0.6;
+    --input: 0.99 0.008 250 / 0.6;
+    --ring: 0.46 0.17 52;
+
+    --chart-1: 0.5 0.17 52;
+    --chart-2: 0.42 0.14 265;
+    --chart-3: 0.46 0.14 152;
+    --chart-4: 0.54 0.16 320;
+    --chart-5: 0.56 0.14 200;
+
+    --sidebar: 0.99 0.008 250 / 0.5;
+    --sidebar-foreground: 0.17 0.028 258;
+    --sidebar-primary: 0.46 0.17 52;
+    --sidebar-primary-foreground: 0.99 0.006 52;
+    --sidebar-accent: 0.99 0.008 250 / 0.42;
+    --sidebar-accent-foreground: 0.22 0.028 258;
+    --sidebar-border: 0.99 0.008 250 / 0.55;
+    --sidebar-ring: 0.46 0.17 52;
+
+    --glass: 0.99 0.008 250 / 0.5;
+    --glass-border: 1 0 0 / 0.65;
+    --glass-highlight: 1 0 0 / 0.7;
+    --glass-shadow: 0 8px 32px -8px oklch(0.3 0.05 258 / 0.35);
+
+    --gradient-primary: linear-gradient(
+      135deg,
+      oklch(0.54 0.18 58),
+      oklch(0.42 0.15 42)
+    );
+    --gradient-subtle: linear-gradient(
+      160deg,
+      oklch(0.8 0.07 240),
+      oklch(0.68 0.07 285)
+    );
+
+    --code: 0.99 0.008 250 / 0.62;
+    --code-foreground: 0.24 0.03 258;
+    --scrim: 0.24 0.04 258 / 0.38;
+    --ember-soft: 0.46 0.17 52 / 0.12;
+    --ember-soft-border: 0.46 0.17 52 / 0.34;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-body antialiased;
+    min-height: 100vh;
+  }
+
+  /* Frosted theme paints a lit atmosphere behind the glass panels. */
+  .frosted body,
+  body.frosted {
+    background-image: radial-gradient(
+        at 12% 8%,
+        oklch(0.86 0.09 60 / 0.55) 0px,
+        transparent 55%
+      ),
+      radial-gradient(
+        at 88% 6%,
+        oklch(0.82 0.08 275 / 0.5) 0px,
+        transparent 50%
+      ),
+      radial-gradient(
+        at 78% 92%,
+        oklch(0.84 0.08 200 / 0.45) 0px,
+        transparent 55%
+      ), linear-gradient(160deg, oklch(0.78 0.06 245), oklch(0.7 0.06 280));
+    background-attachment: fixed;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display tracking-tight;
+  }
+}
+
+@layer utilities {
+  .transition-smooth {
+    transition: var(--transition-smooth);
+  }
+
+  .bg-gradient-primary {
+    background-image: var(--gradient-primary);
+  }
+
+  .bg-gradient-subtle {
+    background-image: var(--gradient-subtle);
+  }
+
+  /* Glass surface — used by the frosted theme's cards, header, and timer. */
+  .surface-glass {
+    background-color: oklch(var(--glass));
+    border: 1px solid oklch(var(--glass-border));
+    box-shadow: var(--glass-shadow);
+    backdrop-filter: blur(18px) saturate(160%);
+    -webkit-backdrop-filter: blur(18px) saturate(160%);
+  }
+
+  .frosted .surface-glass {
+    background-image: linear-gradient(
+      160deg,
+      oklch(var(--glass-highlight)) 0%,
+      transparent 45%
+    );
+  }
+
+  .text-gradient-primary {
+    background-image: var(--gradient-primary);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Tabular figures for the timer and analytics numbers. */
+  .numeric {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+
+  .animate-fade-up {
+    animation: fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .animate-fade-in {
+    animation: fade-in 0.4s ease-out both;
+  }
+
+  .animate-drift {
+    animation: drift 14s ease-in-out infinite;
+  }
+
+  /* --- QR generator ---------------------------------------------------- */
+
+  /* The quiet-zone well. Padding is exactly 4 modules, so the printed code
+     keeps its mandated quiet zone; the panel colour is the QR background. */
+  .qr-well {
+    padding: 1.25rem;
+    background-color: #ffffff;
+    border: 1px solid oklch(var(--border));
+    border-radius: calc(var(--radius) + 2px);
+    box-shadow: var(--glass-shadow);
+  }
+
+  /* Guardrail banner: shown when contrast or quiet-zone rules are violated. */
+  .contrast-warning {
+    background-color: oklch(var(--warning) / 0.14);
+    border: 1px solid oklch(var(--warning) / 0.4);
+    color: oklch(var(--warning-foreground));
+  }
+
+  .contrast-ok {
+    background-color: oklch(var(--success) / 0.12);
+    border: 1px solid oklch(var(--success) / 0.34);
+    color: oklch(var(--success));
+  }
+
+  /* --- Notes workspace ------------------------------------------------- */
+
+  /* Vertical rhythm inside the block editor: one consistent gap between
+     blocks, tighter inside list and callout blocks. */
+  .block-stack > * + * {
+    margin-top: 0.875rem;
+  }
+
+  .block-stack [data-block="bullet-list"] > * + * {
+    margin-top: 0.4rem;
+  }
+
+  /* Formula / inline-code surface — the app's ink wash. */
+  .surface-code {
+    background-color: oklch(var(--code));
+    color: oklch(var(--code-foreground));
+    border: 1px solid oklch(var(--border));
+    font-family: var(--font-mono);
+  }
+
+  /* Left rule + tint that marks a callout block. */
+  .callout-rule {
+    border-left: 3px solid oklch(var(--primary) / 0.55);
+    background-color: oklch(var(--ember-soft));
+    padding: 0.75rem 1rem;
+    border-radius: 0 var(--radius) var(--radius) 0;
+  }
+
+  /* --- Settings ------------------------------------------------------- */
+
+  /* Sticky save bar: pinned to the bottom of the settings scroll area,
+     raised above content with a hairline top border. */
+  .save-bar {
+    position: sticky;
+    bottom: 0;
+    z-index: 20;
+    background-color: oklch(var(--card) / 0.92);
+    border-top: 1px solid oklch(var(--border));
+    backdrop-filter: blur(12px) saturate(150%);
+    -webkit-backdrop-filter: blur(12px) saturate(150%);
+  }
+
+  /* Modal / confirmation-dialog backdrop. */
+  .surface-scrim {
+    background-color: oklch(var(--scrim));
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+
+  /* Danger zone: destructive-tinted panel that stays legible in all themes. */
+  .danger-zone {
+    background-color: oklch(var(--destructive) / 0.08);
+    border: 1px solid oklch(var(--destructive) / 0.32);
+  }
+
+  /* Active section rail in the settings nav and notes list. */
+  .section-rail {
+    background-color: oklch(var(--ember-soft));
+    border-left: 2px solid oklch(var(--primary));
+  }
+
+  .animate-toast-in {
+    animation: toast-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .animate-scale-in {
+    animation: scale-in 0.18s ease-out both;
+  }
+}
+
+/* Motion-sensitive users opt out of every decorative animation and transition.
+   Content still appears — it simply arrives without movement. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .animate-fade-up,
+  .animate-fade-in,
+  .animate-drift,
+  .animate-toast-in,
+  .animate-scale-in {
+    animation: none !important;
+  }
+
+  .transition-smooth {
+    transition: none !important;
+  }
+}
