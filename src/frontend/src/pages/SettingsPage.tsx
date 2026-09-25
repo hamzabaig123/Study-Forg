@@ -21,6 +21,7 @@ import {
   useMySettings,
   useSaveMySettings,
 } from "@/hooks/useSettings";
+import { clearDeviceCache } from "@/lib/deviceCache";
 import { shortPrincipal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { SettingsError, ThemeName, UserSettingsView } from "@/types";
@@ -400,6 +401,7 @@ export default function SettingsPage() {
 
   const handleDangerConfirm = () => {
     closeDanger();
+    clearDeviceCache();
     toast.success("Local data cleared. Signing you out…");
     signOut();
   };
