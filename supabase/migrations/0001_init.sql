@@ -25,12 +25,22 @@
 -- already exist when it runs.
 
 -- ---------------------------------------------------------------------------
+-- Extensions
+-- ---------------------------------------------------------------------------
+
+-- `digest()` is what turns a share or edit token into the only form of it the
+-- database stores. Supabase keeps it in the `extensions` schema, and every
+-- function that calls it pins `search_path = public, extensions, pg_temp` —
+-- without `extensions` in that list the call would not resolve at all.
+create extension if not exists pgcrypto with schema extensions;
+
+-- ---------------------------------------------------------------------------
 -- Content hierarchy: class -> subject -> chapter -> topic -> question
 -- ---------------------------------------------------------------------------
 
 create table class (
   id          bigint generated always as identity primary key,
-  owner_id    uuid not null references auth.users (id) on delete cascade,
+  owner_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
   name        text not null check (char_length(name) between 1 and 200),
   description text check (description is null or char_length(description) <= 2000),
   created_at  timestamptz not null default now(),
@@ -39,7 +49,7 @@ create table class (
 
 create table subject (
   id          bigint generated always as identity primary key,
-  owner_id    uuid not null references auth.users (id) on delete cascade,
+  owner_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
   class_id    bigint not null references class (id) on delete cascade,
   name        text not null check (char_length(name) between 1 and 200),
   description text check (description is null or char_length(description) <= 2000),
@@ -49,7 +59,7 @@ create table subject (
 
 create table chapter (
   id          bigint generated always as identity primary key,
-  owner_id    uuid not null references auth.users (id) on delete cascade,
+  owner_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
   subject_id  bigint not null references subject (id) on delete cascade,
   name        text not null check (char_length(name) between 1 and 200),
   description text check (description is null or char_length(description) <= 2000),
@@ -59,7 +69,7 @@ create table chapter (
 
 create table topic (
   id          bigint generated always as identity primary key,
-  owner_id    uuid not null references auth.users (id) on delete cascade,
+  owner_id    uuid not null default auth.uid() references auth.users (id) on delete cascade,
   chapter_id  bigint not null references chapter (id) on delete cascade,
   name        text not null check (char_length(name) between 1 and 200),
   description text check (description is null or char_length(description) <= 2000),
@@ -75,7 +85,7 @@ create table topic (
 -- question the player can never answer.
 create table question (
   id            bigint generated always as identity primary key,
-  owner_id      uuid not null references auth.users (id) on delete cascade,
+  owner_id      uuid not null default auth.uid() references auth.users (id) on delete cascade,
   topic_id      bigint not null references topic (id) on delete cascade,
   prompt        text not null check (char_length(prompt) between 1 and 8000),
   question_type text not null check (question_type in ('shortAnswer', 'multipleChoice', 'trueFalse')),
@@ -106,26 +116,28 @@ create index question_topic_idx on question (owner_id, topic_id, id);
 -- blob, which is why two tabs on one session currently overwrite each other.
 -- `options` here is the display-only copy (id + text, no correctOptionId), so
 -- the player can be served question prompts without the answer.
--- ---------------------------------------------------------------------------
-
+--
+-- A session row exists only while it is live: `complete_session` copies it into
+-- `result` and deletes it, which is the mock's contract — `getSession` on a
+-- finished session answers null and finishing twice is `notFound`, not a silent
+-- replay.
 create table session (
   id               bigint generated always as identity primary key,
-  owner_id         uuid not null references auth.users (id) on delete cascade,
+  owner_id         uuid not null default auth.uid() references auth.users (id) on delete cascade,
   mode             text not null check (mode in ('practice', 'timedTest')),
   scope_kind       text not null check (scope_kind in ('topic', 'chapter')),
   scope_id         bigint not null,
   scope_label      text not null check (char_length(scope_label) <= 200),
   started_at       timestamptz not null default now(),
   expires_at       timestamptz,
-  duration_seconds integer check (duration_seconds is null or duration_seconds between 1 and 86400),
-  completed_at     timestamptz
+  duration_seconds integer check (duration_seconds is null or duration_seconds between 1 and 86400)
 );
 
-create index session_open_idx on session (owner_id, completed_at, started_at desc);
+create index session_owner_idx on session (owner_id, started_at desc);
 
 create table session_item (
   id            bigint generated always as identity primary key,
-  owner_id      uuid not null references auth.users (id) on delete cascade,
+  owner_id      uuid not null default auth.uid() references auth.users (id) on delete cascade,
   session_id    bigint not null references session (id) on delete cascade,
   position      integer not null check (position >= 0),
   question_id   bigint not null,
@@ -143,10 +155,14 @@ create table session_item (
 
 create index session_item_question_idx on session_item (session_id, question_id);
 
+-- `getSessionResult(sessionId)` keys on the session, so the link has to outlive
+-- it. That rules out a foreign key: the session row is deleted when it is
+-- completed, and `on delete set null` would erase the only way back to the
+-- attempt. So this is a plain bigint — the id of the session that produced it.
 create table result (
   id           bigint generated always as identity primary key,
-  owner_id     uuid not null references auth.users (id) on delete cascade,
-  session_id   bigint references session (id) on delete set null,
+  owner_id     uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  session_id   bigint not null,
   mode         text not null check (mode in ('practice', 'timedTest')),
   scope_kind   text not null check (scope_kind in ('topic', 'chapter')),
   scope_id     bigint not null,
@@ -158,10 +174,11 @@ create table result (
 );
 
 create index result_recent_idx on result (owner_id, completed_at desc);
+create index result_session_idx on result (owner_id, session_id);
 
 create table result_item (
   id             bigint generated always as identity primary key,
-  owner_id       uuid not null references auth.users (id) on delete cascade,
+  owner_id       uuid not null default auth.uid() references auth.users (id) on delete cascade,
   result_id      bigint not null references result (id) on delete cascade,
   position       integer not null check (position >= 0),
   question_id    bigint not null,
@@ -181,14 +198,22 @@ create table result_item (
 -- `document_json` is the editor document; `search_text` is derived from it and
 -- indexed, because matching against the raw JSON also hits attribute names such
 -- as "bulletList".
+--
+-- It is `text`, not `jsonb`, for the same reason the mock keeps a string: the
+-- domain type is `NoteView.documentJson: string` — an opaque blob the app
+-- serialises and the editor parses. Stored as jsonb, every read would have to
+-- re-stringify a parsed value, and JSON.stringify of Postgres' re-parsed object
+-- is not byte-identical to what the editor wrote (key order, unicode escapes).
+-- A revision counter is what this column needs to be compared against, not a
+-- query.
 create table note (
   id            bigint generated always as identity primary key,
-  owner_id      uuid not null references auth.users (id) on delete cascade,
+  owner_id      uuid not null default auth.uid() references auth.users (id) on delete cascade,
   title         text not null check (char_length(title) between 1 and 300),
   subject_label text,
   chapter_label text,
   topic_label   text,
-  document_json jsonb not null check (jsonb_typeof(document_json) = 'object'),
+  document_json text not null,
   search_text   text not null default '',
   status        text not null default 'active' check (status in ('active', 'trashed')),
   revision      integer not null default 1 check (revision > 0),
@@ -203,28 +228,54 @@ create table note (
 create index note_list_idx on note (owner_id, status, updated_at desc);
 create index note_search_idx on note using gin (to_tsvector('simple', search_text));
 
--- Share and edit tokens are stored as sha256 hex digests, computed in the client
--- (src/frontend/src/lib/supabase/tokens.ts). A token is a bearer credential
--- shown once at creation, so a database dump yields no usable link.
+-- Two token kinds, two storage rules.
+--
+-- A *share* token is a read key for one owner's own content, and the management
+-- screens (`listShares`, `listNoteShares`) hand it back to the owner repeatedly,
+-- so the plaintext has to be stored. Hashing it would only break the UI: a dump
+-- that contains these rows already contains the notes and questions they point
+-- at, so the digest protects nothing there.
+--
+-- An *edit* token (link table, below) is a write key for a URL that is already
+-- public, and nothing ever needs to read it back — the /manage page arrives with
+-- the token in its path. So it is stored only as a sha256 digest
+-- (src/frontend/src/lib/supabase/tokens.ts), which means a database dump cannot
+-- repoint somebody's printed QR code.
+--
+-- Every anonymous lookup goes through the digest index, never the plaintext
+-- column, so a visitor cannot enumerate tokens by their primary key.
 create table note_share (
-  token_hash text primary key check (token_hash ~ '^[a-f0-9]{64}$'),
-  owner_id   uuid not null references auth.users (id) on delete cascade,
+  id         bigint generated always as identity primary key,
+  owner_id   uuid not null default auth.uid() references auth.users (id) on delete cascade,
   note_id    bigint not null references note (id) on delete cascade,
-  created_at timestamptz not null default now(),
-  revoked_at timestamptz
-);
-
-create table content_share (
-  token_hash text primary key check (token_hash ~ '^[a-f0-9]{64}$'),
-  owner_id   uuid not null references auth.users (id) on delete cascade,
-  scope_kind text not null check (scope_kind in ('topic', 'chapter')),
-  scope_id   bigint not null,
+  token      text not null unique check (token ~ '^note_[a-z0-9]{24}$'),
+  token_hash text not null unique check (token_hash ~ '^[a-f0-9]{64}$'),
   created_at timestamptz not null default now()
 );
 
+create index note_share_owner_idx on note_share (owner_id, created_at desc);
+
+-- `unique (owner_id, scope_kind, scope_id)` is the mock's create-or-reuse rule
+-- made a constraint: sharing the same topic twice returns the same link instead
+-- of minting a second live URL for the owner to lose track of.
+create table content_share (
+  id         bigint generated always as identity primary key,
+  owner_id   uuid not null default auth.uid() references auth.users (id) on delete cascade,
+  scope_kind text not null check (scope_kind in ('topic', 'chapter')),
+  scope_id   bigint not null,
+  token      text not null unique check (token ~ '^share_[a-z0-9]{24}$'),
+  token_hash text not null unique check (token_hash ~ '^[a-f0-9]{64}$'),
+  created_at timestamptz not null default now(),
+  unique (owner_id, scope_kind, scope_id)
+);
+
+-- `owner_id` is nullable because the QR generator is open to visitors: the mock
+-- creates a link with no caller at all, and nothing lists links by owner (the
+-- /manage page is reached by edit token). So an anonymous link belongs to nobody
+-- and is still managed — by the token, never by a table read.
 create table link (
   id              bigint generated always as identity primary key,
-  owner_id        uuid not null references auth.users (id) on delete cascade,
+  owner_id        uuid references auth.users (id) on delete cascade,
   code            text not null unique check (code ~ '^[2-9a-hjkmnp-z]{7}$'),
   edit_token_hash text not null unique check (edit_token_hash ~ '^[a-f0-9]{64}$'),
   target_url      text not null,
@@ -238,7 +289,8 @@ create index link_owner_idx on link (owner_id, status, created_at desc);
 
 create table link_scan (
   id       bigint generated always as identity primary key,
-  owner_id uuid not null references auth.users (id) on delete cascade,
+  -- Follows `link.owner_id`: a scan of a visitor's link has no owner either.
+  owner_id uuid references auth.users (id) on delete cascade,
   link_id  bigint not null references link (id) on delete cascade,
   at       timestamptz not null default now(),
   device   text not null check (device in ('desktop', 'tablet', 'mobile', 'other')),
@@ -263,7 +315,7 @@ create table abuse_report (
 
 create table activity (
   id       bigint generated always as identity primary key,
-  owner_id uuid not null references auth.users (id) on delete cascade,
+  owner_id uuid not null default auth.uid() references auth.users (id) on delete cascade,
   at       timestamptz not null default now(),
   kind     text not null check (char_length(kind) between 1 and 40),
   title    text not null check (char_length(title) between 1 and 300)
@@ -273,12 +325,17 @@ create table activity (
 -- N rows from it on each load.
 create index activity_recent_idx on activity (owner_id, at desc);
 
+-- The limits are `saveMySettings`' own, from the mock backend: display name
+-- 1..80, study goal at most 280, daily target 1..1000, and the three themes the
+-- app can actually render (light, dark, frosted — there is no "system"). A row
+-- that violates them cannot exist, so the API cannot silently disagree with the
+-- database about what a valid profile is.
 create table user_settings (
-  owner_id     uuid primary key references auth.users (id) on delete cascade,
-  display_name text not null check (char_length(display_name) between 1 and 120),
-  study_goal   text not null default '' check (char_length(study_goal) <= 500),
-  daily_target integer not null default 0 check (daily_target between 0 and 1000),
-  appearance   text not null default 'system' check (appearance in ('system', 'light', 'dark')),
+  owner_id     uuid primary key default auth.uid() references auth.users (id) on delete cascade,
+  display_name text not null check (char_length(display_name) between 1 and 80),
+  study_goal   text not null default '' check (char_length(study_goal) <= 280),
+  daily_target integer not null default 1 check (daily_target between 1 and 1000),
+  appearance   text not null default 'light' check (appearance in ('light', 'dark', 'frosted')),
   updated_at   timestamptz not null default now()
 );
 
@@ -286,7 +343,7 @@ create table user_settings (
 -- means a run started on one machine can be reviewed on another.
 create table ai_draft (
   id                  uuid not null default gen_random_uuid() primary key,
-  owner_id            uuid not null references auth.users (id) on delete cascade,
+  owner_id            uuid not null default auth.uid() references auth.users (id) on delete cascade,
   source_file_name    text not null check (char_length(source_file_name) <= 300),
   source_extracted_at timestamptz not null default now(),
   position            integer not null check (position >= 0),
@@ -326,6 +383,19 @@ create trigger note_touch before update on note for each row execute function to
 create trigger link_touch before update on link for each row execute function touch_updated_at();
 create trigger user_settings_touch before update on user_settings for each row execute function touch_updated_at();
 create trigger ai_draft_touch before update on ai_draft for each row execute function touch_updated_at();
+
+-- Uniform random string over `alphabet`. `random()` is a continuous double, so
+-- `floor(random() * card(alphabet))` has no modulo bias — unlike the byte
+-- arithmetic the mock's `randomAlphabet` does, which this replaces server-side.
+create function random_token(alphabet text, chars integer) returns text
+language sql
+volatile
+as $$
+  select string_agg(
+           substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1),
+           '' order by s)
+    from generate_series(1, chars) as s;
+$$;
 
 create function host_refused() returns text
 language sql
@@ -432,45 +502,18 @@ as $$
   end;
 $$;
 
--- What the player and the review screen read. `options` is the display copy
--- taken from the snapshot, so no correctOptionId can leak through it.
-create function session_view(p_session_id bigint) returns jsonb
-language sql
-stable
-security invoker
-set search_path = public, pg_temp
-as $$
-  select jsonb_build_object(
-           'id', s.id,
-           'mode', s.mode,
-           'scopeKind', s.scope_kind,
-           'scopeId', s.scope_id,
-           'scopeLabel', s.scope_label,
-           'startedAt', s.started_at,
-           'expiresAt', s.expires_at,
-           'durationSeconds', s.duration_seconds,
-           'completedAt', s.completed_at,
-           'questions', coalesce((
-             select jsonb_agg(jsonb_build_object(
-                      'id', si.question_id,
-                      'questionType', si.question_type,
-                      'prompt', si.prompt,
-                      'options', si.options,
-                      'submitted', si.submitted,
-                      'correct', si.correct)
-                    order by si.position), '[]'::jsonb)
-             from session_item si
-            where si.session_id = s.id)
-         )
-    from session s
-   where s.id = p_session_id;
-$$;
-
 -- ---------------------------------------------------------------------------
 -- Row level security: owner-only, everywhere.
 --
 -- Anonymous visitors reach shared content exclusively through the SECURITY
 -- DEFINER functions below; no table is readable by `anon`.
+--
+-- Four policies per table is enough because every row is either the caller's or
+-- invisible: `link` and `link_scan` can also hold ownerless rows (a visitor's
+-- short link), which the `owner_id = auth.uid()` check hides from every account,
+-- including the ones that come later. Those rows are reachable only by edit
+-- token, through the definer functions, which is exactly how the /manage page
+-- already works.
 -- ---------------------------------------------------------------------------
 
 do $$
@@ -505,10 +548,18 @@ $$;
 -- search_path so it cannot be hijacked by a shadowing object.
 -- ---------------------------------------------------------------------------
 
+-- What a visitor to /shared/:token sees. The shape is `SharedContent`
+-- verbatim — title, breadcrumb of {id, name}, questions — because the adapter
+-- maps nothing here; it hands the payload straight to the page.
+--
+-- `answer` and `explanation` are deliberately absent. The whole point of a share
+-- link is a question sheet someone can revise from without being handed the
+-- mark scheme, and this function runs security-definer past row level security,
+-- so it is the one place a leaked column would never be caught by a test.
 create function shared_content(p_token_hash text) returns jsonb
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
 declare
   v_share content_share;
@@ -524,11 +575,13 @@ begin
 
   if v_share.scope_kind = 'topic' then
     select jsonb_build_object(
-             'kind', 'topic',
-             'name', tp.name,
-             'description', tp.description,
+             'title', tp.name,
              'breadcrumb', coalesce((
-               select jsonb_build_array(c.name, s.name, ch.name)
+               select jsonb_build_array(
+                        jsonb_build_object('id', c.id, 'name', c.name),
+                        jsonb_build_object('id', s.id, 'name', s.name),
+                        jsonb_build_object('id', ch.id, 'name', ch.name),
+                        jsonb_build_object('id', tp.id, 'name', tp.name))
                  from chapter ch
                  join subject s on s.id = ch.subject_id
                  join class c on c.id = s.class_id
@@ -538,9 +591,7 @@ begin
                         'id', q.id,
                         'questionType', q.question_type,
                         'prompt', q.prompt,
-                        'options', coalesce(q.answer -> 'multipleChoice' -> 'options', '[]'::jsonb),
-                        'answer', q.answer,
-                        'explanation', q.explanation)
+                        'options', coalesce(q.answer -> 'multipleChoice' -> 'options', '[]'::jsonb))
                       order by q.id)
                  from question q
                 where q.topic_id = tp.id), '[]'::jsonb)
@@ -551,12 +602,24 @@ begin
        and tp.owner_id = v_share.owner_id;
   else
     select jsonb_build_object(
-             'kind', 'chapter',
-             'name', ch.name,
-             'description', ch.description,
-             'topics', coalesce((
-               select jsonb_agg(jsonb_build_object('id', t.id, 'name', t.name) order by t.id)
-                 from topic t
+             'title', ch.name,
+             'breadcrumb', coalesce((
+               select jsonb_build_array(
+                        jsonb_build_object('id', c.id, 'name', c.name),
+                        jsonb_build_object('id', s.id, 'name', s.name),
+                        jsonb_build_object('id', ch.id, 'name', ch.name))
+                 from subject s
+                 join class c on c.id = s.class_id
+                where s.id = ch.subject_id), '[]'::jsonb),
+             'questions', coalesce((
+               select jsonb_agg(jsonb_build_object(
+                        'id', q.id,
+                        'questionType', q.question_type,
+                        'prompt', q.prompt,
+                        'options', coalesce(q.answer -> 'multipleChoice' -> 'options', '[]'::jsonb))
+                      order by q.id)
+                 from question q
+                 join topic t on t.id = q.topic_id
                 where t.chapter_id = ch.id), '[]'::jsonb)
            )
       into v_payload
@@ -574,10 +637,12 @@ begin
 end;
 $$;
 
+-- `SharedNote` verbatim: the editor document as text, plus what the read-only
+-- page prints in its header.
 create function shared_note(p_token_hash text) returns jsonb
 language plpgsql
 security definer
-set search_path = public, pg_temp
+set search_path = public, extensions, pg_temp
 as $$
 declare
   v_share note_share;
@@ -586,17 +651,14 @@ begin
   if p_token_hash is null or p_token_hash !~ '^[a-f0-9]{64}$' then
     return null;
   end if;
-  select * into v_share from note_share where token_hash = p_token_hash and revoked_at is null;
+  select * into v_share from note_share where token_hash = p_token_hash;
   if not found then
     return null;
   end if;
 
   select jsonb_build_object(
            'title', n.title,
-           'document', n.document_json,
-           'subjectLabel', n.subject_label,
-           'chapterLabel', n.chapter_label,
-           'topicLabel', n.topic_label,
+           'documentJson', n.document_json,
            'revision', n.revision,
            'updatedAt', n.updated_at
          )
@@ -773,6 +835,60 @@ begin
 end;
 $$;
 
+-- The QR generator is open to visitors, and `anon` holds no table privileges at
+-- all, so creating a link has to be a definer call.
+--
+-- The caller supplies the code and the edit token (both generated and tested in
+-- src/frontend/src/lib/supabase/tokens.ts) and the database stores only the
+-- token's digest — the plaintext is in the reply and nowhere else, which is what
+-- makes /manage/:token a write credential that a database dump cannot reuse.
+-- Generation stays in TypeScript and hashing stays here: a client that could
+-- choose its own digest could plant one that does not match, and only this
+-- request would break.
+--
+-- A colliding code is a retry, not an error, so it comes back named; the
+-- adapter draws a fresh code and calls again.
+create function create_link(p_target_url text, p_code text, p_edit_token text) returns jsonb
+language plpgsql
+security definer
+set search_path = public, extensions, pg_temp
+as $$
+declare
+  v_url text := btrim(coalesce(p_target_url, ''));
+  v_problem text;
+  v_row link;
+begin
+  v_problem := url_target_problem(v_url);
+  if v_problem is not null then
+    return jsonb_build_object('err', jsonb_build_object('invalidUrl', v_problem));
+  end if;
+  if p_code is null or p_code !~ '^[2-9a-hjkmnp-z]{7}$' then
+    return jsonb_build_object('err', 'badCode');
+  end if;
+  if p_edit_token is null or char_length(p_edit_token) < 24 then
+    return jsonb_build_object('err', 'badToken');
+  end if;
+
+  insert into link (owner_id, code, edit_token_hash, target_url)
+       values (auth.uid(), p_code, encode(digest(p_edit_token, 'sha256'), 'hex'), v_url)
+  returning * into v_row;
+
+  return jsonb_build_object('ok', jsonb_build_object(
+    'id', v_row.id,
+    'status', v_row.status,
+    'code', v_row.code,
+    'targetUrl', v_row.target_url,
+    'shortUrl', '/r/' || v_row.code,
+    'manageUrl', '/manage/' || p_edit_token,
+    'editToken', p_edit_token,
+    'createdAt', v_row.created_at,
+    'updatedAt', v_row.updated_at));
+exception
+  when unique_violation then
+    return jsonb_build_object('err', 'codeTaken');
+end;
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Owner-facing operations that must be atomic
 -- ---------------------------------------------------------------------------
@@ -864,7 +980,10 @@ begin
               then least(p_question_count, v_pool_size)
               else null end;
 
-  return jsonb_build_object('ok', session_view(v_session_id));
+  -- The id, not a view: `getSession(id)` in the adapter is then the single
+  -- place a SessionView is assembled, so startSession and getSession cannot
+  -- drift apart the way two hand-written projections would.
+  return jsonb_build_object('ok', v_session_id);
 end;
 $$;
 
@@ -911,28 +1030,28 @@ begin
 end;
 $$;
 
--- Answers, the graded result, the feed entry and the session close either all
--- happen or none do, so a tab crashing mid-completion cannot lose a test.
+-- The session's answers, the graded result, the feed entry and the session's own
+-- deletion either all happen or none do, so a tab crashing mid-completion cannot
+-- lose a test or leave a live session that is already recorded.
+--
+-- Unanswered items score as wrong but stay in the total, which is what the mock
+-- does and what the review screen's "N unanswered" line depends on.
 create function complete_session(p_session_id bigint) returns jsonb
 language plpgsql
 security invoker
 set search_path = public, pg_temp
 as $$
 declare
+  v_owner uuid := auth.uid();
   v_session session;
   v_result_id bigint;
   v_total integer;
   v_score integer;
 begin
-  select * into v_session from session where id = p_session_id and owner_id = auth.uid();
+  select * into v_session from session where id = p_session_id and owner_id = v_owner;
   if not found then
+    -- Covers the second call too: the row is gone by then.
     return jsonb_build_object('err', jsonb_build_object('notFound', null));
-  end if;
-  if v_session.completed_at is not null then
-    -- Idempotent: a retried completion must not create a second attempt.
-    return jsonb_build_object('ok', jsonb_build_object(
-             'resultId', (select id from result where session_id = p_session_id limit 1),
-             'replayed', true));
   end if;
 
   select count(*), count(*) filter (where coalesce(correct, false))
@@ -942,29 +1061,33 @@ begin
 
   insert into result (owner_id, session_id, mode, scope_kind, scope_id, scope_label,
                       started_at, completed_at, score, total)
-       values (auth.uid(), p_session_id, v_session.mode, v_session.scope_kind, v_session.scope_id,
+       values (v_owner, p_session_id, v_session.mode, v_session.scope_kind, v_session.scope_id,
                v_session.scope_label, v_session.started_at, now(), v_score, v_total)
   returning id into v_result_id;
 
   insert into result_item (owner_id, result_id, position, question_id, prompt, question_type,
                            correct_answer, explanation, submitted, correct)
-  select auth.uid(), v_result_id, si.position, si.question_id, si.prompt, si.question_type,
+  select v_owner, v_result_id, si.position, si.question_id, si.prompt, si.question_type,
          si.answer, si.explanation, si.submitted, coalesce(si.correct, false)
     from session_item si
    where si.session_id = p_session_id;
 
-  update session set completed_at = now() where id = p_session_id;
+  delete from session where id = p_session_id;
 
   insert into activity (owner_id, kind, title)
-       values (auth.uid(), 'session',
-               case when v_session.mode = 'timedTest' then 'Completed a timed test' else 'Completed a practice session' end);
+       values (v_owner, 'session',
+               format('%s completed — %s/%s',
+                      case when v_session.mode = 'timedTest' then 'Timed test' else 'Practice' end,
+                      v_score, v_total));
 
-  return jsonb_build_object('ok', jsonb_build_object('resultId', v_result_id, 'score', v_score, 'total', v_total));
+  -- The session id, because that is what getSessionResult takes.
+  return jsonb_build_object('ok', p_session_id);
 end;
 $$;
 
--- One round trip for the dashboard instead of four, and the figures agree
--- because they share one snapshot.
+-- The five cards on the dashboard. Counted here rather than as five
+-- `select count(*)` round trips so the numbers are one snapshot, and the keys
+-- are `DashboardStats`' own names — the adapter passes this straight through.
 create function dashboard_stats() returns jsonb
 language sql
 stable
@@ -972,14 +1095,381 @@ security invoker
 set search_path = public, pg_temp
 as $$
   select jsonb_build_object(
-    'classes', (select count(*) from class where owner_id = auth.uid()),
-    'topics', (select count(*) from topic where owner_id = auth.uid()),
-    'questions', (select count(*) from question where owner_id = auth.uid()),
-    'notes', (select count(*) from note where owner_id = auth.uid() and status = 'active'),
-    'attempts', (select count(*) from result where owner_id = auth.uid()),
-    'answered', (select coalesce(sum(total), 0) from result where owner_id = auth.uid()),
-    'correct', (select coalesce(sum(score), 0) from result where owner_id = auth.uid())
+    'classCount', (select count(*) from class where owner_id = auth.uid()),
+    'subjectCount', (select count(*) from subject where owner_id = auth.uid()),
+    'chapterCount', (select count(*) from chapter where owner_id = auth.uid()),
+    'topicCount', (select count(*) from topic where owner_id = auth.uid()),
+    'questionCount', (select count(*) from question where owner_id = auth.uid())
   );
+$$;
+
+-- Attempt history, newest first. An attempt whose topic or chapter has since
+-- been deleted is hidden rather than shown with a dead link, which is the
+-- mock's `scopeTarget(row.scope) !== null` filter; the label comes from the
+-- live row, so a rename is reflected in old attempts.
+create function attempt_history() returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+  select coalesce(jsonb_agg(jsonb_build_object(
+           -- The domain names an attempt by its session: `getSessionResult` takes
+           -- that value back, and the canister's result rows were keyed by it.
+           'id', r.session_id,
+           'mode', r.mode,
+           'scopeKind', r.scope_kind,
+           'scopeId', r.scope_id,
+           'scopeLabel', coalesce(live.name, r.scope_label),
+           'completedAt', r.completed_at,
+           'score', r.score,
+           'total', r.total
+         ) order by r.completed_at desc, r.id desc), '[]'::jsonb)
+    from result r
+    left join lateral (
+      select t.name from topic t
+       where r.scope_kind = 'topic' and t.id = r.scope_id and t.owner_id = r.owner_id
+      union all
+      select c.name from chapter c
+       where r.scope_kind = 'chapter' and c.id = r.scope_id and c.owner_id = r.owner_id
+      limit 1
+    ) live on true
+   where r.owner_id = auth.uid()
+     and live.name is not null;
+$$;
+
+-- Accuracy per class, per subject and per question type. The scope chain is
+-- resolved through the live hierarchy, so an attempt on deleted content drops
+-- out of every bucket instead of landing in a null-labelled one, and the
+-- labels are the current names — same rule as the attempt list.
+create function analytics_breakdown() returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+  with graded as (
+    select c.id as class_id, c.name as class_name,
+           s.id as subject_id, s.name as subject_name,
+           case ri.question_type
+             when 'multipleChoice' then 'Multiple choice'
+             when 'trueFalse' then 'True / false'
+             else 'Short answer'
+           end as type_label,
+           ri.correct
+      from result r
+      join result_item ri on ri.result_id = r.id
+      join lateral (
+        select t.chapter_id from topic t
+         where r.scope_kind = 'topic' and t.id = r.scope_id and t.owner_id = r.owner_id
+        union all
+        select r.scope_id from chapter c
+         where r.scope_kind = 'chapter' and c.id = r.scope_id and c.owner_id = r.owner_id
+        limit 1
+      ) scope_chapter on true
+      join chapter ch on ch.id = scope_chapter.chapter_id
+      join subject s on s.id = ch.subject_id
+      join class c on c.id = s.class_id
+     where r.owner_id = auth.uid()
+  ),
+  by_class as (
+    select class_id as bucket, class_name as label, count(*) as total,
+           count(*) filter (where correct) as correct
+      from graded group by class_id, class_name
+  ),
+  by_subject as (
+    select subject_id as bucket, subject_name as label, count(*) as total,
+           count(*) filter (where correct) as correct
+      from graded group by subject_id, subject_name
+  ),
+  by_type as (
+    select type_label as bucket, type_label as label, count(*) as total,
+           count(*) filter (where correct) as correct
+      from graded group by type_label
+  ),
+  bucketed as (
+    select 'byClass'::text as kind, label, total, correct, bucket::text as sort
+      from by_class
+    union all
+    select 'bySubject', label, total, correct, bucket::text from by_subject
+    union all
+    -- The mock sorts its string-keyed buckets with localeCompare; the collation
+    -- here is the closest standing equivalent.
+    select 'byQuestionType', label, total, correct, label from by_type
+  )
+  select jsonb_build_object(
+    'byClass', coalesce((select jsonb_agg(jsonb_build_object(
+                     'bucketLabel', label, 'total', total, 'correct', correct,
+                     'accuracyPercent', case when total = 0 then 0
+                                             else correct::numeric * 100 / total end
+                   ) order by sort::bigint)
+                   from bucketed where kind = 'byClass'), '[]'::jsonb),
+    'bySubject', coalesce((select jsonb_agg(jsonb_build_object(
+                     'bucketLabel', label, 'total', total, 'correct', correct,
+                     'accuracyPercent', case when total = 0 then 0
+                                             else correct::numeric * 100 / total end
+                   ) order by sort::bigint)
+                   from bucketed where kind = 'bySubject'), '[]'::jsonb),
+    'byQuestionType', coalesce((select jsonb_agg(jsonb_build_object(
+                     'bucketLabel', label, 'total', total, 'correct', correct,
+                     'accuracyPercent', case when total = 0 then 0
+                                             else correct::numeric * 100 / total end
+                   ) order by sort)
+                   from bucketed where kind = 'byQuestionType'), '[]'::jsonb)
+  );
+$$;
+
+-- Create-or-reuse, made a single statement rather than a select-then-insert: the
+-- mock's rule is one live share per scope, and two tabs that both press "share"
+-- must end up with the same URL, not two — one of which the owner never sees.
+-- `on conflict do nothing` plus the re-select covers both cases with no lock
+-- beyond the row the caller owns anyway.
+create function create_share(p_scope_kind text, p_scope_id bigint, p_token text) returns jsonb
+language plpgsql
+security invoker
+set search_path = public, extensions, pg_temp
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_row content_share;
+begin
+  if p_scope_kind not in ('topic', 'chapter') then
+    return jsonb_build_object('err', 'notFound');
+  end if;
+  if p_token is null or p_token !~ '^share_[a-z0-9]{24}$' then
+    raise exception 'share token does not match the expected shape' using errcode = '22023';
+  end if;
+
+  -- The scope has to belong to the caller; with RLS on, the insert below would
+  -- refuse it anyway, but `notFound` is the answer the dialog shows.
+  if not exists (select 1 from topic t
+                  where p_scope_kind = 'topic' and t.id = p_scope_id and t.owner_id = v_owner)
+     and not exists (select 1 from chapter c
+                      where p_scope_kind = 'chapter' and c.id = p_scope_id and c.owner_id = v_owner) then
+    return jsonb_build_object('err', 'notFound');
+  end if;
+
+  insert into content_share (owner_id, scope_kind, scope_id, token, token_hash)
+       values (v_owner, p_scope_kind, p_scope_id, p_token, encode(digest(p_token, 'sha256'), 'hex'))
+  on conflict (owner_id, scope_kind, scope_id) do nothing
+  returning * into v_row;
+
+  if v_row is null then
+    select * into v_row from content_share
+     where owner_id = v_owner and scope_kind = p_scope_kind and scope_id = p_scope_id;
+  end if;
+
+  return jsonb_build_object('ok', to_jsonb(v_row));
+end;
+$$;
+
+create function create_note_share(p_note_id bigint, p_token text) returns jsonb
+language plpgsql
+security invoker
+set search_path = public, extensions, pg_temp
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_note note;
+  v_row note_share;
+begin
+  select * into v_note from note where id = p_note_id and owner_id = v_owner;
+  if not found then
+    -- The mock answers notAuthorized for a note that is not yours, and notFound
+    -- only for one that is in the trash; a missing id is not yours either.
+    return jsonb_build_object('err', 'notAuthorized');
+  end if;
+  if v_note.status <> 'active' then
+    return jsonb_build_object('err', 'notFound');
+  end if;
+  if p_token is null or p_token !~ '^note_[a-z0-9]{24}$' then
+    raise exception 'share token does not match the expected shape' using errcode = '22023';
+  end if;
+
+  insert into note_share (owner_id, note_id, token, token_hash)
+       values (v_owner, p_note_id, p_token, encode(digest(p_token, 'sha256'), 'hex'))
+  returning * into v_row;
+
+  return jsonb_build_object('ok', to_jsonb(v_row));
+end;
+$$;
+
+-- `updateNote` is the one write with a precondition — a stale `expectedRevision`
+-- must be refused rather than silently overwritten, because two tabs editing one
+-- note is exactly how the localStorage archive loses work. PostgREST cannot
+-- report "0 rows, but was that a conflict or a missing row" distinctly, so the
+-- check is a function that reads the row first.
+create function update_note(
+  p_id bigint,
+  p_title text,
+  p_subject_label text,
+  p_chapter_label text,
+  p_topic_label text,
+  p_document_json text,
+  p_search_text text,
+  p_expected_revision integer
+) returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_existing note;
+  v_row note;
+begin
+  select * into v_existing from note where id = p_id and owner_id = v_owner;
+  if not found then
+    return jsonb_build_object('err', 'notFound');
+  end if;
+  if v_existing.revision <> p_expected_revision then
+    return jsonb_build_object('err', jsonb_build_object('staleRevision', jsonb_build_object(
+      'expected', p_expected_revision, 'actual', v_existing.revision)));
+  end if;
+
+  update note
+     set title = p_title,
+         subject_label = nullif(btrim(coalesce(p_subject_label, '')), ''),
+         chapter_label = nullif(btrim(coalesce(p_chapter_label, '')), ''),
+         topic_label = nullif(btrim(coalesce(p_topic_label, '')), ''),
+         document_json = p_document_json,
+         search_text = coalesce(p_search_text, ''),
+         revision = revision + 1
+   where id = p_id
+   returning * into v_row;
+
+  insert into activity (owner_id, kind, title)
+       values (v_owner, 'note', format('Updated the note "%s"', p_title));
+
+  return jsonb_build_object('ok', to_jsonb(v_row));
+end;
+$$;
+
+-- Rename and trash move `revision` too, and an increment is the one write
+-- PostgREST cannot express: `revision = revision + 1` needs the row's own value,
+-- not a client-supplied one. Both therefore come back as functions, and both
+-- keep the mock's rule that any change to a note's shape advances its revision —
+-- which is what makes a second tab's stale `updateNote` fail loudly.
+create function rename_note(p_id bigint, p_title text) returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_row note;
+begin
+  update note
+     set title = p_title, revision = revision + 1
+   where id = p_id and owner_id = v_owner
+   returning * into v_row;
+  if v_row is null then
+    return jsonb_build_object('err', 'notFound');
+  end if;
+  insert into activity (owner_id, kind, title)
+       values (v_owner, 'note', format('Renamed a note to "%s"', p_title));
+  return jsonb_build_object('ok', to_jsonb(v_row));
+end;
+$$;
+
+create function set_note_status(p_id bigint, p_status text) returns jsonb
+language plpgsql
+security invoker
+set search_path = public, pg_temp
+as $$
+declare
+  v_owner uuid := auth.uid();
+  v_row note;
+begin
+  if p_status not in ('active', 'trashed') then
+    return jsonb_build_object('err', jsonb_build_object('invalidInput', 'Unknown note status.'));
+  end if;
+  update note
+     set status = p_status,
+         deleted_at = case when p_status = 'trashed' then now() end,
+         revision = revision + 1
+   where id = p_id and owner_id = v_owner
+   returning * into v_row;
+  if v_row is null then
+    return jsonb_build_object('err', 'notFound');
+  end if;
+  if p_status = 'trashed' then
+    insert into activity (owner_id, kind, title)
+         values (v_owner, 'note', format('Moved the note "%s" to trash', v_row.title));
+  end if;
+  return jsonb_build_object('ok', to_jsonb(v_row));
+end;
+$$;
+
+-- The four hierarchy levels, each with its child count.
+--
+-- Every summary the app renders shows a count ("3 subjects", "12 questions"), so
+-- a plain `select *` would cost one extra query per row. Aggregating here keeps
+-- it to one round trip per call and, because these run security-invoker, the
+-- aggregate is computed under the caller's own RLS -- a count can never leak how
+-- many rows another account has.
+--
+-- They return arrays of plain rows plus one extra field, in snake_case, so the
+-- adapter's row mappers stay the only place a database shape becomes a domain
+-- shape. `p_id` selects a single row (what create/rename need back); `p_*_id`
+-- lists a parent's children; neither filter returns the caller's whole level.
+create function class_rows(p_id bigint default null) returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+  select coalesce(jsonb_agg(to_jsonb(c) || jsonb_build_object(
+           'subject_count', (select count(*) from subject s where s.class_id = c.id))
+         order by c.id), '[]'::jsonb)
+    from class c
+   where c.owner_id = auth.uid()
+     and (p_id is null or c.id = p_id);
+$$;
+
+create function subject_rows(p_class_id bigint default null, p_id bigint default null) returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+  select coalesce(jsonb_agg(to_jsonb(s) || jsonb_build_object(
+           'chapter_count', (select count(*) from chapter h where h.subject_id = s.id))
+         order by s.id), '[]'::jsonb)
+    from subject s
+   where s.owner_id = auth.uid()
+     and (p_class_id is null or s.class_id = p_class_id)
+     and (p_id is null or s.id = p_id);
+$$;
+
+create function chapter_rows(p_subject_id bigint default null, p_id bigint default null) returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+  select coalesce(jsonb_agg(to_jsonb(h) || jsonb_build_object(
+           'topic_count', (select count(*) from topic t where t.chapter_id = h.id))
+         order by h.id), '[]'::jsonb)
+    from chapter h
+   where h.owner_id = auth.uid()
+     and (p_subject_id is null or h.subject_id = p_subject_id)
+     and (p_id is null or h.id = p_id);
+$$;
+
+create function topic_rows(p_chapter_id bigint default null, p_id bigint default null) returns jsonb
+language sql
+stable
+security invoker
+set search_path = public, pg_temp
+as $$
+  select coalesce(jsonb_agg(to_jsonb(t) || jsonb_build_object(
+           'question_count', (select count(*) from question q where q.topic_id = t.id))
+         order by t.id), '[]'::jsonb)
+    from topic t
+   where t.owner_id = auth.uid()
+     and (p_chapter_id is null or t.chapter_id = p_chapter_id)
+     and (p_id is null or t.id = p_id);
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -999,6 +1489,7 @@ revoke all on function private_host_problem(text) from public;
 revoke all on function url_target_problem(text) from public;
 revoke all on function normalize_answer_text(text) from public;
 revoke all on function answer_is_correct(jsonb, jsonb) from public;
+revoke all on function random_token(text, integer) from public;
 
 grant execute on function shared_content(text) to anon, authenticated;
 grant execute on function shared_note(text) to anon, authenticated;
@@ -1009,12 +1500,23 @@ grant execute on function link_set_paused(text, boolean) to anon, authenticated;
 grant execute on function link_update_target(text, text) to anon, authenticated;
 grant execute on function link_delete(text) to anon, authenticated;
 grant execute on function report_link_abuse(text, text) to anon, authenticated;
+grant execute on function create_link(text, text, text) to anon, authenticated;
 
 grant execute on function start_session(text, text, bigint, integer, integer) to authenticated;
 grant execute on function submit_answer(bigint, bigint, jsonb) to authenticated;
 grant execute on function complete_session(bigint) to authenticated;
 grant execute on function dashboard_stats() to authenticated;
-grant execute on function session_view(bigint) to authenticated;
+grant execute on function attempt_history() to authenticated;
+grant execute on function analytics_breakdown() to authenticated;
+grant execute on function create_share(text, bigint, text) to authenticated;
+grant execute on function create_note_share(bigint, text) to authenticated;
+grant execute on function update_note(bigint, text, text, text, text, text, text, integer) to authenticated;
+grant execute on function rename_note(bigint, text) to authenticated;
+grant execute on function set_note_status(bigint, text) to authenticated;
+grant execute on function class_rows(bigint) to authenticated;
+grant execute on function subject_rows(bigint, bigint) to authenticated;
+grant execute on function chapter_rows(bigint, bigint) to authenticated;
+grant execute on function topic_rows(bigint, bigint) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- Harden roles. Repeat this block after every migration that creates a table.
@@ -1024,7 +1526,9 @@ revoke all on all tables in schema public from anon;
 revoke all on all sequences in schema public from anon;
 revoke all on all functions in schema public from anon;
 
--- Re-grant the anonymous surface the blanket revoke above just removed.
+-- Re-grant the anonymous surface the blanket revoke above just removed. Keep
+-- this list in step with the grants above, or the QR generator and every share
+-- link stop working for logged-out visitors.
 grant usage on schema public to anon;
 grant execute on function shared_content(text) to anon;
 grant execute on function shared_note(text) to anon;
@@ -1035,3 +1539,4 @@ grant execute on function link_set_paused(text, boolean) to anon;
 grant execute on function link_update_target(text, text) to anon;
 grant execute on function link_delete(text) to anon;
 grant execute on function report_link_abuse(text, text) to anon;
+grant execute on function create_link(text, text, text) to anon;

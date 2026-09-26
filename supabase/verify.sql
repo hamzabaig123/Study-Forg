@@ -38,10 +38,11 @@ select table_name, privilege_type
   from information_schema.role_table_grants
  where grantee = 'anon';
 
--- 5. `anon` executes only the token-addressed surface. Expected: exactly nine
---    rows -- resolve_link, shared_content, shared_note, link_detail_for_token,
---    link_scan_stats_for_token, link_set_paused, link_update_target,
---    link_delete, report_link_abuse. Anything else here is an open door.
+-- 5. `anon` executes only the token-addressed surface. Expected: exactly ten
+--    rows -- create_link, resolve_link, shared_content, shared_note,
+--    link_detail_for_token, link_scan_stats_for_token, link_set_paused,
+--    link_update_target, link_delete, report_link_abuse. Anything else here is
+--    an open door.
 select p.proname
   from pg_proc p
   join pg_namespace n on n.oid = p.pronamespace
@@ -59,7 +60,16 @@ select p.proname
      select 1 from unnest(p.proconfig) as cfg(x) where cfg.x like 'search_path=%')
  order by 1;
 
--- 7. Cross-tenant isolation, the test that actually matters. Expected: the
+-- 8. No policy admits `anon`. RLS is off for anon by default (it holds no table
+--    privileges at all, checks 4 and 5), so a row here means something granted
+--    access twice over. Expected: 0 rows.
+select tablename, policyname
+  from pg_policies
+ where schemaname = 'public'
+   and roles @> array['anon']
+ order by 1, 2;
+
+-- 9. Cross-tenant isolation, the test that actually matters. Expected: the
 --    second statement raises "new row violates row-level security policy".
 --    Run while signed in as user A in the SQL editor (the editor connects as
 --    the authenticated role for your own jwt only in the API; in the SQL editor
