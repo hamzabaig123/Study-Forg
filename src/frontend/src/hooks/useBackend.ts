@@ -1,5 +1,5 @@
 import { type Backend, createActor } from "@/backend";
-import { USE_LOCAL_ACCOUNTS } from "@/lib/authMode";
+import { DATA_BACKEND, SHARED_BACKEND } from "@/lib/authMode";
 import {
   createActorWithConfig,
   useActor,
@@ -11,6 +11,10 @@ import {
 } from "@tanstack/react-query";
 
 const mockModules = import.meta.glob("../mocks/backend.{ts,tsx,js,jsx}");
+
+const supabaseModules = import.meta.glob(
+  "../lib/supabase/supabaseBackend.{ts,tsx,js,jsx}",
+);
 
 const ACTOR_KEY = ["backend-actor"];
 
@@ -33,13 +37,20 @@ const createdActors = new WeakMap<QueryClient, Backend | Promise<Backend>>();
 function createBackendActor(client: QueryClient): Backend | Promise<Backend> {
   let created = createdActors.get(client);
   if (!created) {
-    created =
-      import.meta.env.VITE_USE_MOCK === "true"
-        ? createMockBackend()
-        : createActorWithConfig(createActor, { mockModules });
+    created = selectBackend();
     createdActors.set(client, created);
   }
   return created;
+}
+
+function selectBackend(): Backend | Promise<Backend> {
+  if (DATA_BACKEND === "supabase") {
+    return loadSupabaseBackend();
+  }
+  if (DATA_BACKEND === "mock") {
+    return createMockBackend();
+  }
+  return createActorWithConfig(createActor, { mockModules });
 }
 
 /**
@@ -49,6 +60,10 @@ function createBackendActor(client: QueryClient): Backend | Promise<Backend> {
  * pre-bundles that package without substituting env references, so the check
  * can never see the flag. Env vars are only inlined into files under `src`, so
  * the decision has to be made here.
+ *
+ * The same lazy `import.meta.glob` is used for the Supabase adapter, for a
+ * different reason: it pulls in `@supabase/supabase-js`, and an app running on
+ * the mock or the canister should not ship a client library it never calls.
  */
 async function createMockBackend(): Promise<Backend> {
   const load = Object.values(mockModules)[0];
@@ -61,19 +76,30 @@ async function createMockBackend(): Promise<Backend> {
   return loaded.mockBackend;
 }
 
+async function loadSupabaseBackend(): Promise<Backend> {
+  const load = Object.values(supabaseModules)[0];
+  const loaded = load
+    ? ((await load()) as { supabaseBackend?: () => Promise<Backend> })
+    : undefined;
+  if (!loaded?.supabaseBackend) {
+    throw new Error("Supabase adapter is missing its `supabaseBackend` export");
+  }
+  return loaded.supabaseBackend();
+}
+
 function peekActor(client: QueryClient): Backend | undefined {
   const created = createBackendActor(client);
   return created instanceof Promise ? undefined : created;
 }
 
 /**
- * Resolve the mock backend actor before the first render needs it.
+ * Resolve the shared backend before the first render needs it.
  *
- * Only the mock backend is pre-resolved (see `main.tsx`): it is a plain object
- * that exists independently of who is signed in, so waiting for it removes the
- * frame where every page reads nothing. A canister actor cannot be resolved
- * here because it belongs to the Internet Identity principal, which is still
- * being restored while the app mounts.
+ * Only a shared backend is pre-resolved (see `main.tsx`): the mock and the
+ * Supabase adapter are plain objects that exist independently of who is signed
+ * in, so waiting for them removes the frame where every page reads nothing. A
+ * canister actor cannot be resolved here because it belongs to the Internet
+ * Identity principal, which is still being restored while the app mounts.
  */
 export async function resolveBackendActor(
   client: QueryClient,
@@ -84,8 +110,8 @@ export async function resolveBackendActor(
   return actor;
 }
 
-/** One mock object shared by the whole app, so it is cached per `QueryClient`. */
-function useMockBackend(): BackendState {
+/** One object shared by the whole app, so it is cached per `QueryClient`. */
+function useSharedBackend(): BackendState {
   const client = useQueryClient();
   const query = useQuery({
     queryKey: ACTOR_KEY,
@@ -116,8 +142,8 @@ function useCanisterBackend(): BackendState {
   };
 }
 
-const MODE_SELECTED: () => BackendState = USE_LOCAL_ACCOUNTS
-  ? useMockBackend
+const MODE_SELECTED: () => BackendState = SHARED_BACKEND
+  ? useSharedBackend
   : useCanisterBackend;
 
 /**

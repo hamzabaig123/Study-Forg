@@ -6,7 +6,14 @@ import { screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Email/password accounts only exist beside the dev mock backend.
-vi.mock("@/lib/authMode", () => ({ USE_LOCAL_ACCOUNTS: true }));
+// The dev-mock account screens, evaluated against the seam this file injects an
+// actor into.
+vi.mock("@/lib/authMode", () => ({
+  DATA_BACKEND: "canister",
+  SHARED_BACKEND: false,
+  USE_LOCAL_ACCOUNTS: true,
+  USE_SUPABASE: false,
+}));
 
 /**
  * Characterization baseline for the local account sign-in gate. The guard keeps

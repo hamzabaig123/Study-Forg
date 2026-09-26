@@ -1,12 +1,17 @@
+import { readFileSync, readdirSync } from "node:fs";
 import { getSupabase, supabaseAvailable } from "@/lib/supabase/client";
-import { readSupabaseConfig } from "@/lib/supabase/env";
+import {
+  SUPABASE_CONFIGURED,
+  readSupabaseConfig,
+  selectDataBackend,
+} from "@/lib/supabase/env";
 import {
   newEditToken,
   newShareToken,
   newShortCode,
   tokenHash,
 } from "@/lib/supabase/tokens";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 describe("share token hashing", () => {
   it("produces the lowercase hex sha256 of the token", async () => {
@@ -39,6 +44,109 @@ describe("token generators", () => {
       seen.add(newEditToken());
     }
     expect(seen.size).toBe(200);
+  });
+});
+
+describe("data backend selection", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("takes the explicit choice over everything else", () => {
+    vi.stubEnv("VITE_DATA_BACKEND", "supabase");
+    vi.stubEnv("VITE_USE_MOCK", "true");
+    expect(selectDataBackend()).toBe("supabase");
+  });
+
+  it("keeps the mock for the development server and the suite", () => {
+    vi.stubEnv("VITE_DATA_BACKEND", "");
+    vi.stubEnv("VITE_USE_MOCK", "true");
+    expect(selectDataBackend()).toBe("mock");
+  });
+
+  it("falls back to the canister when no project is configured", () => {
+    vi.stubEnv("VITE_DATA_BACKEND", "");
+    vi.stubEnv("VITE_USE_MOCK", "false");
+    expect(selectDataBackend()).toBe(
+      SUPABASE_CONFIGURED ? "supabase" : "canister",
+    );
+  });
+
+  it("ignores a name that is not a backend", () => {
+    vi.stubEnv("VITE_DATA_BACKEND", "postgres");
+    vi.stubEnv("VITE_USE_MOCK", "true");
+    expect(selectDataBackend()).toBe("mock");
+  });
+});
+
+/**
+ * The one cross-check between the TypeScript side and the SQL side that needs
+ * neither Postgres nor a project: argument names.
+ *
+ * A `p_` name the adapter invents is not a compile error and not a failing test —
+ * it is a function that gets `null` for a parameter it never sent, which surfaces
+ * as a wrong answer or a cast error at runtime. Reading the migration's signatures
+ * here turns that class of drift into a test failure, and nothing more: names
+ * matching says nothing about values, reply shapes or behaviour.
+ */
+describe("adapter and migration share one rpc surface", () => {
+  // Vitest sets the working directory to this config's root, which is also where
+  // `pnpm test` runs from; `import.meta.url` is not usable here because jsdom
+  // rewrites it to an http URL.
+  const root = process.cwd();
+  const migration = `${root}/../../supabase/migrations/0001_init.sql`;
+  const sql = readFileSync(migration, "utf8");
+  const signatures = new Map<string, string[]>();
+  for (const match of sql.matchAll(/create function (\w+)\(([^)]*)\)/g)) {
+    signatures.set(
+      match[1],
+      match[2]
+        .split(",")
+        .map((part) => part.trim().split(/\s+/)[0])
+        .filter((name) => name.startsWith("p_")),
+    );
+  }
+
+  const slicesDir = `${root}/src/lib/supabase/slices`;
+  const calls = [
+    ...readdirSync(slicesDir).flatMap((file) => {
+      const source = readFileSync(`${slicesDir}/${file}`, "utf8");
+      return [
+        ...source.matchAll(
+          /(?:rpcEnvelope\(transport,|transport\.rpc\()\s*"(\w+)"\s*,?\s*\{([\s\S]*?)\n\s*\}\s*\)/g,
+        ),
+      ].map((match) => ({
+        function: match[1],
+        args: [...match[2].matchAll(/(p_\w+)\s*:/g)].map((a) => a[1]),
+      }));
+    }),
+  ];
+
+  it("finds the call sites it is about to check", () => {
+    // Guards against a regex that quietly stopped matching anything.
+    expect(calls.length).toBeGreaterThanOrEqual(13);
+  });
+
+  it("calls only functions the migration creates", () => {
+    const missing = calls
+      .filter((call) => !signatures.has(call.function))
+      .map((call) => call.function);
+    expect(missing).toEqual([]);
+  });
+
+  it("sends every parameter by the name the function declares", () => {
+    const drift = calls.flatMap((call) => {
+      const declared = signatures.get(call.function);
+      if (!declared) {
+        return [];
+      }
+      const absent = declared.filter((name) => !call.args.includes(name));
+      const invented = call.args.filter((name) => !declared.includes(name));
+      return absent.length || invented.length
+        ? [`${call.function}: sends [${call.args}] vs [${declared}]`]
+        : [];
+    });
+    expect(drift).toEqual([]);
   });
 });
 

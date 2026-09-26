@@ -15,8 +15,14 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// Email/password accounts and the demo account exist only in dev-mock mode.
-vi.mock("@/lib/authMode", () => ({ USE_LOCAL_ACCOUNTS: true }));
+// Email/password accounts and the demo account exist only in dev-mock mode. The
+// backend under them is still the seam this file injects an actor into.
+vi.mock("@/lib/authMode", () => ({
+  DATA_BACKEND: "canister",
+  SHARED_BACKEND: false,
+  USE_LOCAL_ACCOUNTS: true,
+  USE_SUPABASE: false,
+}));
 
 /**
  * The dev-mock sign-in screen. It keeps the local account form so the mock

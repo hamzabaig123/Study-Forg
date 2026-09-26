@@ -2,8 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useInternetIdentityAuth, useLocalAccountAuth } from "@/hooks/useAuth";
-import { USE_LOCAL_ACCOUNTS } from "@/lib/authMode";
+import { useEmailPasswordAuth, useInternetIdentityAuth } from "@/hooks/useAuth";
+import { USE_LOCAL_ACCOUNTS, USE_SUPABASE } from "@/lib/authMode";
+import { SUPABASE_PROBLEM } from "@/lib/supabase/env";
 import { Link, Navigate, useNavigate } from "@tanstack/react-router";
 import {
   ArrowRight,
@@ -21,18 +22,62 @@ import { toast } from "sonner";
 /**
  * Sign-in screen.
  *
- * Which form it shows follows the backend the app is wired to: Internet
- * Identity against a real canister, email/password accounts beside the dev mock
- * backend. The two paths are separate components so neither has to branch
- * mid-render.
+ * Which form it shows follows the backend the app is wired to: Internet Identity
+ * against a real canister, email/password accounts beside the dev mock backend,
+ * and Supabase's own email/password session against the adapter. The last two
+ * share a form — only the verification step differs, and that is a prop of the
+ * session store rather than a second page. The paths are separate components so
+ * neither has to branch mid-render.
+ *
+ * A Supabase project that cannot be reached is reported here rather than handed
+ * to the session store: without a client there is no store to read, and the form
+ * would mount over a request that is going to fail anyway.
  */
 export default function AuthPage({
   mode,
 }: { mode: "login" | "register" | "verify" }) {
-  return USE_LOCAL_ACCOUNTS ? (
-    <LocalAccountAuthPage mode={mode} />
+  if (USE_SUPABASE && SUPABASE_PROBLEM) {
+    return <ConnectionProblem message={SUPABASE_PROBLEM} />;
+  }
+  return USE_LOCAL_ACCOUNTS || USE_SUPABASE ? (
+    <EmailPasswordAuthPage mode={mode} />
   ) : (
     <InternetIdentityAuthPage />
+  );
+}
+
+function ConnectionProblem({ message }: { message: string }) {
+  return (
+    <main className="mx-auto flex min-h-screen max-w-lg items-center px-5 py-12">
+      <Card className="w-full">
+        <CardHeader>
+          <span className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <Globe />
+          </span>
+          <CardTitle>The Supabase project is not usable yet</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <p className="text-sm text-muted-foreground">{message}</p>
+          <p className="text-sm text-muted-foreground">
+            The three values are read from the environment at build time:
+            <code className="mx-1 rounded bg-muted px-1">
+              VITE_SUPABASE_URL
+            </code>
+            ,
+            <code className="mx-1 rounded bg-muted px-1">
+              VITE_SUPABASE_ANON_KEY
+            </code>
+            and{" "}
+            <code className="mx-1 rounded bg-muted px-1">
+              VITE_DATA_BACKEND
+            </code>
+            . Set them in{" "}
+            <code className="mx-1 rounded bg-muted px-1">.env.local</code> for
+            the dev server, or in the deployment environment, then reload.
+          </p>
+        </CardContent>
+      </Card>
+    </main>
   );
 }
 
@@ -137,16 +182,23 @@ function InternetIdentityAuthPage() {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Local development accounts                                                  */
+/* Email and password                                                          */
 /* -------------------------------------------------------------------------- */
 
-function LocalAccountAuthPage({
+function EmailPasswordAuthPage({
   mode,
 }: {
   mode: "login" | "register" | "verify";
 }) {
-  const { account, signIn, register, startDemo, verifyEmail, signOut } =
-    useLocalAccountAuth();
+  const {
+    account,
+    signIn,
+    register,
+    startDemo,
+    verification,
+    verifyEmail,
+    signOut,
+  } = useEmailPasswordAuth();
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -172,20 +224,41 @@ function LocalAccountAuthPage({
               Before you can open your private study space, confirm ownership of{" "}
               <strong className="text-foreground">{account.email}</strong>.
             </p>
-            <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
-              Local development mode: email sending is not configured, so
-              confirmation is completed here. Connect a server email provider
-              before production use.
-            </p>
+            {verification === "local" ? (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                Local development mode: email sending is not configured, so
+                confirmation is completed here. Connect a server email provider
+                before production use.
+              </p>
+            ) : (
+              <p className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">
+                Open the link in the message we just sent. If it has not
+                arrived, send it again.
+              </p>
+            )}
             <Button
               className="w-full"
               onClick={() => {
-                verifyEmail();
-                toast.success("Email verified.");
-                void navigate({ to: "/dashboard" });
+                void verifyEmail();
+                toast.success(
+                  verification === "local"
+                    ? "Email verified."
+                    : "Confirmation email sent.",
+                );
+                if (verification === "local") {
+                  void navigate({ to: "/dashboard" });
+                }
               }}
             >
-              <CheckCircle2 /> Confirm this email
+              {verification === "local" ? (
+                <>
+                  <CheckCircle2 /> Confirm this email
+                </>
+              ) : (
+                <>
+                  <Mail /> Send the link again
+                </>
+              )}
             </Button>
             <Button
               className="w-full"
@@ -204,6 +277,9 @@ function LocalAccountAuthPage({
   }
   const registerMode = mode === "register";
   function useDemo() {
+    if (!startDemo) {
+      return;
+    }
     startDemo();
     toast.success("Demo account ready.");
     void navigate({ to: "/dashboard" });
@@ -220,6 +296,15 @@ function LocalAccountAuthPage({
             passwordConfirmation: confirmation,
           })
         : await signIn(email, password);
+      if (!signedIn) {
+        // Supabase created the account but will not open a session for an
+        // address it has not seen clicked: the link is the sign-in.
+        toast.success(
+          "Account created. Check your inbox to finish signing up.",
+        );
+        void navigate({ to: "/login" });
+        return;
+      }
       toast.success(
         registerMode
           ? "Account created. Verify your email to continue."
@@ -314,7 +399,7 @@ function LocalAccountAuthPage({
               <ArrowRight />
             </Button>
           </form>
-          {!registerMode && (
+          {!registerMode && startDemo && (
             <>
               <div className="my-5 flex items-center gap-3 text-xs text-muted-foreground">
                 <span className="h-px flex-1 bg-border" />

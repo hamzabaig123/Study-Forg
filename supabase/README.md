@@ -22,6 +22,45 @@ the SQL cannot be applied from here. Run it once in the dashboard:
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
 
+## Running the app against it
+
+Three variables decide what the browser talks to, all read once in
+`src/frontend/src/lib/supabase/env.ts`:
+
+| Variable | Effect |
+| --- | --- |
+`VITE_DATA_BACKEND` | `mock`, `supabase` or `canister`. Wins over everything below
+`VITE_USE_MOCK` | `true` keeps the localStorage archive and the browser-side accounts
+`VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` | Both present and complete, with no flag set, selects Supabase
+
+With nothing set and no key pasted, the app is exactly what it was before: the
+mock on the dev server, the canister in a production build. A truncated key paste
+is reported on the sign-in screen rather than sent on every request, which is the
+most common way a configured project appears to do nothing.
+
+Supabase replaces the browser-side accounts, so `AuthPage` shows the same
+email/password form but reads and writes a real session (`lib/supabase/session.ts`)
+— the id inside that session is what `auth.uid()` compares against in every RLS
+policy. Set the project's **Site URL** to the deployed origin if you want the
+confirmation link to land back on the app, and note that with "Confirm email" on,
+sign-up returns no session until the link is clicked.
+
+## What is not done yet
+
+Stated plainly because each item needs the project itself, not this machine:
+
+- The migration has never been applied. Until step 2 above happens on
+  `qjoijoxmnliarlyaqmoz`, `VITE_DATA_BACKEND=supabase` reaches an empty database
+  and every call fails with a missing-table error.
+- No query has run against real Postgres. The adapter is proven against a fake
+  transport that answers in PostgREST's shapes (`lib/supabase/adapter.test.ts`,
+  41 cases) and against `backendInterface`'s 77 methods through `tsc`; the SQL
+  functions beside it are reviewed, not executed.
+- Nothing moves the existing localStorage archive into the new schema, so an
+  account with data in it today cannot switch over yet.
+- Backups, PITR and the restore drill are written down below but unpractised, and
+  the Free plan caps the database at a seven-day PITR window.
+
 ## Which URL goes where
 
 Getting this wrong is the usual way a project ends up with a database password

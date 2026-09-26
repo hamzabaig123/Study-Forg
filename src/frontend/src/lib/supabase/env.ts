@@ -93,6 +93,12 @@ export const SUPABASE_ANON_KEY = SUPABASE_CONFIG.key;
  * `VITE_DATA_BACKEND` overrides the choice explicitly (`mock`, `supabase` or
  * `canister`); without it the flag order is the historical one, so nothing that
  * runs today changes behaviour.
+ *
+ * Called rather than evaluated at import, because Vite loads `.env.local` into
+ * `import.meta.env` for every mode including `test`: a value written for the dev
+ * server would otherwise follow the suite along with it. `vitest.config.ts` pins
+ * both flags empty so the tests always run against the seam they inject actors
+ * into.
  */
 export function selectDataBackend(): DataBackend {
   const forced = (

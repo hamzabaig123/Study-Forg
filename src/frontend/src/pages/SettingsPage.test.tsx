@@ -8,7 +8,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // The page reads the caller's profile from a local account.
-vi.mock("@/lib/authMode", () => ({ USE_LOCAL_ACCOUNTS: true }));
+vi.mock("@/lib/authMode", () => ({
+  DATA_BACKEND: "canister",
+  SHARED_BACKEND: false,
+  USE_LOCAL_ACCOUNTS: true,
+  USE_SUPABASE: false,
+}));
 
 const NOW = 1_700_000_000_000_000_000n;
 
