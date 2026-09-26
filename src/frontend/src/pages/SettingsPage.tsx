@@ -1,6 +1,7 @@
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { PageHeader } from "@/components/common/PageHeader";
+import { ArchiveImport } from "@/components/settings/ArchiveImport";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,8 +22,10 @@ import {
   useMySettings,
   useSaveMySettings,
 } from "@/hooks/useSettings";
+import { DATA_BACKEND } from "@/lib/authMode";
 import { clearDeviceCache } from "@/lib/deviceCache";
 import { shortPrincipal } from "@/lib/format";
+import type { DataBackend } from "@/lib/supabase/env";
 import { cn } from "@/lib/utils";
 import type { SettingsError, ThemeName, UserSettingsView } from "@/types";
 import {
@@ -158,6 +161,20 @@ const SYNC_META: Record<
     Icon: AlertTriangle,
     tone: "text-destructive",
   },
+};
+
+/**
+ * What the session on this device actually rests on.
+ *
+ * Three backends, three credentials, and the Settings page is where a person
+ * reads it before deciding to sign out — so it names the one in play rather than
+ * asserting Internet Identity at a visitor who never saw it.
+ */
+const SESSION_NOTE: Record<DataBackend, string> = {
+  mock: "This device keeps its own account, so signing out only ends it here.",
+  supabase:
+    "Your session is a Supabase token this browser holds and refreshes.",
+  canister: "Your session is protected by Internet Identity.",
 };
 
 function SyncStatus({
@@ -744,6 +761,8 @@ export default function SettingsPage() {
               </Button>
             </div>
 
+            <ArchiveImport />
+
             <div className="mt-4 flex items-start gap-3 rounded-lg border border-border bg-background px-4 py-3">
               <ShieldCheck
                 className="mt-0.5 size-4 shrink-0 text-success"
@@ -770,7 +789,7 @@ export default function SettingsPage() {
             <SectionHeading
               Icon={Lock}
               title="Security"
-              description="Your session is protected by Internet Identity."
+              description={SESSION_NOTE[DATA_BACKEND]}
             />
 
             <div className="mt-5 flex flex-col gap-4 rounded-lg border border-border bg-muted/40 p-4 sm:flex-row sm:items-center sm:justify-between">

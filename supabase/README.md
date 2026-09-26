@@ -57,7 +57,11 @@ Stated plainly because each item needs the project itself, not this machine:
   41 cases) and against `backendInterface`'s 77 methods through `tsc`; the SQL
   functions beside it are reviewed, not executed.
 - Nothing moves the existing localStorage archive into the new schema, so an
-  account with data in it today cannot switch over yet.
+  account with data in it today cannot switch over yet. The importer that will
+  (`lib/archiveImport.ts`, offered from Settings) is written and tested against
+  the mock backend, but it has not run against this database either — and it
+  restores the library, not the practice history, because the server dates an
+  attempt when it is recorded.
 - Backups, PITR and the restore drill are written down below but unpractised, and
   the Free plan caps the database at a seven-day PITR window.
 

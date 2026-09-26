@@ -44,17 +44,35 @@ The development machine has no virtualization (no WSL2, Docker, or Hyper-V), so 
 - `pnpm bindgen` likewise needs the platform toolchain. The committed bindings in `src/frontend/src/backend.ts` are the contract the frontend builds against.
 - **What to do instead**: run the frontend against the localStorage mock backend (`src/frontend/src/mocks/backend.ts`), which implements the full 77-method canister interface. `pnpm dev` already does this because `.env.development` sets `VITE_USE_MOCK=true`. Data persists in the browser under the `studyforge.mock-backend.v1` key. Production builds (`pnpm build`) do not set the flag, so deployed output still targets the real canister.
 
-### Authentication is chosen by the same flag
+### Three backends, one flag
 
-`src/frontend/src/lib/authMode.ts` exports `USE_LOCAL_ACCOUNTS = import.meta.env.VITE_USE_MOCK === "true"`, and it is the only reader of that flag: with the mock backend the app uses the local email/password accounts (`src/lib/localAuth.ts`), against a real canister it uses Internet Identity. `useAuth` and `useBackend` each pick one implementation at module load, so no component branches at render time.
+`src/frontend/src/lib/authMode.ts` reads `VITE_DATA_BACKEND` (through `selectDataBackend()` in `lib/supabase/env.ts`, which still honours the older `VITE_USE_MOCK`) and exports the four values every consumer keys off: `DATA_BACKEND`, `USE_LOCAL_ACCOUNTS`, `USE_SUPABASE`, `SHARED_BACKEND`. `useBackend` and `useAuth` each pick one implementation at module load, so no component branches at render time.
+
+- `mock` — the localStorage backend plus the local email/password accounts in `lib/localAuth.ts`.
+- `supabase` — `lib/supabase/supabaseBackend.ts` plus Supabase's own email/password session (`lib/supabase/session.ts`). Internet Identity cannot federate here: the project exposes no OAuth2/OIDC endpoint, discovery document or JWKS, so there is nothing for Supabase to trust.
+- anything else — the canister plus Internet Identity.
+
+The adapter is loaded through `import.meta.glob` and `session.ts` imports the client as a type only, which is what keeps `@supabase/supabase-js` out of the bundle the other two modes ship (index 3.48 MB, supabase-js only in `supabaseBackend-*.js`). Do not undo either seam to save a line.
 
 Because `src/frontend/env.json` is committed with `"undefined"` placeholders, a real Internet Identity sign-in cannot be completed on this machine: `loadConfig()` fails and the sign-in screen reports `CANISTER_ID_BACKEND is not set`. Treat Internet Identity changes as typecheck- and unit-verified only.
 
 ### Frontend tests
 
 - Run them with `pnpm test` (`vitest run --environment jsdom`). Calling `pnpm vitest run <file>` directly drops the jsdom flag and `src/test/setup.ts` fails with `window is not defined`.
-- Do not set `VITE_USE_MOCK` for tests. Leaving it unset keeps `useBackend` on the `createActorWithConfig`/`useActor` seam that `src/test/setup.ts` mocks, which is how tests inject a fake actor with `setMockActor`.
-- A test that needs local accounts pins the mode itself: `vi.mock("@/lib/authMode", () => ({ USE_LOCAL_ACCOUNTS: true }))`, then `setLocalAccount(...)`. Internet Identity tests use `setMockAuth(createAuthState({ ... }))`, which now carries an `identity` stub alongside its flags.
+- `src/frontend/.env.local` reaches `import.meta.env` in **every** mode, tests included, so a `VITE_DATA_BACKEND` written for the dev server silently moves the whole suite off the injected-actor seam. `vitest.config.ts` pins both flags empty; keep that assignment.
+- Leaving the mode unset keeps `useBackend` on the `createActorWithConfig`/`useActor` seam that `src/test/setup.ts` mocks, which is how tests inject a fake actor with `setMockActor`.
+- A test that needs a mode pins `@/lib/authMode` with **all four** exports (`DATA_BACKEND`, `SHARED_BACKEND`, `USE_LOCAL_ACCOUNTS`, `USE_SUPABASE`) — vitest rejects the mock as soon as a consumer imports a key the pin omits. Local accounts then use `setLocalAccount(...)`; Internet Identity tests use `setMockAuth(createAuthState({ ... }))`.
+- A test that reads repo files must build paths from `process.cwd()`: under jsdom `import.meta.url` is an http URL and `fileURLToPath` throws "The URL must be of scheme file".
+
+### An archive moves in by the front door
+
+`src/lib/archiveImport.ts` restores an exported file (or this browser's own localStorage archive, read by `lib/browserArchive.ts` without loading the mock) by calling the same contract the pages call. Nothing is added to `backendInterface` for it, which is the point: the importer runs against Postgres, the canister or the mock, and `tsc` proves it.
+
+- Rows are created in dependency order and children are looked up through archive-id → new-id maps, so nothing references a row that no longer exists. A row whose parent is missing is recorded in `report.failures` and the import keeps going.
+- Re-running is safe for the hierarchy, questions, notes and settings (matched by name under the same parent, counted as `skipped`). **Links are the exception**: a link is addressed only by its secret edit token, an export never carries that, and there is no list method, so a repeat run publishes the URL again. The UI says so rather than hiding it.
+- Sessions, results and activity are deliberately not replayed. `start_session` stamps `now()` server-side, so a restored history would move every past attempt to today — the report names the counts instead.
+- The mock's export writes row shapes and the adapter writes view shapes; both use the same field names, which is why `parseArchive` accepts either. The mock stores ids as numbers and the adapter as bigints, hence `idKey`.
+- `studyforge.mock-backend.v1` is intentionally absent from `deviceCache.ts`: "Clear local data" must not erase the only copy a user has.
 
 ### AI Studio runs in the browser, not the canister
 
