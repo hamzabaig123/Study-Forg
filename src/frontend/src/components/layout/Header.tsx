@@ -66,7 +66,7 @@ export function Header({
             <span className="block truncate font-display text-lg font-semibold leading-none tracking-tight">
               StudyForge
             </span>
-            <span className="hidden text-[11px] uppercase tracking-[0.16em] text-muted-foreground sm:block">
+            <span className="hidden text-[11px] tracking-[0.08em] text-muted-foreground sm:block">
               Forge your mastery
             </span>
           </span>

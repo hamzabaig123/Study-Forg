@@ -181,75 +181,78 @@
     --ember-soft-border: 0.76 0.16 62 / 0.36;
   }
 
-  /* Frosted — translucent glass over a lit, cool-hued atmosphere.
-     A real third treatment: light-luminance text, blurred glass panels,
-     and a soft gradient backdrop rather than a tint of dark. */
+  /* Frosted — "Aurora Glass": a dark cinematic glassmorphism treatment.
+     Deep teal-black base, translucent glass panels with thin light borders,
+     emerald aurora lighting, and champagne-gold primary actions. A real third
+     treatment, not a tint of dark: glass depth, blurred layers, and a lit
+     aurora backdrop that dark themes do not have. */
   .frosted {
-    --background: 0.72 0.05 250;
-    --foreground: 0.17 0.028 258;
-    --card: 0.99 0.008 250 / 0.55;
-    --card-foreground: 0.17 0.028 258;
-    --popover: 0.99 0.008 250 / 0.92;
-    --popover-foreground: 0.17 0.028 258;
+    --background: 0.19 0.028 225;
+    --foreground: 0.96 0.012 95;
+    --card: 0.26 0.028 220 / 0.55;
+    --card-foreground: 0.96 0.012 95;
+    --popover: 0.24 0.028 220 / 0.88;
+    --popover-foreground: 0.96 0.012 95;
 
-    --primary: 0.46 0.17 52;
-    --primary-foreground: 0.99 0.006 52;
+    --primary: 0.75 0.14 168;
+    --primary-foreground: 0.16 0.035 168;
 
-    --secondary: 0.99 0.008 250 / 0.5;
-    --secondary-foreground: 0.22 0.028 258;
-    --muted: 0.99 0.008 250 / 0.42;
-    --muted-foreground: 0.36 0.03 258;
+    --secondary: 0.27 0.03 220 / 0.6;
+    --secondary-foreground: 0.92 0.014 95;
+    --muted: 0.26 0.028 220 / 0.45;
+    --muted-foreground: 0.8 0.018 205;
 
-    --accent: 0.4 0.14 265;
-    --accent-foreground: 0.99 0.006 265;
+    --accent: 0.72 0.12 178;
+    --accent-foreground: 0.15 0.03 178;
 
-    --destructive: 0.5 0.2 27;
-    --destructive-foreground: 0.99 0.006 27;
-    --success: 0.44 0.14 152;
-    --success-foreground: 0.99 0.006 152;
-    --warning: 0.66 0.15 78;
-    --warning-foreground: 0.2 0.03 78;
+    --destructive: 0.62 0.19 25;
+    --destructive-foreground: 0.98 0.012 25;
+    --success: 0.74 0.13 165;
+    --success-foreground: 0.16 0.03 165;
+    --warning: 0.82 0.11 85;
+    --warning-foreground: 0.2 0.045 85;
 
-    --border: 0.99 0.008 250 / 0.6;
-    --input: 0.99 0.008 250 / 0.6;
-    --ring: 0.46 0.17 52;
+    --border: 1 0 0 / 0.14;
+    --input: 1 0 0 / 0.18;
+    --ring: 0.75 0.14 168;
 
-    --chart-1: 0.5 0.17 52;
-    --chart-2: 0.42 0.14 265;
-    --chart-3: 0.46 0.14 152;
-    --chart-4: 0.54 0.16 320;
-    --chart-5: 0.56 0.14 200;
+    --chart-1: 0.75 0.14 168;
+    --chart-2: 0.84 0.1 88;
+    --chart-3: 0.72 0.11 205;
+    --chart-4: 0.66 0.13 300;
+    --chart-5: 0.7 0.15 20;
 
-    --sidebar: 0.99 0.008 250 / 0.5;
-    --sidebar-foreground: 0.17 0.028 258;
-    --sidebar-primary: 0.46 0.17 52;
-    --sidebar-primary-foreground: 0.99 0.006 52;
-    --sidebar-accent: 0.99 0.008 250 / 0.42;
-    --sidebar-accent-foreground: 0.22 0.028 258;
-    --sidebar-border: 0.99 0.008 250 / 0.55;
-    --sidebar-ring: 0.46 0.17 52;
+    --sidebar: 0.24 0.028 220 / 0.65;
+    --sidebar-foreground: 0.96 0.012 95;
+    --sidebar-primary: 0.75 0.14 168;
+    --sidebar-primary-foreground: 0.16 0.035 168;
+    --sidebar-accent: 0.75 0.14 168 / 0.18;
+    --sidebar-accent-foreground: 0.96 0.012 95;
+    --sidebar-border: 1 0 0 / 0.12;
+    --sidebar-ring: 0.75 0.14 168;
 
-    --glass: 0.99 0.008 250 / 0.5;
-    --glass-border: 1 0 0 / 0.65;
-    --glass-highlight: 1 0 0 / 0.7;
-    --glass-shadow: 0 8px 32px -8px oklch(0.3 0.05 258 / 0.35);
+    --glass: 0.26 0.028 220 / 0.5;
+    --glass-border: 1 0 0 / 0.16;
+    --glass-highlight: 0.96 0.03 168 / 0.12;
+    --glass-shadow: 0 8px 32px -8px oklch(0.06 0.02 225 / 0.6);
 
     --gradient-primary: linear-gradient(
       135deg,
-      oklch(0.54 0.18 58),
-      oklch(0.42 0.15 42)
+      oklch(0.78 0.13 170),
+      oklch(0.7 0.11 150),
+      oklch(0.8 0.1 88)
     );
     --gradient-subtle: linear-gradient(
       160deg,
-      oklch(0.8 0.07 240),
-      oklch(0.68 0.07 285)
+      oklch(0.21 0.03 222),
+      oklch(0.16 0.025 228)
     );
 
-    --code: 0.99 0.008 250 / 0.62;
-    --code-foreground: 0.24 0.03 258;
-    --scrim: 0.24 0.04 258 / 0.38;
-    --ember-soft: 0.46 0.17 52 / 0.12;
-    --ember-soft-border: 0.46 0.17 52 / 0.34;
+    --code: 0.2 0.03 222 / 0.75;
+    --code-foreground: 0.88 0.03 170;
+    --scrim: 0.05 0.02 225 / 0.7;
+    --ember-soft: 0.75 0.14 168 / 0.14;
+    --ember-soft-border: 0.75 0.14 168 / 0.38;
   }
 
   * {
@@ -261,25 +264,95 @@
     min-height: 100vh;
   }
 
-  /* Frosted theme paints a lit atmosphere behind the glass panels. */
+  /* Frosted paints a dark cinematic atmosphere behind the glass panels:
+     deep teal-black base, an emerald aurora with slow drifting light orbs,
+     and a warm gold counter-glow. */
   .frosted body,
   body.frosted {
+    background-color: oklch(0.19 0.028 225);
     background-image: radial-gradient(
-        at 12% 8%,
-        oklch(0.86 0.09 60 / 0.55) 0px,
+        ellipse 65% 50% at 16% -6%,
+        oklch(0.5 0.1 185 / 0.34) 0%,
+        transparent 60%
+      ),
+      radial-gradient(
+        ellipse 55% 45% at 86% 6%,
+        oklch(0.46 0.1 168 / 0.24) 0%,
         transparent 55%
       ),
       radial-gradient(
-        at 88% 6%,
-        oklch(0.82 0.08 275 / 0.5) 0px,
-        transparent 50%
+        ellipse 45% 38% at 82% 96%,
+        oklch(0.64 0.09 85 / 0.13) 0%,
+        transparent 60%
       ),
       radial-gradient(
-        at 78% 92%,
-        oklch(0.84 0.08 200 / 0.45) 0px,
+        ellipse 45% 35% at 4% 102%,
+        oklch(0.38 0.07 195 / 0.22) 0%,
         transparent 55%
-      ), linear-gradient(160deg, oklch(0.78 0.06 245), oklch(0.7 0.06 280));
+      ), linear-gradient(165deg, oklch(0.21 0.03 222), oklch(0.16 0.025 228));
     background-attachment: fixed;
+  }
+
+  /* Drifting aurora orbs: two soft lights that slowly cross behind the glass
+     so the whole workspace feels lit from within. Purely decorative. */
+  .frosted body::before,
+  .frosted body::after,
+  body.frosted::before,
+  body.frosted::after {
+    content: "";
+    position: fixed;
+    z-index: -1;
+    pointer-events: none;
+    border-radius: 50%;
+    filter: blur(70px);
+  }
+
+  .frosted body::before,
+  body.frosted::before {
+    width: 48vw;
+    height: 48vw;
+    top: -14vw;
+    left: -8vw;
+    background: radial-gradient(
+      circle,
+      oklch(0.64 0.13 172 / 0.3) 0%,
+      transparent 70%
+    );
+    animation: aurora-drift-a 26s ease-in-out infinite;
+  }
+
+  .frosted body::after,
+  body.frosted::after {
+    width: 40vw;
+    height: 40vw;
+    right: -12vw;
+    bottom: -16vw;
+    background: radial-gradient(
+      circle,
+      oklch(0.78 0.09 92 / 0.16) 0%,
+      transparent 70%
+    );
+    animation: aurora-drift-b 34s ease-in-out infinite;
+  }
+
+  @keyframes aurora-drift-a {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1);
+    }
+    50% {
+      transform: translate3d(6vw, 4vw, 0) scale(1.12);
+    }
+  }
+
+  @keyframes aurora-drift-b {
+    0%,
+    100% {
+      transform: translate3d(0, 0, 0) scale(1.06);
+    }
+    50% {
+      transform: translate3d(-5vw, -6vw, 0) scale(0.96);
+    }
   }
 
   h1,
@@ -318,6 +391,98 @@
       oklch(var(--glass-highlight)) 0%,
       transparent 45%
     );
+  }
+
+  /* Aurora-glass polish, scoped to the frosted theme only. */
+
+  /* Dialogs and sheets read as highly blurred floating glass. */
+  .frosted [data-slot="dialog-content"],
+  .frosted [role="dialog"] {
+    background-color: oklch(0.24 0.028 220 / 0.82);
+    backdrop-filter: blur(24px) saturate(150%);
+    -webkit-backdrop-filter: blur(24px) saturate(150%);
+  }
+
+  /* A deeper, darker backdrop keeps the blurred dialog the brightest layer. */
+  .frosted .surface-scrim,
+  .frosted [data-slot="dialog-overlay"],
+  .frosted [data-slot="alert-dialog-overlay"] {
+    background-color: oklch(0.06 0.02 225 / 0.62);
+    backdrop-filter: blur(10px) saturate(120%);
+    -webkit-backdrop-filter: blur(10px) saturate(120%);
+  }
+
+  .frosted ::selection {
+    background-color: oklch(0.75 0.14 168 / 0.3);
+  }
+
+  /* Every card reads as layered glass: blurred, hairline-bordered, with a
+     faint specular top edge. On hover the pane brightens and lifts a touch. */
+  .frosted [data-slot="card"] {
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow: var(--glass-shadow), inset 0 1px 0 0 oklch(1 0 0 / 0.06);
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color
+      0.22s ease, box-shadow 0.22s ease;
+  }
+
+  .frosted [data-slot="card"]:hover {
+    border-color: oklch(1 0 0 / 0.24);
+    transform: translateY(-2px);
+    box-shadow: 0 14px 40px -10px oklch(0.05 0.02 225 / 0.7), 0 0 0 1px
+      oklch(0.75 0.14 168 / 0.08), inset 0 1px 0 0 oklch(1 0 0 / 0.1);
+  }
+
+  /* Primary actions carry an emerald aura that breathes on hover. */
+  .frosted [data-slot="button"] {
+    transition:
+      color 0.24s ease,
+      background-color 0.24s ease,
+      border-color 0.24s ease,
+      opacity 0.24s ease,
+      box-shadow 0.24s ease,
+      filter 0.24s ease,
+      transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .frosted [data-slot="button"].bg-primary:hover {
+    filter: brightness(1.07);
+    box-shadow: 0 8px 28px -8px oklch(0.75 0.14 168 / 0.55), 0 0 0 1px
+      oklch(0.75 0.14 168 / 0.35);
+    transform: translateY(-1px);
+  }
+
+  .frosted [data-slot="button"].bg-primary:active {
+    transform: translateY(0);
+  }
+
+  /* Segmented controls: the active tab glows emerald. */
+  .frosted [data-slot="tabs-trigger"][data-state="active"] {
+    box-shadow: inset 0 0 0 1px oklch(0.75 0.14 168 / 0.3), 0 4px 18px -6px
+      oklch(0.75 0.14 168 / 0.4);
+  }
+
+  /* Inputs come alive with a soft emerald focus bloom. */
+  .frosted [data-slot="input"]:focus-visible,
+  .frosted [data-slot="textarea"]:focus-visible {
+    box-shadow: 0 0 0 2px oklch(0.75 0.14 168 / 0.16), 0 4px 18px -8px
+      oklch(0.75 0.14 168 / 0.18);
+  }
+
+  /* The ember progress rule under headings leans emerald in frosted. */
+  .frosted .bg-gradient-primary {
+    background-size: 180% 180%;
+    animation: gradient-pan 9s ease infinite;
+  }
+
+  @keyframes gradient-pan {
+    0%,
+    100% {
+      background-position: 0% 50%;
+    }
+    50% {
+      background-position: 100% 50%;
+    }
   }
 
   .text-gradient-primary {

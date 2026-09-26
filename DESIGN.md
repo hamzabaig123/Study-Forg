@@ -27,7 +27,7 @@ Every surface is a deliberate layer — the ember gradient marks progress and th
 | ember-soft | 0.52 0.16 52 / 0.1   | Success panels, active section rail |
 
 `.dark`: background `0.155 0.022 265`, foreground `0.94 0.012 85`, primary `0.76 0.16 62`, border `0.3 0.028 265`; code `0.135 0.02 265`, scrim `0.08 0.02 265 / 0.66`.
-`.frosted`: background `0.72 0.05 250` with a lit multi-radial gradient; card is translucent `0.99 0.008 250 / 0.55`; foreground `0.17 0.028 258`; border `0.99 0.008 250 / 0.6`; primary `0.46 0.17 52`; code `0.99 0.008 250 / 0.62`.
+`.frosted` — "Aurora Glass": a dark cinematic glassmorphism treatment. Deep teal-black base `0.19 0.028 225` under an emerald aurora with slow drifting light orbs and a warm gold counter-glow; cards are translucent dark glass `0.26 0.028 220 / 0.55` with hairline `1 0 0 / 0.14` borders, a faint specular top edge, and a gentle hover lift; primary is rich emerald `0.75 0.14 168` with a gold-tipped gradient and an emerald hover bloom; dialogs float as heavily blurred glass (`blur(24px)`) over a deepened scrim; `dark:` variants apply under `.frosted` exactly as under `.dark`.
 
 ## Typography
 
@@ -80,7 +80,7 @@ Sections use `py-16 md:py-24` gaps with `max-w-6xl` content; cards group at `gap
 ## Constraints
 
 - All three themes (light, dark, frosted) must keep body text ≥ 4.5:1 and headings ≥ 3:1 contrast — including on cards, forms, and the timer
-- Frosted is a distinct glass treatment, never a tint of dark; its text stays dark-on-light for readability
+- Frosted is a distinct glass treatment, never a tint of dark: the aurora backdrop, glass layering, and blur are what separate it — its text stays light-on-dark at the same contrast bar
 - Token-only styling: no raw hex, `rgb()`, or arbitrary color classes in components (the QR well's `#ffffff` is the one sanctioned exception — it is required for scannability)
 - Ember is reserved for primary action, progress, and the timer — never used as a page background fill
 - No spaced-repetition scheduling, shared workspaces, difficulty/adaptive tagging, or streak/goal tracking UI

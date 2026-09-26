@@ -4,7 +4,9 @@ import animate from "tailwindcss-animate";
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  darkMode: ["class"],
+  // Frosted is a dark glass treatment, so every `dark:` variant applies under
+  // it exactly as under `.dark` — light/dark/frosted differ by tokens only.
+  darkMode: ["class", "&:where(.dark, .dark *, .frosted, .frosted *)"],
   content: ["index.html", "src/**/*.{js,ts,jsx,tsx,html,css}"],
   theme: {
     container: {
