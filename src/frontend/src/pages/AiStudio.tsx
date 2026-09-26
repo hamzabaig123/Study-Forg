@@ -25,7 +25,9 @@ import {
 } from "@/lib/ai/studioStore";
 import { Link, useRouterState } from "@tanstack/react-router";
 import {
+  AlertTriangle,
   Check,
+  ChevronDown,
   FileSearch,
   Layers3,
   Loader2,
@@ -35,6 +37,21 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+
+/** 6, 9, 10, 11, 16 reads better as "6, 9–11, 16" in a line of prose. */
+function pageRanges(pages: number[]): string {
+  const runs: Array<{ from: number; to: number }> = [];
+  for (const page of pages) {
+    const last = runs[runs.length - 1];
+    if (last && page === last.to + 1) last.to = page;
+    else runs.push({ from: page, to: page });
+  }
+  return runs
+    .map((run) =>
+      run.from === run.to ? `${run.from}` : `${run.from}–${run.to}`,
+    )
+    .join(", ");
+}
 
 function toId(value: string | null): bigint | null {
   if (!value) return null;
@@ -53,6 +70,13 @@ const STATUS_TABS = [
   "rejected",
 ] as const;
 const KIND_TABS = ["all", "mcq", "qa"] as const;
+
+/**
+ * How many drafts are on screen at once. A 160-question extraction is taller
+ * than the scrollbar can usefully navigate, so the rest waits behind a
+ * "show more" step that also keeps the page's first paint cheap.
+ */
+const DRAFTS_PER_PAGE = 25;
 
 export default function AiStudio() {
   const { providers, connect, choose, disconnect, chooseOffline, followKey } =
@@ -74,6 +98,7 @@ export default function AiStudio() {
   const clearQueue = useStudioStore((state) => state.clearQueue);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [visibleDrafts, setVisibleDrafts] = useState(DRAFTS_PER_PAGE);
   const queueRef = useRef<HTMLDivElement>(null);
 
   // A topic page hands its topic over with `?topic=`, so the reviewer does not
@@ -144,6 +169,17 @@ export default function AiStudio() {
     [drafts, filters],
   );
   const counts = useMemo(() => countByStatus(drafts), [drafts]);
+  const missing = source?.missing ?? [];
+  const visible = filtered.slice(0, visibleDrafts);
+
+  /**
+   * A filter change restarts the list at its first page: landing mid-way down a
+   * queue the reviewer has not seen under the new filter reads as lost items.
+   */
+  const applyFilters = (next: Partial<typeof filters>) => {
+    setFilters(next);
+    setVisibleDrafts(DRAFTS_PER_PAGE);
+  };
   const approvedReady = drafts.filter(
     (draft) => draft.status === "approved",
   ).length;
@@ -159,13 +195,32 @@ export default function AiStudio() {
         );
         return;
       }
-      toast.success(
-        `${result.drafts.length} question${
-          result.drafts.length === 1 ? "" : "s"
-        } extracted${
-          result.providerName ? ` with ${result.providerName}` : " offline"
-        }. Review them below.`,
-      );
+      setVisibleDrafts(DRAFTS_PER_PAGE);
+      // Name the reason a section was lost: "run again" is wrong advice for a
+      // refused key, and retrying is what produced the message in the first place.
+      const lost =
+        result.skipped > 0
+          ? ` · ${result.skipped} section${
+              result.skipped === 1 ? "" : "s"
+            } not read${
+              result.warnings[0]
+                ? `: ${result.warnings[0]}`
+                : ", run again to retry them"
+            }`
+          : "";
+      const made = `${result.drafts.length} question${
+        result.drafts.length === 1 ? "" : "s"
+      }`;
+      // A retry that only filled in the pages a previous run lost is not a new
+      // queue, and saying "extracted" over it would hide what happened.
+      const merged = result.queued > result.drafts.length;
+      const summary = `${made} ${merged ? "added to the queue" : "extracted"}${
+        result.providerName ? ` with ${result.providerName}` : " offline"
+      }${result.model ? ` — ${result.model} answered instead` : ""}${
+        merged ? ` · ${result.queued} in the queue` : ""
+      }${lost}. Review them below.`;
+      if (result.skipped > 0) toast.warning(summary);
+      else toast.success(summary);
       queueRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     } catch (error) {
       toast.error(
@@ -265,9 +320,12 @@ export default function AiStudio() {
 
       <TargetPicker target={target} onChange={setTarget} />
 
-      <div ref={queueRef} className="space-y-5">
+      <div ref={queueRef} className="space-y-5 scroll-mt-20">
         {drafts.length > 0 ? (
-          <Card className="rounded-xl border-border bg-card p-4 shadow-subtle">
+          // Stays under the app header while the queue scrolls: the approve,
+          // save and filter controls belong to the whole list, not to one card,
+          // and a 160-question queue puts them out of reach otherwise.
+          <Card className="sticky top-16 z-30 rounded-xl border-border bg-card/95 p-4 shadow-subtle backdrop-blur supports-[backdrop-filter]:bg-card/80">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-2 text-sm">
                 <Layers3 className="size-4 text-primary" aria-hidden="true" />
@@ -279,34 +337,45 @@ export default function AiStudio() {
                   {counts.pending} to review · {counts.approved} approved ·{" "}
                   {counts.imported} saved
                 </span>
+                {/* A toast fades; a queue that is short by ten pages stays
+                    short, so the gap has to be readable whenever it is looked at. */}
+                {missing.length > 0 && (
+                  <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle
+                      className="size-3.5 shrink-0"
+                      aria-hidden="true"
+                    />
+                    page {pageRanges(missing)} not read — extract again to fetch{" "}
+                    {missing.length === 1 ? "it" : "them"}
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size="action"
                   onClick={approveAllPending}
-                  className="rounded-lg text-xs"
                   data-ocid="ai_studio.approve_all_button"
                 >
-                  <Check className="mr-1.5 size-3.5" aria-hidden="true" />
+                  <Check className="size-3.5" aria-hidden="true" />
                   Approve all pending
                 </Button>
                 <Button
                   type="button"
-                  size="sm"
+                  variant="primary"
+                  size="action"
                   disabled={
                     approvedReady === 0 ||
                     target.topicId === null ||
                     isImportingAll
                   }
                   onClick={() => void saveApproved()}
-                  className="rounded-lg bg-gradient-primary text-primary-foreground"
                   data-ocid="ai_studio.import_all_button"
                 >
                   {isImportingAll ? (
                     <Loader2
-                      className="mr-1.5 size-3.5 animate-spin"
+                      className="size-3.5 animate-spin"
                       aria-hidden="true"
                     />
                   ) : null}
@@ -314,13 +383,13 @@ export default function AiStudio() {
                 </Button>
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="sm"
+                  variant="quiet"
+                  size="action"
                   onClick={clearQueue}
-                  className="rounded-lg text-xs text-muted-foreground hover:text-destructive"
+                  className="hover:text-destructive"
                   data-ocid="ai_studio.clear_queue_button"
                 >
-                  <Trash2 className="mr-1.5 size-3.5" aria-hidden="true" />
+                  <Trash2 className="size-3.5" aria-hidden="true" />
                   Clear
                 </Button>
               </div>
@@ -332,14 +401,9 @@ export default function AiStudio() {
                   <Button
                     key={status}
                     type="button"
-                    variant={filters.status === status ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setFilters({ status })}
-                    className={
-                      filters.status === status
-                        ? "h-7 rounded-lg text-xs"
-                        : "h-7 rounded-lg text-xs text-muted-foreground"
-                    }
+                    variant={filters.status === status ? "default" : "quiet"}
+                    size="chip"
+                    onClick={() => applyFilters({ status })}
                     data-ocid={`ai_studio.status_filter.${status}`}
                   >
                     {status === "all" ? "All" : status}
@@ -351,14 +415,9 @@ export default function AiStudio() {
                   <Button
                     key={kind}
                     type="button"
-                    variant={filters.kind === kind ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setFilters({ kind })}
-                    className={
-                      filters.kind === kind
-                        ? "h-7 rounded-lg text-xs"
-                        : "h-7 rounded-lg text-xs text-muted-foreground"
-                    }
+                    variant={filters.kind === kind ? "default" : "quiet"}
+                    size="chip"
+                    onClick={() => applyFilters({ kind })}
                     data-ocid={`ai_studio.kind_filter.${kind}`}
                   >
                     {kind === "all"
@@ -373,7 +432,7 @@ export default function AiStudio() {
                 <Input
                   value={filters.query}
                   onChange={(event) =>
-                    setFilters({ query: event.target.value })
+                    applyFilters({ query: event.target.value })
                   }
                   placeholder="Search the drafts"
                   aria-label="Search drafts"
@@ -391,20 +450,23 @@ export default function AiStudio() {
             title="No drafts yet"
             action={
               classes.length === 0 ? (
-                <Button asChild variant="outline" className="rounded-full">
-                  <Link to="/classes" data-ocid="ai_studio.empty_classes_link">
-                    Build a class first
-                  </Link>
+                <Button
+                  asChild
+                  variant="outline"
+                  size="action"
+                  data-ocid="ai_studio.empty_classes_link"
+                >
+                  <Link to="/classes">Build a class first</Link>
                 </Button>
               ) : (
                 <Button
                   type="button"
                   variant="outline"
-                  className="rounded-full"
+                  size="action"
                   onClick={() => setSettingsOpen(true)}
                   data-ocid="ai_studio.empty_settings_button"
                 >
-                  <Wand2 className="mr-2 size-4" aria-hidden="true" />
+                  <Wand2 className="size-3.5" aria-hidden="true" />
                   Connect an AI key
                 </Button>
               )
@@ -419,18 +481,18 @@ export default function AiStudio() {
             <Button
               type="button"
               variant="outline"
-              size="sm"
+              size="action"
               onClick={() =>
-                setFilters({ status: "all", kind: "all", query: "" })
+                applyFilters({ status: "all", kind: "all", query: "" })
               }
-              className="mt-3 rounded-lg text-xs"
+              className="mt-3"
             >
               Reset filters
             </Button>
           </Card>
         ) : (
           <div className="space-y-4">
-            {filtered.map((draft, index) => (
+            {visible.map((draft, index) => (
               <DraftCard
                 key={draft.id}
                 draft={draft}
@@ -445,6 +507,31 @@ export default function AiStudio() {
                 onImport={() => void saveOne(draft)}
               />
             ))}
+
+            {filtered.length > visible.length ? (
+              <div className="flex flex-col items-center gap-2 pt-1">
+                <p
+                  className="text-xs text-muted-foreground"
+                  data-ocid="ai_studio.showing_count"
+                >
+                  Showing {visible.length} of {filtered.length}
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="action"
+                  onClick={() =>
+                    setVisibleDrafts((count) => count + DRAFTS_PER_PAGE)
+                  }
+                  data-ocid="ai_studio.show_more_button"
+                >
+                  <ChevronDown className="size-3.5" aria-hidden="true" />
+                  Show{" "}
+                  {Math.min(DRAFTS_PER_PAGE, filtered.length - visible.length)}{" "}
+                  more
+                </Button>
+              </div>
+            ) : null}
           </div>
         )}
       </div>

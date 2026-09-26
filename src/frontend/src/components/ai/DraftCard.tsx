@@ -96,7 +96,9 @@ export function DraftCard({
   const [options, setOptions] = useState<string[]>(
     draft.options.length > 0 ? draft.options : ["", ""],
   );
-  const [correctIndex, setCorrectIndex] = useState(draft.correctIndex ?? 0);
+  const [correctIndex, setCorrectIndex] = useState<number | null>(
+    draft.correctIndex,
+  );
   const [answer, setAnswer] = useState(draft.answer);
   const [explanation, setExplanation] = useState(draft.explanation);
 
@@ -106,7 +108,7 @@ export function DraftCard({
   const startEdit = () => {
     setQuestion(draft.question);
     setOptions(draft.options.length > 0 ? draft.options : ["", ""]);
-    setCorrectIndex(draft.correctIndex ?? 0);
+    setCorrectIndex(draft.correctIndex);
     setAnswer(draft.answer);
     setExplanation(draft.explanation);
     setEditing(true);
@@ -114,15 +116,19 @@ export function DraftCard({
 
   const saveEdit = () => {
     if (draft.kind === "mcq") {
-      const cleaned = options.map((option) => option.trim()).filter(Boolean);
+      // Dropping blank options moves the rest, so the marked option is re-found
+      // by its text instead of by clamping its old index.
+      const kept = options
+        .map((option) => option.trim())
+        .filter((text) => text.length > 0);
+      const marked =
+        correctIndex === null ? "" : (options[correctIndex] ?? "").trim();
+      const nextCorrect = kept.indexOf(marked);
       onPatch({
         question: question.trim(),
-        options: cleaned,
-        // The marked option can move when blanks are dropped, so re-find it.
-        correctIndex: Math.min(correctIndex, Math.max(0, cleaned.length - 1)),
-        answer:
-          cleaned[Math.min(correctIndex, Math.max(0, cleaned.length - 1))] ??
-          "",
+        options: kept,
+        correctIndex: nextCorrect === -1 ? null : nextCorrect,
+        answer: nextCorrect === -1 ? "" : (kept[nextCorrect] ?? ""),
         explanation: explanation.trim(),
         inferred: false,
       });
@@ -142,7 +148,10 @@ export function DraftCard({
   const changeKind = (kind: "mcq" | "qa") => {
     if (kind === draft.kind) return;
     if (kind === "qa") {
-      const correct = draft.options[draft.correctIndex ?? 0] ?? draft.answer;
+      const correct =
+        draft.correctIndex === null
+          ? draft.answer
+          : (draft.options[draft.correctIndex] ?? draft.answer);
       onPatch({ kind: "qa", options: [], correctIndex: null, answer: correct });
       return;
     }
@@ -205,49 +214,46 @@ export function DraftCard({
             {editing ? (
               <Button
                 type="button"
-                size="sm"
+                size="action"
                 onClick={saveEdit}
-                className="h-8 rounded-lg text-xs"
                 data-ocid={`ai_studio.save_edit_button.${index + 1}`}
               >
-                <Check className="mr-1 size-3.5" aria-hidden="true" />
+                <Check className="size-3.5" aria-hidden="true" />
                 Done
               </Button>
             ) : (
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
+                variant="quiet"
+                size="action"
                 onClick={startEdit}
-                className="h-8 rounded-lg text-xs text-muted-foreground"
                 data-ocid={`ai_studio.edit_button.${index + 1}`}
               >
-                <Pencil className="mr-1 size-3.5" aria-hidden="true" />
+                <Pencil className="size-3.5" aria-hidden="true" />
                 Edit
               </Button>
             )}
             {draft.status !== "rejected" ? (
               <Button
                 type="button"
-                variant="ghost"
-                size="sm"
+                variant="quiet"
+                size="action"
                 onClick={() => onStatus("rejected")}
-                className="h-8 rounded-lg text-xs text-muted-foreground hover:text-destructive"
+                className="hover:text-destructive"
                 data-ocid={`ai_studio.reject_button.${index + 1}`}
               >
-                <X className="mr-1 size-3.5" aria-hidden="true" />
+                <X className="size-3.5" aria-hidden="true" />
                 Reject
               </Button>
             ) : (
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+                size="action"
                 onClick={() => onStatus("pending")}
-                className="h-8 rounded-lg text-xs"
                 data-ocid={`ai_studio.restore_button.${index + 1}`}
               >
-                <RotateCcw className="mr-1 size-3.5" aria-hidden="true" />
+                <RotateCcw className="size-3.5" aria-hidden="true" />
                 Restore
               </Button>
             )}
@@ -255,21 +261,20 @@ export function DraftCard({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+                size="action"
                 onClick={() => onStatus("approved")}
-                className="h-8 rounded-lg border-primary/30 text-xs text-primary hover:bg-primary/10"
                 data-ocid={`ai_studio.approve_button.${index + 1}`}
               >
-                <Check className="mr-1 size-3.5" aria-hidden="true" />
+                <Check className="size-3.5" aria-hidden="true" />
                 Approve
               </Button>
             ) : null}
             <Button
               type="button"
-              variant="ghost"
-              size="sm"
+              variant="quiet"
+              size="action"
               onClick={onRemove}
-              className="h-8 rounded-lg px-2 text-xs text-muted-foreground hover:text-destructive"
+              className="px-2 hover:text-destructive"
               aria-label="Remove this draft"
               data-ocid={`ai_studio.remove_button.${index + 1}`}
             >
@@ -341,16 +346,29 @@ export function DraftCard({
                       />
                       <Button
                         type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() =>
-                          setOptions((current) =>
-                            current.filter(
+                        variant="quiet"
+                        size="action"
+                        onClick={() => {
+                          if (options.length <= 2) return;
+                          // Removing an option shifts the ones after it, and
+                          // removing the marked one must not quietly move the
+                          // answer onto a different option.
+                          setOptions(
+                            options.filter(
                               (_, position) => position !== optionIndex,
                             ),
-                          )
-                        }
-                        className="size-8 shrink-0 p-0 text-muted-foreground hover:text-destructive"
+                          );
+                          setCorrectIndex((marked) =>
+                            marked === null
+                              ? null
+                              : marked === optionIndex
+                                ? null
+                                : marked > optionIndex
+                                  ? marked - 1
+                                  : marked,
+                          );
+                        }}
+                        className="size-8 shrink-0 p-0 hover:text-destructive"
                         aria-label="Remove option"
                         disabled={options.length <= 2}
                       >
@@ -362,12 +380,12 @@ export function DraftCard({
                 {options.length < MAX_OPTIONS ? (
                   <Button
                     type="button"
-                    variant="ghost"
-                    size="sm"
+                    variant="quiet"
+                    size="action"
                     onClick={() => setOptions((current) => [...current, ""])}
-                    className="h-8 rounded-lg text-xs text-primary"
+                    className="text-primary"
                   >
-                    <Plus className="mr-1 size-3.5" aria-hidden="true" />
+                    <Plus className="size-3.5" aria-hidden="true" />
                     Add option
                   </Button>
                 ) : null}
@@ -485,9 +503,12 @@ export function DraftCard({
                 </span>
               ) : null}
             </p>
+            {/* Not a gradient CTA: one card's save is a row action, and the
+                page already has a single primary button for the batch. */}
             <Button
               type="button"
-              size="sm"
+              variant="outline"
+              size="action"
               disabled={
                 !topicLabel ||
                 problem !== null ||
@@ -495,16 +516,12 @@ export function DraftCard({
                 isSaving
               }
               onClick={onImport}
-              className="rounded-lg bg-gradient-primary text-primary-foreground"
               data-ocid={`ai_studio.import_button.${index + 1}`}
             >
               {isSaving ? (
-                <Loader2
-                  className="mr-1.5 size-3.5 animate-spin"
-                  aria-hidden="true"
-                />
+                <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
               ) : (
-                <Check className="mr-1.5 size-3.5" aria-hidden="true" />
+                <Check className="size-3.5" aria-hidden="true" />
               )}
               Save question
             </Button>

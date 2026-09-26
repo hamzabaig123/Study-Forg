@@ -22,9 +22,14 @@ export interface AuthSession {
   createdAt: string;
 }
 
+import { safeRemoveItem, safeSetItem } from "@/lib/localStore";
+
 export const ACCOUNTS_KEY = "studyforge.personal-accounts.v1";
 export const SESSION_KEY = "studyforge.personal-session.v1";
 const CHANGE_EVENT = "studyforge-auth-change";
+const MS_PER_DAY = 86_400_000;
+/** How long a locally stored sign-in stays valid before it must be repeated. */
+const SESSION_DAYS = 30;
 const bytesToHex = (bytes: Uint8Array) =>
   Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 function randomHex(length = 24) {
@@ -66,7 +71,7 @@ export function getAccountsSnapshot() {
   return localStorage.getItem(ACCOUNTS_KEY) ?? "[]";
 }
 function saveAccounts(accounts: LocalAccount[]) {
-  localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts));
+  safeSetItem(ACCOUNTS_KEY, JSON.stringify(accounts));
 }
 function notify() {
   window.dispatchEvent(new Event(CHANGE_EVENT));
@@ -74,12 +79,35 @@ function notify() {
 export function getSessionSnapshot() {
   return localStorage.getItem(SESSION_KEY) ?? "null";
 }
+function writeSession(accountId: string) {
+  safeSetItem(
+    SESSION_KEY,
+    JSON.stringify({
+      accountId,
+      token: randomHex(32),
+      createdAt: new Date().toISOString(),
+    }),
+  );
+}
 export function getSession(): AuthSession | null {
+  let session: AuthSession | null;
   try {
-    return JSON.parse(getSessionSnapshot()) as AuthSession | null;
+    session = JSON.parse(getSessionSnapshot()) as AuthSession | null;
   } catch {
     return null;
   }
+  if (!session?.accountId) {
+    return null;
+  }
+  const issuedAt = Date.parse(session.createdAt);
+  if (
+    !Number.isFinite(issuedAt) ||
+    Date.now() - issuedAt > SESSION_DAYS * MS_PER_DAY
+  ) {
+    safeRemoveItem(SESSION_KEY);
+    return null;
+  }
+  return session;
 }
 export function getCurrentAccount(): LocalAccount | null {
   const session = getSession();
@@ -119,14 +147,7 @@ export async function registerAccount(input: {
     createdAt: new Date().toISOString(),
   };
   saveAccounts([...accounts, account]);
-  localStorage.setItem(
-    SESSION_KEY,
-    JSON.stringify({
-      accountId: account.id,
-      token: randomHex(32),
-      createdAt: new Date().toISOString(),
-    }),
-  );
+  writeSession(account.id);
   notify();
   return account;
 }
@@ -137,16 +158,10 @@ export async function loginAccount(emailInput: string, password: string) {
     password,
     account?.salt ?? "unknown-account-salt",
   );
-  if (!account || hash !== account.passwordHash)
+  // The demo record is created with an empty verifier; no password may match it.
+  if (!account?.passwordHash || hash !== account.passwordHash)
     throw new Error("Incorrect email or password.");
-  localStorage.setItem(
-    SESSION_KEY,
-    JSON.stringify({
-      accountId: account.id,
-      token: randomHex(32),
-      createdAt: new Date().toISOString(),
-    }),
-  );
+  writeSession(account.id);
   notify();
   return account;
 }
@@ -161,7 +176,7 @@ export function verifyCurrentAccount() {
   notify();
 }
 export function logoutAccount() {
-  localStorage.removeItem(SESSION_KEY);
+  safeRemoveItem(SESSION_KEY);
   notify();
 }
 /** A verified, local-only account for trying the app without registration. */
@@ -180,14 +195,7 @@ export function startDemoAccount() {
     };
     saveAccounts([...getAccounts(), account]);
   }
-  localStorage.setItem(
-    SESSION_KEY,
-    JSON.stringify({
-      accountId: account.id,
-      token: randomHex(32),
-      createdAt: new Date().toISOString(),
-    }),
-  );
+  writeSession(account.id);
   notify();
   return account;
 }

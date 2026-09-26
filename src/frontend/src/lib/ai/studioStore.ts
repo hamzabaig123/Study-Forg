@@ -8,7 +8,11 @@
  * next to its questions would only bloat local storage.
  */
 
-import type { QuestionDraft, QuestionKind } from "@/lib/ai/questions";
+import {
+  type QuestionDraft,
+  type QuestionKind,
+  draftKey,
+} from "@/lib/ai/questions";
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
@@ -39,6 +43,8 @@ export interface QueueSource {
   engine: "model" | "offline";
   providerName: string | null;
   extractedAt: number;
+  /** Pages the last run could not read, so a partial queue can say so. */
+  missing: number[];
 }
 
 const EMPTY_TARGET: TargetPath = {
@@ -66,6 +72,21 @@ interface StudioState {
       fileName: string;
       engine: "model" | "offline";
       providerName: string | null;
+      missing: number[];
+    },
+  ) => void;
+  /**
+   * Add what a retry found to the queue that is already there. A run that lost
+   * sections is followed by "extract again", and replacing the queue then would
+   * throw away the pages the first run did read.
+   */
+  mergeDrafts: (
+    drafts: QuestionDraft[],
+    source: {
+      fileName: string;
+      engine: "model" | "offline";
+      providerName: string | null;
+      missing: number[];
     },
   ) => void;
   addDraft: (draft: QuestionDraft) => void;
@@ -100,6 +121,37 @@ export const useStudioStore = create<StudioState>()(
           // upload is the friction that makes a queue annoying to work through.
           target: state.target,
         })),
+
+      mergeDrafts: (drafts, source) =>
+        set((state) => {
+          const seen = new Set(state.drafts.map((draft) => draftKey(draft)));
+          const added = drafts
+            .filter((draft) => {
+              if (seen.has(draftKey(draft))) return false;
+              seen.add(draftKey(draft));
+              return true;
+            })
+            .map((draft) => ({
+              ...draft,
+              status: "pending" as const,
+              savedQuestionId: null,
+            }));
+          // Page order survives the merge, so a retried page lands where the
+          // reviewer expects rather than at the bottom of the queue.
+          const merged = [...state.drafts, ...added].sort(
+            (a, b) => (a.page ?? 0) - (b.page ?? 0),
+          );
+          return {
+            drafts: merged,
+            // Back to the unfiltered view: a queue left inside a "rejected" or
+            // search filter would show the retried pages as if they were lost.
+            filters: EMPTY_FILTERS,
+            source: state.source
+              ? { ...state.source, ...source, extractedAt: Date.now() }
+              : { ...source, extractedAt: Date.now() },
+            target: state.target,
+          };
+        }),
 
       addDraft: (draft) =>
         set((state) => ({

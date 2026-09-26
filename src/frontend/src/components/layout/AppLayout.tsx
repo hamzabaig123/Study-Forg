@@ -1,5 +1,6 @@
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { StorageHealthBanner } from "@/components/layout/StorageHealthBanner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Outlet } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
@@ -25,6 +26,7 @@ export function AppLayout() {
           data-ocid="app.main"
         >
           <div className="mx-auto w-full max-w-6xl">
+            <StorageHealthBanner />
             <Outlet />
           </div>
         </main>

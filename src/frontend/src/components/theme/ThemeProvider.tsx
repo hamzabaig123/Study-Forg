@@ -1,3 +1,4 @@
+import { safeGetItem, safeSetItem } from "@/lib/localStore";
 import type { ThemeName } from "@/types";
 import {
   createContext,
@@ -27,7 +28,7 @@ function isThemeName(value: unknown): value is ThemeName {
 
 function readStoredTheme(): ThemeName {
   if (typeof window === "undefined") return "light";
-  const stored = window.localStorage.getItem(STORAGE_KEY);
+  const stored = safeGetItem(STORAGE_KEY);
   return isThemeName(stored) ? stored : "light";
 }
 
@@ -47,7 +48,7 @@ export function ThemeProvider({ children }: PropsWithChildren) {
     root.classList.toggle("dark", theme === "dark");
     root.classList.toggle("frosted", theme === "frosted");
     root.style.colorScheme = theme === "dark" ? "dark" : "light";
-    window.localStorage.setItem(STORAGE_KEY, theme);
+    safeSetItem(STORAGE_KEY, theme);
   }, [theme]);
 
   const setTheme = useCallback((next: ThemeName) => {

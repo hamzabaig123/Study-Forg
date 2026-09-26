@@ -23,20 +23,28 @@ import {
 } from "@/lib/ai/providers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+/**
+ * Success bodies are read as text and parsed by StudyForge, so a mock answers
+ * with the JSON string rather than an object.
+ */
+const CHAT_BODY = JSON.stringify({
+  choices: [{ message: { content: '{"items":[]}' } }],
+});
+
+const GEMINI_BODY = JSON.stringify({
+  candidates: [{ content: { parts: [{ text: '{"items":[]}' }] } }],
+});
+
 const OFFLINE_REPLY = {
   ok: true,
-  json: async () => ({
-    choices: [{ message: { content: '{"items":[]}' } }],
-  }),
-  text: async () => "",
+  json: async () => JSON.parse(CHAT_BODY),
+  text: async () => CHAT_BODY,
 };
 
 const GEMINI_REPLY = {
   ok: true,
-  json: async () => ({
-    candidates: [{ content: { parts: [{ text: '{"items":[]}' }] } }],
-  }),
-  text: async () => "",
+  json: async () => JSON.parse(GEMINI_BODY),
+  text: async () => GEMINI_BODY,
 };
 
 function bodyOf(init: RequestInit): Record<string, unknown> {
@@ -75,10 +83,13 @@ describe("the provider catalogue", () => {
     ]);
   });
 
-  it("defaults to Google's newest Flash model", () => {
+  it("defaults to the newest Flash model that answers", () => {
     const gemini = findProvider("gemini");
-    expect(gemini?.defaultModel).toBe("gemini-3.8-flash");
-    expect(gemini?.models[0].id).toBe("gemini-3.8-flash");
+    // 3.8 is newer but sits at HTTP 503 "high demand" for long stretches, so
+    // it is offered last instead of being what a run starts with.
+    expect(gemini?.defaultModel).toBe("gemini-3.7-flash");
+    expect(gemini?.models[0].id).toBe("gemini-3.7-flash");
+    expect(gemini?.models.at(-1)?.id).toBe("gemini-3.8-flash");
     expect(
       gemini?.models.every((model) => model.id.startsWith("gemini-")),
     ).toBe(true);
@@ -125,8 +136,8 @@ describe("choosing what runs", () => {
 
   it("carries the chosen model into the active provider", () => {
     saveKey("gemini", "AIza-gemini");
-    expect(savedModel("gemini")).toBe("gemini-3.8-flash");
-    expect(activeProvider()?.model).toBe("gemini-3.8-flash");
+    expect(savedModel("gemini")).toBe("gemini-3.7-flash");
+    expect(activeProvider()?.model).toBe("gemini-3.7-flash");
 
     setSavedModel("gemini", "gemini-3.5-flash-lite");
     expect(savedModel("gemini")).toBe("gemini-3.5-flash-lite");
@@ -137,9 +148,9 @@ describe("choosing what runs", () => {
 
   it("ignores a damaged model record and an empty choice", () => {
     window.localStorage.setItem("studyforge.ai.model", "not json");
-    expect(savedModel("gemini")).toBe("gemini-3.8-flash");
+    expect(savedModel("gemini")).toBe("gemini-3.7-flash");
     setSavedModel("gemini", "   ");
-    expect(savedModel("gemini")).toBe("gemini-3.8-flash");
+    expect(savedModel("gemini")).toBe("gemini-3.7-flash");
   });
 });
 
@@ -215,24 +226,24 @@ describe("model lists", () => {
 });
 
 describe("the request each provider gets", () => {
-  function activeFor(id: "gemini" | "openRouter" | "ollama"): ActiveProvider {
-    setPreferredChoice(id);
-    const active = activeProvider();
-    if (!active) throw new Error(`No active provider for ${id}`);
-    return active;
-  }
-
-  it("sends a Gemini model in the URL with the key", async () => {
+  it("sends a Gemini model in the URL and the key in a header", async () => {
     fetchMock.mockResolvedValue(GEMINI_REPLY);
     saveKey("gemini", "AIza-test");
     setSavedModel("gemini", "gemini-3.7-flash");
 
     await callProvider(activeFor("gemini"), "page text", []);
 
-    expect(chatUrl(0)).toBe(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent?key=AIza-test",
+    const url = chatUrl(0);
+    expect(url).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.7-flash:generateContent",
     );
+    // A key in the query string is recorded by proxies, extensions and the
+    // provider's access logs, so the URL must never contain it.
+    expect(url).not.toContain("AIza-test");
     const init = chatInit(0);
+    expect((init.headers as Record<string, string>)["x-goog-api-key"]).toBe(
+      "AIza-test",
+    );
     expect(bodyOf(init).generationConfig).toMatchObject({
       responseMimeType: "application/json",
     });
@@ -272,6 +283,164 @@ describe("the request each provider gets", () => {
     ).rejects.toThrow(/Could not reach the local server/);
   });
 });
+
+function statusReply(status: number, message: string) {
+  return {
+    ok: false,
+    status,
+    json: async () => ({ error: { message } }),
+    text: async () => JSON.stringify({ error: { message } }),
+  };
+}
+
+describe("when a model is busy", () => {
+  function geminiActive(): ActiveProvider {
+    saveKey("gemini", "AIza-test");
+    return activeFor("gemini");
+  }
+
+  it("asks a refused model twice, then steps to the next one", async () => {
+    vi.useFakeTimers();
+    const active = geminiActive();
+    fetchMock
+      .mockResolvedValueOnce(
+        statusReply(503, "This model is currently experiencing high demand."),
+      )
+      .mockResolvedValueOnce(
+        statusReply(503, "This model is currently experiencing high demand."),
+      )
+      .mockResolvedValue(GEMINI_REPLY);
+    const notices: string[] = [];
+
+    const running = callProvider(active, "page text", [], (message) =>
+      notices.push(message),
+    );
+    await vi.runAllTimersAsync();
+    const reply = await running;
+    vi.useRealTimers();
+
+    // Two attempts on the default, then the next model answers.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(chatUrl(0)).toContain("models/gemini-3.7-flash:");
+    expect(chatUrl(1)).toContain("models/gemini-3.7-flash:");
+    expect(chatUrl(2)).toContain("models/gemini-3.6-flash:");
+    expect(reply.model).toBe("gemini-3.6-flash");
+    expect(notices).toEqual([
+      "gemini-3.7-flash is busy — trying gemini-3.6-flash instead.",
+    ]);
+    // The model that got through is kept for the rest of the run's pages.
+    expect(active.model).toBe("gemini-3.6-flash");
+  });
+
+  it("gives up with advice when every model stays busy", async () => {
+    vi.useFakeTimers();
+    fetchMock.mockResolvedValue(
+      statusReply(429, "Rate limit exceeded for this model."),
+    );
+
+    const running = callProvider(geminiActive(), "page text", []);
+    const settled = running.catch((cause: unknown) => cause);
+    await vi.runAllTimersAsync();
+    const error = (await settled) as Error;
+    vi.useRealTimers();
+
+    expect(fetchMock).toHaveBeenCalledTimes(8); // 4 models x 2 attempts
+    expect(error.message).toMatch(/Google Gemini:[\s\S]*Try again in a moment/);
+  });
+
+  it("counts a 200 that carries no text as a busy model", async () => {
+    // Gemini answers an overloaded request with an empty candidates list and
+    // HTTP 200, so an empty reply is retried rather than parsed as "no items".
+    const silent = {
+      ok: true,
+      json: async () => ({ candidates: [{ content: { parts: [] } }] }),
+      text: async () => "",
+    };
+    vi.useFakeTimers();
+    const active = geminiActive();
+    fetchMock.mockResolvedValueOnce(silent).mockResolvedValue(GEMINI_REPLY);
+
+    const running = callProvider(active, "page text", []);
+    await vi.runAllTimersAsync();
+    const reply = await running;
+    vi.useRealTimers();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(reply.model).toBe("gemini-3.7-flash");
+  });
+
+  it("counts a request that hangs as a busy model", async () => {
+    // Without a deadline one stalled page would hold the whole run open.
+    const stalled = Object.assign(new Error("signal timed out"), {
+      name: "TimeoutError",
+    });
+    vi.useFakeTimers();
+    const active = geminiActive();
+    fetchMock.mockRejectedValueOnce(stalled).mockResolvedValue(GEMINI_REPLY);
+
+    const running = callProvider(active, "page text", []);
+    await vi.runAllTimersAsync();
+    const reply = await running;
+    vi.useRealTimers();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(chatInit(0).signal).toBeTruthy();
+    expect(reply.model).toBe("gemini-3.7-flash");
+  });
+
+  it("refuses a dead key once, without retrying or switching model", async () => {
+    // Google answers an invalid key with 400, not 401.
+    fetchMock.mockResolvedValue(
+      statusReply(400, "API key not valid. Please pass a valid API key."),
+    );
+
+    await expect(callProvider(geminiActive(), "page text", [])).rejects.toThrow(
+      /API key not valid[\s\S]*Create a fresh one at https:\/\/aistudio\.google\.com\/app\/apikey/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells an expired OpenRouter key where to renew it", async () => {
+    saveKey("openRouter", "sk-or-v1-expired");
+    fetchMock.mockResolvedValue(statusReply(401, "API key expired."));
+
+    await expect(
+      callProvider(activeFor("openRouter"), "page text", []),
+    ).rejects.toThrow(/API key expired[\s\S]*https:\/\/openrouter\.ai\/keys/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("names the key page when the provider rejects the key", async () => {
+    fetchMock.mockResolvedValue(statusReply(403, "Permission denied on key."));
+
+    await expect(callProvider(geminiActive(), "page text", [])).rejects.toThrow(
+      /aistudio\.google\.com\/app\/apikey/,
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("JSON mode per provider", () => {
+  it("asks Ollama for JSON and leaves OpenRouter alone", async () => {
+    fetchMock.mockResolvedValue(OFFLINE_REPLY);
+    saveKey("openRouter", "sk-or-v1-test");
+
+    await callProvider(activeFor("openRouter"), "page text", []);
+    expect(bodyOf(chatInit(0)).response_format).toBeUndefined();
+
+    await callProvider(activeFor("ollama"), "page text", []);
+    expect(bodyOf(chatInit(1)).response_format).toEqual({
+      type: "json_object",
+    });
+  });
+});
+
+function activeFor(id: "gemini" | "openRouter" | "ollama"): ActiveProvider {
+  setPreferredChoice(id);
+  const active = activeProvider();
+  if (!active) throw new Error(`No active provider for ${id}`);
+  return active;
+}
 
 function chatUrl(index: number): string {
   return (fetchMock.mock.calls[index] as [string])[0];

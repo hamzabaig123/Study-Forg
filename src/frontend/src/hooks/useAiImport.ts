@@ -23,14 +23,27 @@ export function importCheck(draft: QuestionDraft): ImportProblem | null {
     return { reason: "the question text is empty" };
   }
   if (draft.kind === "mcq") {
-    if (draft.options.filter((option) => option.trim()).length < 2) {
+    const filled = draft.options.filter((option) => option.trim());
+    if (filled.length < 2) {
       return { reason: "an MCQ needs at least two options" };
     }
+    if (filled.length !== draft.options.length) {
+      return { reason: "an option is blank" };
+    }
     if (
-      draft.correctIndex === null ||
-      draft.correctIndex >= draft.options.length
+      new Set(filled.map((option) => option.trim().toLowerCase())).size !==
+      filled.length
     ) {
+      return {
+        reason: "two options are identical, so the answer is ambiguous",
+      };
+    }
+    const index = draft.correctIndex;
+    if (index === null || index < 0 || index >= draft.options.length) {
       return { reason: "no option is marked correct" };
+    }
+    if (!draft.options[index].trim()) {
+      return { reason: "the marked correct option is blank" };
     }
     return null;
   }

@@ -41,7 +41,7 @@ import {
   ShieldCheck,
   Zap,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface ProviderDialogProps {
   open: boolean;
@@ -72,23 +72,39 @@ export function ProviderDialog({
 }: ProviderDialogProps) {
   const [selected, setSelected] = useState<ProviderId>(PROVIDERS[0].id);
   const [model, setModel] = useState(savedModel(PROVIDERS[0].id));
-  const [keyInput, setKeyInput] = useState("");
+  /** One draft per provider, so switching tabs never throws a typed key away. */
+  const [keyDrafts, setKeyDrafts] = useState<Record<ProviderId, string>>({
+    gemini: "",
+    openRouter: "",
+    ollama: "",
+  });
   const [reveal, setReveal] = useState(false);
+  const [saved, setSaved] = useState<ProviderId | null>(null);
   const [models, setModels] = useState<ModelOption[]>(PROVIDERS[0].models);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
+  const wasOpen = useRef(open);
 
   useEffect(() => {
-    if (!open) return;
+    // Only on the closed-to-open transition: resetting whenever the provider
+    // state changed wiped a key typed into the box, which is how keys ended up
+    // never being saved.
+    if (!open) {
+      wasOpen.current = false;
+      return;
+    }
+    if (wasOpen.current) return;
+    wasOpen.current = true;
     const next =
       providers.preference && providers.preference !== "offline"
         ? providers.preference
         : (providers.active?.provider.id ?? PROVIDERS[0].id);
     setSelected(next);
     setModel(savedModel(next));
-    setKeyInput("");
+    setKeyDrafts({ gemini: "", openRouter: "", ollama: "" });
     setReveal(false);
+    setSaved(null);
     setReload(0);
   }, [open, providers.preference, providers.active]);
 
@@ -131,10 +147,12 @@ export function ProviderDialog({
   const provider =
     PROVIDERS.find((entry) => entry.id === selected) ?? PROVIDERS[0];
   const savedKey = providers.keys[provider.id] ?? "";
-  const trimmed = keyInput.trim();
+  const trimmed = keyDrafts[provider.id].trim();
   const current = models.find((entry) => entry.id === model) ?? null;
 
   const useOffline = providers.offlineChosen;
+  // The provider extraction would use if the dialog closed right now.
+  const willRun = provider.requiresKey ? Boolean(trimmed || savedKey) : true;
 
   const selectModel = (value: string) => {
     setModel(value);
@@ -144,12 +162,25 @@ export function ProviderDialog({
   const selectProvider = (id: ProviderId) => {
     setSelected(id);
     setModel(savedModel(id));
+    setSaved(null);
     setReload(0);
     if (!useOffline) onFollowKey();
   };
 
+  /**
+   * Saves without closing: with a key saved the reviewer can still press
+   * "Use {provider}", and a key typed for one provider is not lost by looking
+   * at another.
+   */
+  const saveDraft = () => {
+    onConnect(provider.id, trimmed);
+    setKeyDrafts((drafts) => ({ ...drafts, [provider.id]: "" }));
+    setSaved(provider.id);
+  };
+
   const confirm = () => {
-    if (provider.requiresKey) onConnect(provider.id, trimmed);
+    if (!provider.requiresKey) onChoose(provider.id);
+    else if (trimmed) onConnect(provider.id, trimmed);
     else onChoose(provider.id);
     onOpenChange(false);
   };
@@ -236,10 +267,10 @@ export function ProviderDialog({
                         </span>
                         <Button
                           type="button"
-                          variant="ghost"
-                          size="sm"
+                          variant="quiet"
+                          size="chip"
                           onClick={() => onDisconnect(entry.id)}
-                          className="h-7 rounded text-xs text-muted-foreground hover:text-destructive"
+                          className="hover:text-destructive"
                           data-ocid={`ai_studio.disconnect_button.${entry.id}`}
                         >
                           Remove key
@@ -297,16 +328,13 @@ export function ProviderDialog({
               {provider.liveModels ? (
                 <Button
                   type="button"
-                  variant="ghost"
-                  size="sm"
+                  variant="quiet"
+                  size="chip"
                   onClick={() => setReload((value) => value + 1)}
-                  className="h-7 rounded text-xs text-muted-foreground"
                   data-ocid="ai_studio.refresh_models_button"
                 >
                   <RefreshCw
-                    className={
-                      loadingModels ? "mr-1 size-3 animate-spin" : "mr-1 size-3"
-                    }
+                    className={loadingModels ? "size-3 animate-spin" : "size-3"}
                     aria-hidden="true"
                   />
                   Reload list
@@ -385,9 +413,20 @@ export function ProviderDialog({
                   id="ai-provider-key"
                   data-ocid="ai_studio.key_input"
                   type={reveal ? "text" : "password"}
-                  value={keyInput}
-                  onChange={(event) => setKeyInput(event.target.value)}
-                  placeholder={provider.keyPlaceholder}
+                  value={keyDrafts[provider.id]}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setKeyDrafts((drafts) => ({
+                      ...drafts,
+                      [provider.id]: value,
+                    }));
+                    setSaved(null);
+                  }}
+                  placeholder={
+                    savedKey
+                      ? `A key is already saved (${maskKey(savedKey)}) — paste another only to replace it`
+                      : provider.keyPlaceholder
+                  }
                   autoComplete="off"
                   spellCheck={false}
                   className="numeric pr-10 font-mono text-xs"
@@ -405,10 +444,37 @@ export function ProviderDialog({
                   )}
                 </button>
               </div>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Saved in this browser only. Extraction is sent straight from
-                your device to {provider.name}; StudyForge never stores the key.
-              </p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Saved in this browser only. Extraction is sent straight from
+                  your device to {provider.name}; StudyForge never stores the
+                  key.
+                </p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="chip"
+                  disabled={trimmed.length === 0}
+                  onClick={saveDraft}
+                  data-ocid="ai_studio.save_key_button"
+                >
+                  <KeyRound className="size-3.5" aria-hidden="true" />
+                  Save key
+                </Button>
+              </div>
+              {saved === provider.id ? (
+                <p className="flex items-center gap-1.5 text-[11px] text-success">
+                  <ShieldCheck className="size-3.5" aria-hidden="true" />
+                  {provider.name} key saved on this device. Press &ldquo;Use{" "}
+                  {provider.name}&rdquo; to extract with it.
+                </p>
+              ) : willRun ? null : (
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  Paste a {provider.name} key here and press &ldquo;Save
+                  key&rdquo;, or use a provider that already has one. Without
+                  any key the offline parser reads the document&rsquo;s text.
+                </p>
+              )}
             </div>
           ) : (
             <div className="space-y-2 rounded-lg border border-border bg-muted/25 p-3">
@@ -440,25 +506,26 @@ export function ProviderDialog({
           <Button
             type="button"
             variant="outline"
+            size="action"
             onClick={() => {
               onChooseOffline();
               onOpenChange(false);
             }}
-            className="rounded-lg text-xs"
           >
             Use offline parser
           </Button>
           <Button
             type="button"
-            disabled={provider.requiresKey && trimmed.length === 0}
+            variant="primary"
+            size="action"
+            disabled={!willRun}
             onClick={confirm}
-            className="rounded-lg bg-gradient-primary text-primary-foreground"
             data-ocid="ai_studio.connect_button"
           >
-            {provider.requiresKey && trimmed.length === 0 ? (
-              <KeyRound className="mr-1.5 size-4" aria-hidden="true" />
+            {willRun ? (
+              <Check className="size-4" aria-hidden="true" />
             ) : (
-              <Check className="mr-1.5 size-4" aria-hidden="true" />
+              <KeyRound className="size-4" aria-hidden="true" />
             )}
             Use {provider.name}
           </Button>

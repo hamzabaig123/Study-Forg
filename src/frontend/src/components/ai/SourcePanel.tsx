@@ -92,49 +92,49 @@ export function SourcePanel({
       data-ocid="ai_studio.source_panel"
       className="rounded-xl border-border bg-card p-5 shadow-subtle md:p-6"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
-            <UploadCloud className="size-5" aria-hidden="true" />
-          </span>
-          <div>
-            <h2 className="font-display text-lg font-semibold text-card-foreground">
-              Source document
-            </h2>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              A test paper, worksheet or chapter page — as a PDF, an image, or
-              pasted text.
-            </p>
-          </div>
-        </div>
+      <div className="flex items-start gap-3">
+        <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+          <UploadCloud className="size-5" aria-hidden="true" />
+        </span>
+        <div className="min-w-0">
+          <h2 className="font-display text-lg font-semibold text-card-foreground">
+            Source document
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            A test paper, worksheet or chapter page — as a PDF, an image, or
+            pasted text.
+          </p>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge
-            variant="outline"
-            className={
-              engineIsModel
-                ? "rounded-full border-primary/30 bg-primary/10 text-primary"
-                : "rounded-full border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
-            }
-          >
-            {engineIsModel ? (
-              <Sparkles className="mr-1 size-3" aria-hidden="true" />
-            ) : (
-              <Zap className="mr-1 size-3" aria-hidden="true" />
-            )}
-            {engineLabel}
-          </Badge>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={onOpenSettings}
-            className="rounded-lg text-xs"
-            data-ocid="ai_studio.settings_button"
-          >
-            <Settings2 className="mr-1.5 size-3.5" aria-hidden="true" />
-            Connect AI key
-          </Button>
+          {/* The engine badge and its key button describe this card, so they
+              sit under the heading they belong to rather than at the far edge
+              of a full-width card, where they read as an unrelated row. */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Badge
+              variant="outline"
+              className={
+                engineIsModel
+                  ? "rounded-full border-primary/30 bg-primary/10 text-primary"
+                  : "rounded-full border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+              }
+            >
+              {engineIsModel ? (
+                <Sparkles className="mr-1 size-3" aria-hidden="true" />
+              ) : (
+                <Zap className="mr-1 size-3" aria-hidden="true" />
+              )}
+              {engineLabel}
+            </Badge>
+            <Button
+              type="button"
+              variant="outline"
+              size="action"
+              onClick={onOpenSettings}
+              data-ocid="ai_studio.settings_button"
+            >
+              <Settings2 className="size-3.5" aria-hidden="true" />
+              Connect AI key
+            </Button>
+          </div>
         </div>
       </div>
 
@@ -160,6 +160,11 @@ export function SourcePanel({
             type="file"
             accept={ACCEPT}
             className="sr-only"
+            // The drop zone below is the control people see and tab to, so this
+            // stays out of the tab order — but it still needs a name for the
+            // file picker's own announcement when something clicks it.
+            tabIndex={-1}
+            aria-label="Choose a test paper, worksheet or photo of a page"
             onChange={(event) => take(event.target.files?.[0])}
           />
 
@@ -236,12 +241,11 @@ export function SourcePanel({
                 <Button
                   type="button"
                   variant="outline"
-                  size="sm"
+                  size="action"
                   onClick={() => inputRef.current?.click()}
-                  className="rounded-lg text-xs"
                   data-ocid="ai_studio.replace_file_button"
                 >
-                  <RefreshCw className="mr-1.5 size-3.5" aria-hidden="true" />
+                  <RefreshCw className="size-3.5" aria-hidden="true" />
                   Replace
                 </Button>
               </div>
@@ -317,9 +321,9 @@ export function SourcePanel({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+                size="action"
                 onClick={onDismissError}
-                className="mt-2 rounded-lg text-xs"
+                className="mt-2"
               >
                 Dismiss
               </Button>
@@ -327,9 +331,9 @@ export function SourcePanel({
               <Button
                 type="button"
                 variant="outline"
-                size="sm"
+                size="action"
                 onClick={onOpenSettings}
-                className="mt-2 rounded-lg text-xs"
+                className="mt-2"
                 data-ocid="ai_studio.error_settings_button"
               >
                 Connect AI key
@@ -380,31 +384,31 @@ export function SourcePanel({
           {engineIsModel && textAvailable ? (
             <Button
               type="button"
-              variant="ghost"
-              size="sm"
+              variant="quiet"
+              size="action"
               disabled={busy}
               onClick={onRunOffline}
-              className="rounded-lg text-xs text-muted-foreground"
               data-ocid="ai_studio.offline_button"
             >
-              <Zap className="mr-1.5 size-3.5" aria-hidden="true" />
+              <Zap className="size-3.5" aria-hidden="true" />
               Parse without AI
             </Button>
           ) : null}
+          {/* The one large primary action on the card: everything else here is
+              a way of getting ready for it. */}
           <Button
             type="button"
+            variant="primary"
+            size="lg"
             disabled={!canRun}
             onClick={onRun}
-            className="rounded-lg bg-gradient-primary text-primary-foreground shadow-subtle transition-smooth hover:shadow-elevated"
+            className="w-full sm:w-auto"
             data-ocid="ai_studio.extract_button"
           >
             {busy ? (
-              <Loader2
-                className="mr-2 size-4 animate-spin"
-                aria-hidden="true"
-              />
+              <Loader2 className="size-4 animate-spin" aria-hidden="true" />
             ) : (
-              <Sparkles className="mr-2 size-4" aria-hidden="true" />
+              <Sparkles className="size-4" aria-hidden="true" />
             )}
             {busy
               ? "Extracting…"
@@ -415,10 +419,10 @@ export function SourcePanel({
           {source ? (
             <Button
               type="button"
-              variant="ghost"
-              size="sm"
+              variant="quiet"
+              size="action"
               onClick={onClearFile}
-              className="rounded-lg text-xs text-muted-foreground hover:text-destructive"
+              className="hover:text-destructive"
               data-ocid="ai_studio.clear_file_button"
             >
               Remove file

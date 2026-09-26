@@ -15,7 +15,7 @@ import {
 } from "@/hooks/useContent";
 import type { TargetPath } from "@/lib/ai/studioStore";
 import { Link } from "@tanstack/react-router";
-import { FolderTree, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 interface TargetPickerProps {
   target: TargetPath;
@@ -114,15 +114,11 @@ export function TargetPicker({ target, onChange }: TargetPickerProps) {
       className="rounded-xl border-border bg-card p-5 shadow-subtle"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <FolderTree
-            className="size-4 text-muted-foreground"
-            aria-hidden="true"
-          />
-          <h2 className="font-display text-base font-semibold text-card-foreground">
-            Save questions into
-          </h2>
-        </div>
+        {/* No icon in front of the heading: it pushed the text 24px right of the
+            four selects below it, which read as a different indent level. */}
+        <h2 className="font-display text-base font-semibold text-card-foreground">
+          Save questions into
+        </h2>
         {complete ? (
           <Badge className="rounded-full bg-success/12 text-success">
             Target ready

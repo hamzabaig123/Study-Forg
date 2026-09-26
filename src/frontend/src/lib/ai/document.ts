@@ -33,14 +33,19 @@ export interface SourceDocument {
   pagesSkipped: number;
 }
 
-/** Longest document sent in one request; beyond this the text is cut. */
-export const MAX_TEXT_CHARACTERS = 60_000;
+/**
+ * Longest document read out of a file. A model request never sees all of it —
+ * `extract` cuts it into per-page chunks — so this only bounds how much of a
+ * very long PDF is parsed at all.
+ */
+export const MAX_TEXT_CHARACTERS = 200_000;
 
 /**
  * Pages rasterised for vision reading when a PDF has no text layer. Each page
- * goes out as its own request, so this bounds the wait rather than the payload.
+ * goes out as its own request, and the requests run a few at a time, so this
+ * bounds the wait rather than the payload.
  */
-export const MAX_VISION_PAGES = 20;
+export const MAX_VISION_PAGES = 40;
 
 /** A page with fewer characters than this counts as a scan, not a text PDF. */
 const MIN_CHARS_PER_PAGE = 24;
@@ -78,6 +83,11 @@ interface PdfLibrary {
 
 const PDFJS_VERSION = "3.11.174";
 const PDFJS_BASE = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${PDFJS_VERSION}`;
+// cdnjs serves each version immutably, so the digest of this exact file can be
+// pinned. The script runs with page privileges, and the AI provider keys are in
+// localStorage on this page, so an unpinned CDN response is a key-theft path.
+const PDFJS_INTEGRITY =
+  "sha384-/1qUCSGwTur9vjf/z9lmu/eCUYbpOTgSjmpbMQZ1/CtX2v/WcAIKqRv+U1DUCG6e";
 
 let pdfLibrary: Promise<PdfLibrary> | null = null;
 
@@ -95,6 +105,8 @@ function loadPdfLibrary(): Promise<PdfLibrary> {
       const script = document.createElement("script");
       script.id = "studyforge-pdfjs";
       script.src = `${PDFJS_BASE}/pdf.min.js`;
+      script.integrity = PDFJS_INTEGRITY;
+      script.crossOrigin = "anonymous";
       script.async = true;
       script.onload = () => {
         const library = (window as unknown as { pdfjsLib?: PdfLibrary })
@@ -150,28 +162,37 @@ function clampText(text: string): string {
     : text;
 }
 
+/** Pages drawn at once: one at a time makes a long scan slow to get going. */
+const RENDER_CONCURRENCY = 3;
+
+async function renderPage(pdf: PdfDocument, number: number) {
+  const page = await pdf.getPage(number);
+  const viewport = page.getViewport({ scale: 2 });
+  const canvas = document.createElement("canvas");
+  canvas.width = viewport.width;
+  canvas.height = viewport.height;
+  const context = canvas.getContext("2d");
+  if (!context) return null;
+  try {
+    await page.render({ canvasContext: context, viewport }).promise;
+  } catch {
+    return null;
+  }
+  const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
+  return base64 ? { page: number, mimeType: "image/jpeg", base64 } : null;
+}
+
 async function renderPages(
   pdf: PdfDocument,
-  count: number,
+  numbers: number[],
 ): Promise<DocumentImage[]> {
   const images: DocumentImage[] = [];
-  for (let number = 1; number <= count; number += 1) {
-    const page = await pdf.getPage(number);
-    const viewport = page.getViewport({ scale: 2 });
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    const context = canvas.getContext("2d");
-    if (!context) continue;
-    try {
-      await page.render({ canvasContext: context, viewport }).promise;
-    } catch {
-      continue;
-    }
-    const base64 = canvas.toDataURL("image/jpeg", 0.85).split(",")[1];
-    if (base64) images.push({ page: number, mimeType: "image/jpeg", base64 });
+  for (let start = 0; start < numbers.length; start += RENDER_CONCURRENCY) {
+    const batch = numbers.slice(start, start + RENDER_CONCURRENCY);
+    const drawn = await Promise.all(batch.map((n) => renderPage(pdf, n)));
+    for (const image of drawn) if (image) images.push(image);
   }
-  return images;
+  return images.sort((a, b) => a.page - b.page);
 }
 
 async function readPdf(file: File): Promise<SourceDocument> {
@@ -186,37 +207,55 @@ async function readPdf(file: File): Promise<SourceDocument> {
     pages.push(itemsToText((await page.getTextContent()).items));
   }
 
+  // A page under the per-page floor carries no text layer worth reading: it is
+  // a scan, a diagram, or a blank.
+  const scanned = new Set<number>();
+  pages.forEach((body, index) => {
+    if (body.trim().length < MIN_CHARS_PER_PAGE) scanned.add(index + 1);
+  });
+
   const characters = pages.reduce((sum, text) => sum + text.length, 0);
   if (characters >= MIN_CHARS_PER_PAGE * pages.length) {
     const text = pages
-      .map((body, index) => `--- Page ${index + 1} ---\n${body}`)
+      .map((body, index) => ({ body, number: index + 1 }))
+      .filter((entry) => !scanned.has(entry.number))
+      .map((entry) => `--- Page ${entry.number} ---\n${entry.body}`)
       .join("\n\n")
       .trim();
+    // A mostly-textual PDF can still hold scanned pages. Sending only the text
+    // half would drop those pages' questions without a word of warning, so they
+    // go over as image units and the count says what could not be sent.
+    const toDraw = [...scanned].slice(0, MAX_VISION_PAGES);
+    const images = await renderPages(pdf, toDraw);
     return {
       fileName: file.name,
       fileSize: file.size,
       kind: "pdf",
       text: clampText(text),
-      images: [],
+      images,
       pageCount: pdf.numPages,
       needsVision: false,
       truncated: text.length > MAX_TEXT_CHARACTERS,
-      pagesSkipped: 0,
+      // Uncapped scans and pages whose canvas render failed.
+      pagesSkipped: scanned.size - images.length,
     };
   }
 
   // No text layer: rasterise the pages so a vision model can read the scan.
   const rasterised = Math.min(pdf.numPages, MAX_VISION_PAGES);
+  const numbers = Array.from({ length: rasterised }, (_, index) => index + 1);
+  const images = await renderPages(pdf, numbers);
   return {
     fileName: file.name,
     fileSize: file.size,
     kind: "pdf",
     text: "",
-    images: await renderPages(pdf, rasterised),
+    images,
     pageCount: pdf.numPages,
     needsVision: rasterised > 0,
     truncated: false,
-    pagesSkipped: Math.max(0, pdf.numPages - rasterised),
+    // Pages past the cap, plus any whose render failed.
+    pagesSkipped: Math.max(0, pdf.numPages - images.length),
   };
 }
 

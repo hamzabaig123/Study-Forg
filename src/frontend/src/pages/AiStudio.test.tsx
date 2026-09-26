@@ -37,6 +37,7 @@ const SOURCE = {
   fileName: "paper.pdf",
   engine: "offline" as const,
   providerName: null,
+  missing: [] as number[],
 };
 
 /** What a running local Ollama answers `/api/tags` with. */
@@ -281,6 +282,85 @@ describe("AI Studio", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("extracts with a key that is already saved, without typing it again", async () => {
+    const user = userEvent.setup();
+    setMockActor(contentActor());
+    window.localStorage.setItem(
+      "studyforge.ai.gemini_key",
+      "AIza-already-saved",
+    );
+
+    await renderWithProviders(<AiStudio />);
+    await user.click(
+      await screen.findByRole("button", { name: /connect ai key/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    // The saved key selects its own provider, and "Use" is available at once —
+    // a dialog that demanded the key be retyped was the dead end.
+    expect(within(dialog).getByText("Key saved")).toBeInTheDocument();
+    const use = within(dialog).getByRole("button", {
+      name: /use google gemini/i,
+    });
+    expect(use).toBeEnabled();
+    await user.click(use);
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("studyforge.ai.provider")).toBe(
+        "gemini",
+      );
+    });
+    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+      "AIza-already-saved",
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("saves a key without closing, and keeps a typed key across providers", async () => {
+    const user = userEvent.setup();
+    setMockActor(contentActor());
+    vi.stubGlobal("fetch", ollamaTags);
+
+    await renderWithProviders(<AiStudio />);
+    await user.click(
+      await screen.findByRole("button", { name: /connect ai key/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /gemini/i }));
+
+    const keyInput = within(dialog).getByLabelText(/gemini key/i);
+    fireEvent.change(keyInput, { target: { value: "AIza-first-key-1234" } });
+    await user.click(
+      within(dialog).getByRole("button", { name: /^save key$/i }),
+    );
+
+    // The key is on the device now, and the dialog stayed open to prove it.
+    await waitFor(() => {
+      expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+        "AIza-first-key-1234",
+      );
+    });
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(/key saved on this device/i),
+    ).toBeInTheDocument();
+
+    fireEvent.change(within(dialog).getByLabelText(/gemini key/i), {
+      target: { value: "AIza-not-saved-yet-5678" },
+    });
+    await user.click(within(dialog).getByRole("radio", { name: /ollama/i }));
+    await user.click(within(dialog).getByRole("radio", { name: /gemini/i }));
+
+    // Looking at another provider must not throw away what was typed.
+    expect(within(dialog).getByLabelText(/gemini key/i)).toHaveValue(
+      "AIza-not-saved-yet-5678",
+    );
+    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+      "AIza-first-key-1234",
+    );
+    vi.unstubAllGlobals();
+  });
+
   it("offers a provider's models and remembers the one picked", async () => {
     const user = userEvent.setup();
     setMockActor(contentActor());
@@ -292,11 +372,11 @@ describe("AI Studio", () => {
     );
     const dialog = await screen.findByRole("dialog");
 
-    // Gemini's list is fixed, so the picker opens on the newest Flash model.
+    // Gemini's list is fixed, so the picker opens on its default model.
     const geminiModel = within(dialog).getByRole("combobox", {
       name: /gemini model/i,
     });
-    expect(geminiModel).toHaveTextContent("Gemini 3.8 Flash");
+    expect(geminiModel).toHaveTextContent("Gemini 3.7 Flash");
 
     // Ollama needs no key; its models come from the local server.
     await user.click(within(dialog).getByRole("radio", { name: /ollama/i }));

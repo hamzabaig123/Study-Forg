@@ -769,12 +769,42 @@ describe("sweep", () => {
       err: "notFound",
     });
 
+    const contentShare = await B.createShare({
+      __kind__: "topic",
+      topic: topic.id,
+    });
+    if (contentShare.__kind__ !== "ok") throw new Error("should share");
+    const sharedNote = await B.createNote(
+      "Newton's laws",
+      null,
+      null,
+      null,
+      '{"type":"doc"}',
+      "first second third law",
+    );
+    const noteShare = await B.createNoteShare(sharedNote.id);
+    if (noteShare.__kind__ !== "ok") throw new Error("should share the note");
+    const link = await B.createLink("https://example.com/paper");
+    if (link.__kind__ !== "ok") throw new Error("should link");
+
     const mine = await B.exportMyData();
     expect(mine.filename).toBe("studydesk-export.json");
     expect(mine.mimeType).toBe("application/json");
     const parsed = JSON.parse(mine.content) as Record<string, unknown>;
     expect(parsed).toHaveProperty("classes");
     expect(snapshot(parsed)).not.toContain("sk-abcdef");
+    /* A share token and a link's edit token both open a write door, and a
+     * backup is a file that gets emailed and left in Downloads. */
+    for (const token of [
+      contentShare.ok.token,
+      noteShare.ok.token,
+      link.ok.editToken,
+    ]) {
+      expect(mine.content).not.toContain(token);
+    }
+    expect(parsed).toHaveProperty("shares");
+    expect(parsed).toHaveProperty("noteShares");
+    expect(parsed).toHaveProperty("links");
   });
 
   it("notes: create, revision conflicts, trash, restore, share, purge", async () => {
@@ -1232,8 +1262,44 @@ describe("sweep", () => {
   it("a corrupted storage entry starts a fresh database instead of throwing", async () => {
     window.localStorage.setItem("studyforge.mock-backend.v1", "{not json");
     await load();
+    // `load()` re-evaluates the backend and its imports, so the health store to
+    // read is the one it just loaded — not the module this file imported first.
+    const { getStorageProblems } = await import("@/lib/localStore");
     expect(await B.listClasses()).toEqual([]);
     expect((await B.createClass("Recovered", null)).name).toBe("Recovered");
+    // Booting empty is only survivable because the unreadable bytes were kept:
+    // the write above would otherwise have destroyed the last copy of them.
+    expect(
+      window.localStorage.getItem("studyforge.mock-backend.v1.corrupt.0"),
+    ).toBe("{not json");
+    expect(getStorageProblems().map((problem) => problem.kind)).toContain(
+      "corrupt",
+    );
+  });
+
+  it("a write that never lands is reported, not swallowed", async () => {
+    const { getStorageProblems } = await import("@/lib/localStore");
+    const failure = Object.assign(new Error("quota"), {
+      name: "QuotaExceededError",
+    });
+    // jsdom's `localStorage` is a proxy over named items, so a spy has to go on
+    // the prototype or assigning it just stores a key called "setItem".
+    const spy = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation(() => {
+        throw failure;
+      });
+
+    expect((await B.createClass("Not saved", null)).name).toBe("Not saved");
+    expect(getStorageProblems().map((problem) => problem.kind)).toContain(
+      "quota",
+    );
+    // Nothing was persisted, so a reload would start from an empty archive.
+    expect(
+      window.localStorage.getItem("studyforge.mock-backend.v1"),
+    ).toBeNull();
+
+    spy.mockRestore();
   });
 
   it("no method is left unimplemented", async () => {

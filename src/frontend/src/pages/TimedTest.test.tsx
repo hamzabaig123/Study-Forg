@@ -7,11 +7,11 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-/** A timed session that started just now, so the countdown has time left. */
-function makeTimedSession(overrides = {}) {
+/** A timed session that started at `now`, so the countdown has time left. */
+function makeTimedSession(now = Date.now(), overrides = {}) {
   return makeSessionView({
     mode: "timedTest" as never,
-    startedAt: BigInt(Date.now()) * 1_000_000n,
+    startedAt: BigInt(now) * 1_000_000n,
     durationSeconds: 600n,
     ...overrides,
   });
@@ -30,8 +30,13 @@ describe("TimedTest", () => {
   });
 
   it("renders the question, the answer controls, and a visible countdown", async () => {
+    // The label is derived from Date.now() at render time, so the clock is
+    // pinned to the instant the session claims it started. Without this a
+    // loaded worker can tick past the second boundary and read 09:59.
+    const now = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
     const actor = createMockActor({
-      getSession: vi.fn().mockResolvedValue(makeTimedSession()),
+      getSession: vi.fn().mockResolvedValue(makeTimedSession(now)),
     });
     setMockActor(actor);
 
@@ -46,6 +51,7 @@ describe("TimedTest", () => {
     expect(screen.getByText(/remaining/i)).toBeInTheDocument();
     // 600s allotted, started just now → 10:00 remaining.
     expect(screen.getByText("10:00")).toBeInTheDocument();
+    nowSpy.mockRestore();
   });
 
   it("records the selected answer and completes the session on submit", async () => {

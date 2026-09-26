@@ -100,8 +100,18 @@ export type ExtractionPhase = "idle" | "reading" | "extracting";
 
 export interface RunResult {
   drafts: QuestionDraft[];
+  /** How many drafts the queue holds now — more than `drafts.length` after a retry merged in. */
+  queued: number;
   engine: "model" | "offline";
   providerName: string | null;
+  /** A model the run fell back to, or null when the chosen model answered. */
+  model: string | null;
+  /** Sections the provider refused; their questions are missing from `drafts`. */
+  skipped: number;
+  /** Pages the run never read, so the queue can keep saying so. */
+  missing: number[];
+  /** Why sections were lost, so the toast can name the real reason. */
+  warnings: string[];
 }
 
 const PASTED_FILE_NAME = "Pasted text";
@@ -113,6 +123,7 @@ export function useAiExtraction() {
   const [progress, setProgress] = useState<ExtractionProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const replaceQueue = useStudioStore((state) => state.replaceQueue);
+  const mergeDrafts = useStudioStore((state) => state.mergeDrafts);
   const runId = useRef(0);
 
   const loadFile = useCallback(async (file: File) => {
@@ -196,12 +207,18 @@ export function useAiExtraction() {
               fileName: source.fileName,
               engine: "offline",
               providerName: null,
+              missing: [],
             });
           }
           return {
             drafts: offline.drafts,
+            queued: useStudioStore.getState().drafts.length,
             engine: "offline",
             providerName: null,
+            model: null,
+            skipped: 0,
+            missing: [],
+            warnings: [],
           };
         }
 
@@ -209,16 +226,30 @@ export function useAiExtraction() {
           onProgress: setProgress,
         });
         if (runId.current === id) {
-          replaceQueue(outcome.drafts, {
+          const queue = {
             fileName: source.fileName,
             engine: outcome.engine,
             providerName: outcome.providerName,
-          });
+            missing: outcome.missing,
+          } as const;
+          const current = useStudioStore.getState().source;
+          // A run that lost sections is the one the reviewer is told to repeat,
+          // and repeating it must add the pages that were missing rather than
+          // discard the pages that came through.
+          const retry =
+            outcome.skipped > 0 && current?.fileName === source.fileName;
+          if (retry) mergeDrafts(outcome.drafts, queue);
+          else replaceQueue(outcome.drafts, queue);
         }
         return {
           drafts: outcome.drafts,
+          queued: useStudioStore.getState().drafts.length,
           engine: outcome.engine,
           providerName: outcome.providerName,
+          model: outcome.model,
+          skipped: outcome.skipped,
+          missing: outcome.missing,
+          warnings: outcome.warnings,
         };
       } catch (cause) {
         const message =
@@ -236,7 +267,7 @@ export function useAiExtraction() {
         }
       }
     },
-    [effectiveSource, replaceQueue],
+    [effectiveSource, mergeDrafts, replaceQueue],
   );
 
   return {

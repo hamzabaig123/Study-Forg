@@ -77,7 +77,7 @@ describe("parseModelResponse", () => {
     expect(drafts[0].correctIndex).toBe(1);
   });
 
-  it("marks an MCQ whose answer matches nothing as inferred", () => {
+  it("leaves an MCQ unmarked rather than guessing option A", () => {
     const drafts = parseModelResponse(
       JSON.stringify({
         items: [
@@ -93,7 +93,60 @@ describe("parseModelResponse", () => {
 
     expect(drafts).toHaveLength(1);
     expect(drafts[0].inferred).toBe(true);
-    expect(drafts[0].correctIndex).toBe(0);
+    // Defaulting to A here would store a wrong answer that an "approve all"
+    // review never looked at; unmarked means it cannot be saved until marked.
+    expect(drafts[0].correctIndex).toBeNull();
+    expect(drafts[0].answer).toBe("");
+  });
+
+  it("keeps the answered letter on its own option when a blank one is dropped", () => {
+    const drafts = parseModelResponse(
+      JSON.stringify({
+        items: [
+          {
+            question: "The unit 'mole' measures which quantity?",
+            type: "mcq",
+            options: [
+              "A) Amount of substance",
+              "B) Mass",
+              "",
+              "D) Number of atoms",
+            ],
+            answer: "D",
+          },
+        ],
+      }),
+    );
+
+    const draft = drafts[0];
+    expect(draft.options).toEqual([
+      "Amount of substance",
+      "Mass",
+      "Number of atoms",
+    ]);
+    // "D" is the printed fourth choice, which is the third one that survived.
+    expect(draft.correctIndex).toBe(2);
+    expect(draft.answer).toBe("Number of atoms");
+    expect(draft.inferred).toBe(false);
+  });
+
+  it("treats a numeric answer as the printed position, not the kept one", () => {
+    const drafts = parseModelResponse(
+      JSON.stringify({
+        items: [
+          {
+            question: "Which statement is correct?",
+            type: "mcq",
+            options: ["first", "", "third"],
+            answer: "3",
+          },
+        ],
+      }),
+    );
+
+    expect(drafts[0].options).toEqual(["first", "third"]);
+    expect(drafts[0].correctIndex).toBe(1);
+    expect(drafts[0].inferred).toBe(false);
   });
 
   it("throws instead of returning an empty queue for a non-JSON reply", () => {

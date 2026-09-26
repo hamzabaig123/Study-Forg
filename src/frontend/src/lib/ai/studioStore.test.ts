@@ -31,6 +31,7 @@ const SOURCE = {
   fileName: "paper-1.pdf",
   engine: "offline" as const,
   providerName: null,
+  missing: [] as number[],
 };
 
 beforeEach(() => {
@@ -112,6 +113,37 @@ describe("useStudioStore queue", () => {
     expect(state.drafts).toEqual([]);
     expect(state.source).toBeNull();
     expect(state.target.topicId).toBe("44");
+  });
+
+  it("merges a retry without duplicating a page or resetting a reviewed draft", () => {
+    const { replaceQueue, mergeDrafts, setDraftStatus } =
+      useStudioStore.getState();
+    replaceQueue([draft({ id: "a", page: 3 }), draft({ id: "b", page: 4 })], {
+      ...SOURCE,
+      missing: [5],
+    });
+    setDraftStatus("a", "approved");
+    // Left on the "approved" slice, the retried pages would look lost.
+    useStudioStore.getState().setFilters({ status: "approved" });
+
+    // A retry re-reads what it can and may cover page 4 again on the way. The
+    // repeat must not queue twice, and the reviewed page must stay reviewed.
+    mergeDrafts(
+      [
+        draft({ id: "again", page: 4, question: "Question b?" }),
+        draft({ id: "c", page: 5 }),
+      ],
+      { ...SOURCE, missing: [] },
+    );
+
+    const state = useStudioStore.getState();
+    expect(state.filters.status).toBe("all");
+    expect(state.drafts.map((item) => `${item.page}:${item.status}`)).toEqual([
+      "3:approved",
+      "4:pending",
+      "5:pending",
+    ]);
+    expect(state.source?.missing).toEqual([]);
   });
 });
 

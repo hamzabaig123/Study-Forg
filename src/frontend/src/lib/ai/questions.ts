@@ -60,7 +60,17 @@ function finalizeMcq(
   inferred: boolean,
   page: number | null,
 ): QuestionDraft | null {
-  const options = rawOptions.map(cleanOption).filter(Boolean);
+  // Drop blank options, but remember where each survivor came from: the model
+  // answers with the letter of the *printed* options, so if option B was blank
+  // "C" must not slide onto what was printed as D.
+  const options: string[] = [];
+  const positionOfSource = new Map<number, number>();
+  rawOptions.forEach((raw, source) => {
+    const text = cleanOption(raw);
+    if (!text) return;
+    positionOfSource.set(source, options.length);
+    options.push(text);
+  });
   if (options.length < 2) return null;
 
   let correctIndex: number | null = null;
@@ -68,23 +78,26 @@ function finalizeMcq(
 
   if (/^\d+$/.test(answerText)) {
     const asNumber = Number.parseInt(answerText, 10);
-    correctIndex =
-      asNumber >= 1 && asNumber <= options.length ? asNumber - 1 : 0;
-    if (asNumber < 1 || asNumber > options.length) wasInferred = true;
-  } else {
-    const letter = letterToIndex(answerText);
-    if (letter !== null && letter < options.length) {
-      correctIndex = letter;
-    } else {
-      // Fall back to matching the answer text against the option texts.
-      const normalized = cleanOption(answerText).toLowerCase();
-      const matchIndex = normalized
-        ? options.findIndex((option) => option.toLowerCase() === normalized)
-        : -1;
-      correctIndex = matchIndex >= 0 ? matchIndex : 0;
-      if (matchIndex < 0) wasInferred = true;
-    }
+    correctIndex = positionOfSource.get(asNumber - 1) ?? null;
   }
+
+  if (correctIndex === null) {
+    const letter = letterToIndex(answerText);
+    if (letter !== null) correctIndex = positionOfSource.get(letter) ?? null;
+  }
+
+  if (correctIndex === null) {
+    // Fall back to matching the answer text against the option texts.
+    const normalized = cleanOption(answerText).toLowerCase();
+    const matchIndex = normalized
+      ? options.findIndex((option) => option.toLowerCase() === normalized)
+      : -1;
+    correctIndex = matchIndex >= 0 ? matchIndex : null;
+  }
+
+  // Nothing identified the answer, so leave it unmarked rather than defaulting
+  // to option A: an unmarked draft cannot be saved until the reviewer marks it.
+  if (correctIndex === null) wasInferred = true;
 
   return {
     id: draftId(),
@@ -92,7 +105,7 @@ function finalizeMcq(
     question,
     options,
     correctIndex,
-    answer: options[correctIndex] ?? "",
+    answer: correctIndex === null ? "" : (options[correctIndex] ?? ""),
     explanation,
     inferred: wasInferred,
     page,
@@ -306,4 +319,20 @@ export function parseTextWithRules(rawText: string): QuestionDraft[] {
 /** How many drafts carry an answer that nothing in the source confirmed. */
 export function countInferred(drafts: QuestionDraft[]): number {
   return drafts.filter((draft) => draft.inferred).length;
+}
+
+/**
+ * The whole visible shape of a question, for telling two copies of one apart.
+ * The stem alone is not enough: a shared instruction ("Choose the correct
+ * option") repeats across a page, and its options can match too.
+ */
+export function draftKey(draft: QuestionDraft): string {
+  return JSON.stringify([
+    draft.question,
+    ...draft.options,
+    draft.answer,
+    draft.correctIndex ?? "",
+  ])
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }

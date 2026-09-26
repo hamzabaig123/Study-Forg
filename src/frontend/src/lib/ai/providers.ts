@@ -13,6 +13,7 @@
  */
 
 import type { DocumentImage } from "@/lib/ai/document";
+import { safeGetItem, safeRemoveItem, safeSetItem } from "@/lib/localStore";
 
 export type ProviderId = "gemini" | "openRouter" | "ollama";
 
@@ -41,8 +42,12 @@ export interface Provider {
   storageKey: string | null;
 }
 
+/**
+ * Ordered by what actually answers, not by release date: 3.8 is newest but has
+ * been returning "high demand" for weeks, so it sits last rather than being
+ * the first thing a run walks through.
+ */
 const GEMINI_MODELS: ModelOption[] = [
-  { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", vision: true },
   { id: "gemini-3.7-flash", label: "Gemini 3.7 Flash", vision: true },
   { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash", vision: true },
   { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash", vision: true },
@@ -51,6 +56,7 @@ const GEMINI_MODELS: ModelOption[] = [
     label: "Gemini 3.5 Flash-Lite",
     vision: true,
   },
+  { id: "gemini-3.8-flash", label: "Gemini 3.8 Flash", vision: true },
 ];
 
 /**
@@ -91,7 +97,9 @@ export const PROVIDERS: Provider[] = [
   {
     id: "gemini",
     name: "Google Gemini",
-    defaultModel: "gemini-3.8-flash",
+    // 3.8 is newest but answers 503 "high demand" for long stretches, which
+    // would cost the first page of every run a retry and a step-over.
+    defaultModel: "gemini-3.7-flash",
     models: GEMINI_MODELS,
     liveModels: false,
     requiresKey: true,
@@ -144,14 +152,14 @@ export function storedKeys(): Record<ProviderId, string> {
   const keys = {} as Record<ProviderId, string>;
   for (const provider of PROVIDERS) {
     keys[provider.id] = provider.storageKey
-      ? (localStorage.getItem(provider.storageKey)?.trim() ?? "")
+      ? (safeGetItem(provider.storageKey)?.trim() ?? "")
       : "";
   }
   return keys;
 }
 
 export function preferredChoice(): ProviderChoice | null {
-  const raw = localStorage.getItem(PREFERENCE_KEY);
+  const raw = safeGetItem(PREFERENCE_KEY);
   if (raw === OFFLINE_CHOICE) return OFFLINE_CHOICE;
   return PROVIDERS.some((provider) => provider.id === raw)
     ? (raw as ProviderId)
@@ -159,8 +167,8 @@ export function preferredChoice(): ProviderChoice | null {
 }
 
 export function setPreferredChoice(choice: ProviderChoice | null): void {
-  if (choice) localStorage.setItem(PREFERENCE_KEY, choice);
-  else localStorage.removeItem(PREFERENCE_KEY);
+  if (choice) safeSetItem(PREFERENCE_KEY, choice);
+  else safeRemoveItem(PREFERENCE_KEY);
 }
 
 function readModelChoices(): Record<string, string> {
@@ -188,15 +196,15 @@ export function setSavedModel(id: ProviderId, model: string): void {
   if (!trimmed) return;
   const choices = readModelChoices();
   choices[id] = trimmed;
-  localStorage.setItem(MODEL_KEY, JSON.stringify(choices));
+  safeSetItem(MODEL_KEY, JSON.stringify(choices));
 }
 
 export function saveKey(id: ProviderId, key: string): void {
   const provider = findProvider(id);
   if (!provider?.storageKey) return;
   const trimmed = key.trim();
-  if (trimmed) localStorage.setItem(provider.storageKey, trimmed);
-  else localStorage.removeItem(provider.storageKey);
+  if (trimmed) safeSetItem(provider.storageKey, trimmed);
+  else safeRemoveItem(provider.storageKey);
 }
 
 export function removeKey(id: ProviderId): void {
@@ -275,7 +283,7 @@ async function getJson(url: string, unreachable: string): Promise<unknown> {
     // A bare "Failed to fetch" says nothing about what to start or fix.
     throw new Error(unreachable);
   }
-  if (!response.ok) throw new Error(await readError(response, unreachable));
+  if (!response.ok) throw new Error(`${unreachable} (HTTP ${response.status})`);
   return response.json();
 }
 
@@ -378,23 +386,145 @@ type ChatContent =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string; detail?: "high" } };
 
-async function readError(
+/**
+ * A failure worth repeating: a busy model or a rate limit, not a bad key.
+ * `retryAfterMs` is what the provider asked for, when it said anything at all.
+ */
+export class TransientProviderError extends Error {
+  readonly retryAfterMs: number | null;
+
+  constructor(message: string, retryAfterMs: number | null = null) {
+    super(message);
+    this.retryAfterMs = retryAfterMs;
+  }
+}
+
+const BUSY =
+  /(high demand|overload|unavailable|temporar|rate.?limit|too many requests|busy)/i;
+
+/** A 400 that is really a refused key, which is what Google answers with. */
+const KEY_REFUSED =
+  /(api key|key not valid|invalid authentication|permission)/i;
+
+/** How many models one request may walk through, and how long it waits first. */
+const MODEL_LIMIT = 4;
+const BACKOFF = [500, 1500];
+
+/** A free-tier rate limit needs a real pause, not another immediate hit. */
+const RATE_LIMIT_WAIT = 6000;
+
+/**
+ * A request that hangs would otherwise stall the run forever, which is how a
+ * 20-page extraction ends up taking twenty minutes.
+ */
+const REQUEST_TIMEOUT = 60_000;
+
+/** Turns a dead connection or a hung request into one worth repeating. */
+function networkError(cause: unknown, provider: Provider): Error {
+  const name = cause instanceof Error ? cause.name : "";
+  if (name === "TimeoutError" || name === "AbortError") {
+    return new TransientProviderError(
+      `${provider.name} did not answer within ${REQUEST_TIMEOUT / 1000} seconds.`,
+    );
+  }
+  return new TransientProviderError(
+    `Could not reach ${provider.name} over the network.`,
+  );
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function errorFor(
   response: Response,
-  fallback: string,
-): Promise<string> {
+  provider: Provider,
+): Promise<Error> {
   const body = await response.text().catch(() => "");
+  let detail = "";
   try {
     const parsed = JSON.parse(body) as {
-      error?: { message?: string };
+      error?: { message?: string } | string;
       message?: string;
     };
-    return (
-      parsed.error?.message ??
+    detail =
+      (typeof parsed.error === "string"
+        ? parsed.error
+        : parsed.error?.message) ??
       parsed.message ??
-      `${fallback} (${response.status})`
-    );
+      "";
   } catch {
-    return `${fallback} (${response.status})`;
+    detail = body.slice(0, 200).trim();
+  }
+  detail = detail.trim();
+
+  // Google rejects a bad key with 400 "API key not valid", OpenRouter with
+  // 401, so the status alone does not identify a key problem.
+  const keyRefused =
+    response.status === 401 ||
+    response.status === 403 ||
+    (response.status === 400 && KEY_REFUSED.test(detail));
+  if (keyRefused) {
+    return new Error(
+      `${detail || "This key was refused"} — StudyForge cannot use this ${provider.name} key. Create a fresh one at ${provider.keyPage} and paste it into the engine dialog.`,
+    );
+  }
+  if (response.status === 429 || response.status >= 500 || BUSY.test(detail)) {
+    // A rate limit says how long to wait; without that number a second request
+    // fired a second later just burns the same window.
+    const asked = Number(response.headers?.get?.("retry-after") ?? "");
+    const retryAfterMs =
+      Number.isFinite(asked) && asked > 0
+        ? Math.min(asked * 1000, 20_000)
+        : response.status === 429
+          ? RATE_LIMIT_WAIT
+          : null;
+    return new TransientProviderError(
+      detail || `${provider.name} is busy (HTTP ${response.status}).`,
+      retryAfterMs,
+    );
+  }
+  return new Error(detail || `${provider.name} request failed.`);
+}
+
+/**
+ * The models to try: the chosen one first, then what the provider offers, with
+ * anything this run already watched fail pushed to the end. A model that is
+ * rate limited stays in the list — later pages may be in a new window — but it
+ * is no longer the first thing every page hits.
+ */
+function modelOrder(
+  provider: Provider,
+  chosen: string,
+  busy?: Set<string>,
+): string[] {
+  const known = listCache.get(provider.id)?.models ?? provider.models;
+  const ids = [chosen, ...known.map((model) => model.id)];
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (!busy || busy.size === 0) return unique.slice(0, MODEL_LIMIT);
+  const free = unique.filter((model) => !busy.has(model));
+  const tried = unique.filter((model) => busy.has(model));
+  return [...free, ...tried].slice(0, MODEL_LIMIT);
+}
+
+/**
+ * Reads a success body without letting a malformed one escape as a parse error.
+ * Gemini answers an overloaded model with HTTP 200 and no body at all, which
+ * has to be retried like any other busy reply.
+ */
+async function readJson(
+  response: Response,
+  provider: Provider,
+): Promise<unknown> {
+  const body = await response.text();
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    throw new TransientProviderError(
+      body.trim()
+        ? `${provider.name} replied with something that is not JSON.`
+        : `${provider.name} replied with an empty body.`,
+    );
   }
 }
 
@@ -403,6 +533,7 @@ async function callGemini(
   model: string,
   text: string,
   images: DocumentImage[],
+  provider: Provider,
 ): Promise<string> {
   const parts: Array<
     { text: string } | { inlineData: { mimeType: string; data: string } }
@@ -411,24 +542,35 @@ async function callGemini(
   }));
   parts.push({ text: `${EXTRACTION_INSTRUCTIONS}\n\n${text}` });
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(key)}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts }],
-        generationConfig: {
-          temperature: 0,
-          responseMimeType: "application/json",
+  let response: Response;
+  try {
+    response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // The key goes in a header, never in `?key=`: a URL is logged by
+          // proxies, extensions and the provider's own access logs, a header
+          // is not.
+          "x-goog-api-key": key,
         },
-      }),
-    },
-  );
-  if (!response.ok)
-    throw new Error(await readError(response, "Gemini request failed"));
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+        body: JSON.stringify({
+          contents: [{ parts }],
+          generationConfig: {
+            temperature: 0,
+            responseMimeType: "application/json",
+          },
+        }),
+      },
+    );
+  } catch (cause) {
+    throw networkError(cause, provider);
+  }
+  if (!response.ok) throw await errorFor(response, provider);
 
-  const payload = (await response.json()) as {
+  const payload = (await readJson(response, provider)) as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
   };
   const candidate = payload.candidates?.[0]?.content?.parts;
@@ -436,7 +578,8 @@ async function callGemini(
     ?.map((part) => part.text ?? "")
     .join("")
     .trim();
-  if (!reply) throw new Error("Gemini returned an empty reply.");
+  // A safety filter or an overloaded endpoint answers with no text at all.
+  if (!reply) throw new TransientProviderError("Gemini returned no text.");
   return reply;
 }
 
@@ -445,6 +588,13 @@ interface ChatRequest {
   key: string;
   model: string;
   headers?: Record<string, string>;
+  /**
+   * OpenRouter's free models advertise `structured_outputs`, not
+   * `response_format`, and reject a request that asks for it, so only Ollama
+   * is told to answer in JSON: the prompt already demands raw JSON and
+   * `parseModelResponse` repairs what comes back.
+   */
+  jsonMode?: boolean;
   /** Wraps a connection failure, e.g. an Ollama server that is not running. */
   offlineMessage?: string;
 }
@@ -453,6 +603,7 @@ async function callChatCompletions(
   request: ChatRequest,
   text: string,
   images: DocumentImage[],
+  provider: Provider,
 ): Promise<string> {
   const content: ChatContent[] = images.map((image) => ({
     type: "image_url" as const,
@@ -474,42 +625,39 @@ async function callChatCompletions(
           : undefined),
         ...request.headers,
       },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT),
       body: JSON.stringify({
         model: request.model,
         messages: [{ role: "user", content }],
         temperature: 0,
-        response_format: { type: "json_object" },
+        ...(request.jsonMode
+          ? { response_format: { type: "json_object" } }
+          : {}),
       }),
     });
-  } catch {
+  } catch (cause) {
     if (request.offlineMessage) throw new Error(request.offlineMessage);
-    throw new Error(`Could not reach ${request.endpoint}.`);
+    throw networkError(cause, provider);
   }
-  if (!response.ok)
-    throw new Error(await readError(response, "Request failed"));
+  if (!response.ok) throw await errorFor(response, provider);
 
-  const payload = (await response.json()) as {
+  const payload = (await readJson(response, provider)) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
   const reply = payload.choices?.[0]?.message?.content?.trim();
-  if (!reply) throw new Error("The model returned an empty reply.");
+  if (!reply) throw new TransientProviderError("The model returned no text.");
   return reply;
 }
 
-/**
- * Ask the provider to structure one unit of the document.
- *
- * `text` is the instruction wrapper the model sees; for a text PDF it carries
- * the page text, for an image it is a short note that the page follows.
- */
-export async function callProvider(
+function requestModel(
   active: ActiveProvider,
+  model: string,
   text: string,
   images: DocumentImage[],
 ): Promise<string> {
-  const { provider, key, model } = active;
+  const { provider, key } = active;
   if (provider.id === "gemini") {
-    return callGemini(key, model, text, images);
+    return callGemini(key, model, text, images, provider);
   }
   if (provider.id === "openRouter") {
     return callChatCompletions(
@@ -524,6 +672,7 @@ export async function callProvider(
       },
       text,
       images,
+      provider,
     );
   }
   return callChatCompletions(
@@ -531,9 +680,75 @@ export async function callProvider(
       endpoint: `${OLLAMA_ORIGIN}/v1/chat/completions`,
       key: "",
       model,
+      jsonMode: true,
       offlineMessage: `Could not reach the local server at ${OLLAMA_ORIGIN}. Start it with "ollama serve", or choose a hosted provider.`,
     },
     text,
     images,
+    provider,
+  );
+}
+
+export interface ProviderReply {
+  text: string;
+  /** The model that answered, which is not always the one asked. */
+  model: string;
+}
+
+/**
+ * Every model this run may use refused one unit: worth another page, worth
+ * another run, and not a reason to throw away the pages that did answer.
+ */
+export class ProviderUnavailableError extends Error {}
+
+/**
+ * Ask the provider to structure one unit of the document.
+ *
+ * `text` is the instruction wrapper the model sees; for a text PDF it carries
+ * the page text, for an image it is a short note that the page follows.
+ *
+ * Google's newest models answer 503 "high demand" for long stretches, and a
+ * free-tier key answers 429 the moment several pages are asked at once, so a
+ * busy model is asked twice with a wait between and then stepped over. Two
+ * things are carried back to the caller because they only make sense for a
+ * whole run: the model that got through, written onto `active` so later pages
+ * reuse it, and the models that refused, recorded in `budget.busy` so later
+ * pages start with something that is not already saturated.
+ */
+export async function callProvider(
+  active: ActiveProvider,
+  text: string,
+  images: DocumentImage[],
+  notify?: (message: string) => void,
+  budget?: { busy: Set<string> },
+): Promise<ProviderReply> {
+  const order = modelOrder(active.provider, active.model, budget?.busy);
+  let last: Error = new Error(`${active.provider.name} did not answer.`);
+
+  for (const [index, model] of order.entries()) {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) {
+        await wait(
+          last instanceof TransientProviderError && last.retryAfterMs
+            ? last.retryAfterMs
+            : BACKOFF[attempt - 1],
+        );
+      }
+      try {
+        const reply = await requestModel(active, model, text, images);
+        active.model = model;
+        return { text: reply, model };
+      } catch (error) {
+        last = error instanceof Error ? error : new Error(String(error));
+        if (!(error instanceof TransientProviderError)) throw last;
+      }
+    }
+    budget?.busy.add(model);
+    const next = order[index + 1];
+    if (next) notify?.(`${model} is busy — trying ${next} instead.`);
+  }
+
+  throw new ProviderUnavailableError(
+    `${active.provider.name}: ${last.message} Try again in a moment, choose another model, or parse the text offline.`,
   );
 }

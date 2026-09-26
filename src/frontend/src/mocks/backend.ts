@@ -80,6 +80,7 @@ import {
   UserRole,
 } from "@/backend";
 import type { Principal } from "@icp-sdk/core/principal";
+import { reportStorageProblem, safeSetItem } from "@/lib/localStore";
 
 /* -------------------------------------------------------------------------- */
 /* Stored shape                                                               */
@@ -321,25 +322,86 @@ function database(): MockDb {
     return cache;
   }
   let next = emptyDb();
+  let raw: string | null = null;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    raw = window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    reportStorageProblem("blocked");
+  }
+  if (raw) {
+    try {
       const parsed = JSON.parse(raw, untagBigints) as Partial<MockDb>;
       next = { ...next, ...parsed };
+    } catch {
+      archiveUnreadable(raw);
     }
-  } catch {
-    /* an unreadable store starts a fresh database rather than breaking the app */
   }
   cache = next;
   return cache;
 }
 
-function persist(): void {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(tagBigints(database())));
-  } catch {
-    /* storage full or blocked: the session keeps working in memory */
+/**
+ * Starting empty is only survivable if the unreadable bytes are kept — the
+ * first write after this replaces the store with an empty snapshot, so without
+ * the copy one bad read becomes permanent total loss.
+ */
+function archiveUnreadable(raw: string): void {
+  for (let slot = 0; slot < 3; slot += 1) {
+    const key = `${STORAGE_KEY}.corrupt.${slot}`;
+    try {
+      if (window.localStorage.getItem(key) !== null) continue;
+      window.localStorage.setItem(key, raw);
+    } catch {
+      break;
+    }
+    break;
   }
+  reportStorageProblem("corrupt");
+}
+
+let lastWritten: string | null = null;
+
+function persist(): void {
+  let payload: string;
+  try {
+    payload = JSON.stringify(tagBigints(database()));
+  } catch {
+    // A row that cannot be serialised is a bug, not a storage problem, but it
+    // still means nothing was saved.
+    reportStorageProblem("blocked");
+    return;
+  }
+  if (!safeSetItem(STORAGE_KEY, payload)) {
+    return;
+  }
+  lastWritten = payload;
+}
+
+/**
+ * Two tabs share one blob, so the content itself is last-write-wins. Ids are
+ * the part that must not collide: both tabs would hand the same id out and the
+ * library would end up with rows that shadow each other.
+ */
+function adoptForeignNextId(raw: string | null): void {
+  if (!cache || !raw || raw === lastWritten) {
+    return;
+  }
+  try {
+    const parsed = JSON.parse(raw, untagBigints) as Partial<MockDb>;
+    if (typeof parsed.nextId === "number" && parsed.nextId > cache.nextId) {
+      cache.nextId = parsed.nextId;
+    }
+  } catch {
+    /* an unreadable foreign blob has no id to take */
+  }
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener("storage", (event) => {
+    if (event.key === STORAGE_KEY) {
+      adoptForeignNextId(event.newValue);
+    }
+  });
 }
 
 function allocateId(): number {
@@ -354,6 +416,19 @@ function allocateId(): number {
 /* -------------------------------------------------------------------------- */
 
 const MS_TO_NS = 1_000_000n;
+
+/**
+ * Share and link tokens are credentials: whoever holds one can open (or, for a
+ * link's edit token, change) what it points at. A backup is a file that gets
+ * emailed and left in Downloads, so it carries the rows without them.
+ */
+function withoutFields<T extends object>(row: T, fields: string[]): T {
+  const copy = { ...row } as Record<string, unknown>;
+  for (const field of fields) {
+    delete copy[field];
+  }
+  return copy as T;
+}
 
 function stamp(ms: number): Timestamp {
   return BigInt(Math.round(ms)) * MS_TO_NS;
@@ -1770,9 +1845,11 @@ export const mockBackend = {
           topics: db.topics,
           questions: db.questions,
           notes: db.notes,
-          noteShares: db.noteShares,
-          shares: db.contentShares,
-          links: db.links,
+          noteShares: db.noteShares.map((row) => withoutFields(row, ["token"])),
+          shares: db.contentShares.map((row) =>
+            withoutFields(row, ["token"]),
+          ),
+          links: db.links.map((row) => withoutFields(row, ["editToken"])),
           sessions: db.sessions,
           results: db.results,
           settings: db.settings,
