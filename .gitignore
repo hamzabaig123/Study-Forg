@@ -7,3 +7,10 @@ dist/
 .cache/
 .icp/
 .qoder-tmp/
+
+# Local secrets. `.env.development` is committed on purpose (it only holds
+# VITE_USE_MOCK); anything else, including a pasted provider key, stays out.
+.env
+.env.*
+!.env.development
+!*.example
