@@ -50,6 +50,21 @@ function looksLikeMailFailure(text) {
   );
 }
 
+/**
+ * True when the relay refused the *recipient* rather than the *sender*.
+ *
+ * This distinction is the whole difference between a broken configuration and a
+ * successful one: to be told "no such mailbox" the relay must already have
+ * authenticated you and accepted the message for delivery. A probe addressed to
+ * a reserved test domain therefore proves the SMTP settings while still failing
+ * to deliver anywhere.
+ */
+function looksLikeRecipientFailure(text) {
+  return /5\d\d.*(recipient|user|mailbox|address)|no such (user|mailbox|domain)|user unknown|does not exist|invalid (recipient|domain)|unresolvable|domain (not found|does not exist)|nodomain/i.test(
+    text,
+  );
+}
+
 const GUIDANCE = [
   "GoTrue reports an SMTP failure on the request itself. Read the message above",
   "against these, in the order they actually happen:",
@@ -76,14 +91,26 @@ async function health() {
 /** Ask GoTrue to send this account's recovery mail, and classify what it says. */
 async function recover() {
   const started = Date.now();
-  const res = await fetch(`${BASE}/auth/v1/recover`, {
-    method: "POST",
-    headers: { apikey: KEY, "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(30_000),
-    body: JSON.stringify({ email: EMAIL }),
-  });
-  const text = await res.text().catch(() => "");
-  return { status: res.status, text, ms: Date.now() - started };
+  try {
+    const res = await fetch(`${BASE}/auth/v1/recover`, {
+      method: "POST",
+      headers: { apikey: KEY, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(60_000),
+      body: JSON.stringify({ email: EMAIL }),
+    });
+    const text = await res.text().catch(() => "");
+    return { status: res.status, text, ms: Date.now() - started };
+  } catch (cause) {
+    // A client-side ceiling is the same finding as a gateway one: the request
+    // was accepted and nothing came back. Report it as status 0 so the transport
+    // branch explains it instead of a stack line pretending otherwise.
+    const ms = Date.now() - started;
+    const named = cause instanceof Error ? cause.name : "";
+    if (named === "TimeoutError" || named === "AbortError") {
+      return { status: 0, text: `timed out after ${ms} ms`, ms };
+    }
+    throw cause;
+  }
 }
 
 async function main() {
@@ -101,7 +128,9 @@ async function main() {
   }
 
   const { status: code, text, ms } = await recover();
-  console.log(`POST /auth/v1/recover -> HTTP ${code} in ${ms} ms`);
+  console.log(
+    `POST /auth/v1/recover -> ${code === 0 ? "no answer" : `HTTP ${code}`} in ${ms} ms`,
+  );
   if (text.trim()) console.log(text.trim().slice(0, 600));
 
   if (code === 429) {
@@ -109,6 +138,44 @@ async function main() {
       "\nRate limited. Recovery mail is throttled per address per hour, so this\n" +
         "is a stop sign, not a retry loop — wait for the window and run it once.\n" +
         "A 429 says nothing about the relay: the request never reached the mailer.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  if (code !== 200 && looksLikeRecipientFailure(text)) {
+    // The relay authenticated the sender, accepted the message, and only then
+    // refused the destination — which is exactly what a reserved test domain
+    // such as `.test` does. Configuration is proven; placement is not.
+    console.log(
+      "\nThe relay TOOK the message and refused only the destination address, so\n" +
+        "the SMTP settings are working: authentication, port/TLS and sender all\n" +
+        "passed. This address cannot receive mail by design, so nothing further\n" +
+        "is proven — repeat with an address you can open to check Gmail placement.",
+    );
+    process.exitCode = 0;
+    return;
+  }
+
+  // A gateway giving up on GoTrue is a different failure from GoTrue giving up
+  // on the relay, and the difference is the diagnosis: refused credentials come
+  // back fast and specific, while a port that expects the other TLS mode (or an
+  // outbound connection being silently dropped) just hangs until something
+  // loses patience — usually the platform, in GoTrue's favour.
+  if (code === 0 || code === 504 || /upstream request timeout|timed ?out/i.test(text)) {
+    console.error(
+      "\nGoTrue accepted the request and never came back. That is the shape of a\n" +
+        "transport problem, not an authentication problem — a wrong key or a spent\n" +
+        "quota is refused in a fraction of a second with a 535/550 line. In order:\n" +
+        "  1. Port vs TLS mode. 587 must be paired with STARTTLS and 2465 with SSL.\n" +
+        "     The mismatched pair neither succeeds nor fails; it hangs, which is\n" +
+        "     what a 504 after tens of seconds means.\n" +
+        "  2. Host spelling — `smtp-relay.brevo.com`, with no scheme, no port\n" +
+        "     suffix and no trailing space from the copy/paste.\n" +
+        "  3. Anything still pointing at port 25: relay hosts drop it silently and\n" +
+        "     the symptom is the same hang.\n" +
+        "Until this answers quickly, no verification or reset mail is leaving the\n" +
+        "project, and each attempt costs the user a thirty-second wait.",
     );
     process.exitCode = 1;
     return;

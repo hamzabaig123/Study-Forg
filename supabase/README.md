@@ -333,6 +333,15 @@ arrived, `via <your domain>`, link host, and the reason Gmail's *Show original
 → Encryption and delivery* gives if it went to Spam). Exit 1 = it refused, with
 the cause named. Exit 2 = missing input.
 
+**Read the timing, not only the status.** Refused credentials come back in a
+fraction of a second with a `535`/`550` line. A request that instead sits for
+tens of seconds until the platform answers **HTTP 504 `upstream request
+timeout`** never got a TLS session established at all — that is a port/TLS
+mismatch (587 without STARTTLS, or 2465 without SSL), a mistyped host, or a
+leftover port 25, and it means no verification or reset mail is leaving the
+project while it lasts. Measured here on 2026-09-28: `demo@studyforge.test`
+returned 504 after 35.8 s.
+
 ## Status of `qjoijoxmnliarlyaqmoz`
 
 Applied on 2026-09-27 and verified against the live database, through a direct
