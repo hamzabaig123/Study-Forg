@@ -12,7 +12,7 @@
  * one, so nothing cross-origin is ever written to a cache here.
  */
 
-const VERSION = "studyforge-v1";
+const VERSION = "studyforge-v2";
 const STATIC = `${VERSION}-static`;
 const SHELL = `${VERSION}-shell`;
 const MAX_STATIC_ENTRIES = 120;
