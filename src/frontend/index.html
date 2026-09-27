@@ -53,7 +53,24 @@
     <script src="/theme-bootstrap.js"></script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <!--
+        The whole app is a React bundle, so with JavaScript off `#root` stays an
+        empty box and the visitor gets a blank page with no explanation. This is
+        the only content that can promise to be seen: the browser renders it and
+        nothing else.
+      -->
+      <noscript>
+        <h1>StudyForge needs JavaScript</h1>
+        <p>
+          StudyForge runs entirely in this browser — it reads your documents,
+          builds practice questions and tracks your progress as you use it — so
+          nothing of the app can be shown with JavaScript turned off. Enable
+          JavaScript for this site, or open it in a browser that has JavaScript
+          enabled, and reload this page.
+        </p>
+      </noscript>
+    </div>
     <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

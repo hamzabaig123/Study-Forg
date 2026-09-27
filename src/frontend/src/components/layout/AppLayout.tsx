@@ -18,6 +18,7 @@ export function AppLayout() {
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
+      <SkipLink />
       <Header
         showSidebarToggle={isMobile}
         onToggleSidebar={() => setSidebarOpen((open) => !open)}
@@ -25,7 +26,9 @@ export function AppLayout() {
       <div className="flex flex-1">
         <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
         <main
-          className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8 lg:py-8"
+          id="main"
+          tabIndex={-1}
+          className="min-w-0 flex-1 px-4 py-6 outline-none sm:px-6 lg:px-8 lg:py-8"
           data-ocid="app.main"
         >
           <div className="mx-auto w-full max-w-6xl">
@@ -44,6 +47,27 @@ export function AppLayout() {
 }
 
 /**
+ * The first tab stop on a signed-in page, aimed past the chrome at the content.
+ *
+ * Header and sidebar come before the page body in the DOM, so without this a
+ * keyboard visitor tabs through every nav control before reaching anything they
+ * came for. It is hidden until focused — a visible link would sit above the
+ * header on every page — and `fixed` once it is, because an element that only
+ * becomes visible when focused must not be clipped by the container it is in.
+ */
+function SkipLink() {
+  return (
+    <a
+      href="#main"
+      className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:border focus:border-border focus:bg-card focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-foreground"
+      data-ocid="app.skip_link"
+    >
+      Skip to content
+    </a>
+  );
+}
+
+/**
  * Public shell for routes that must work without signing in — the QR
  * generator, the secret manage page, the scan redirect, and shared notes.
  * Same header and footer chrome as the signed-in shell, but no sidebar and no
@@ -55,9 +79,12 @@ export function AppLayout() {
 export function PublicLayout({ children }: { children?: ReactNode }) {
   return (
     <div className="flex min-h-dvh flex-col bg-background">
+      <SkipLink />
       <Header />
       <main
-        className="min-w-0 flex-1 px-4 py-8 sm:px-6 lg:px-8 lg:py-12"
+        id="main"
+        tabIndex={-1}
+        className="min-w-0 flex-1 px-4 py-8 outline-none sm:px-6 lg:px-8 lg:py-12"
         data-ocid="public.main"
       >
         <div className="mx-auto w-full max-w-6xl">{children ?? <Outlet />}</div>
