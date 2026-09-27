@@ -197,9 +197,10 @@ select invariant, ok
  order by 1;
 
 -- 12. The function-grant invariants 0008 promises, stated over the live schema.
---     0006's own blanket grant (the harden block at its bottom) re-granted the
---     two reminder helpers — and 0005's revocation of the limiter — to
---     `authenticated`, which is how a signed-in user could execute
+--     The live project granted these three helpers to `authenticated` because
+--     the 0006 paste stopped at its blanket `grant execute on all functions in
+--     schema public to authenticated` — the revokes that follow it in the
+--     committed file never ran. A signed-in user could then execute
 --     `due_reminders()` and read every due account's contact details. After
 --     0008, no client role may execute any of the three. All three rows must
 --     read true; if a helper is missing entirely (dropped, or never applied)
