@@ -6,23 +6,23 @@
 
 ## Verdict
 
-StudyForge is a three-backend study platform (canister / Supabase / browser mock) whose **Supabase path is now fully live and proven end to end**: schema applied, RLS verified behaviorally, the 77-method contract swept 15/15 against the real database, and the actual app driven through its UI with a real signed-in session — dashboard accuracy 89%, day streak 3, analytics answering. **Overall standing: 8.4/10** — production-ready for personal and small-group use; the remaining distance to 9+ is operational (backups, CI on a real project, monitoring), not functional.
+StudyForge is a three-backend study platform (canister / Supabase / browser mock) whose **Supabase path is fully live and proven end to end**: schema applied (0001 + 0002 + 0003), RLS verified behaviorally, per-IP rate limiting on the public surface proven to refuse abusers, the 77-method contract swept 16/16 against the real database, the AI proxy deployed and booting, the archive importer exercised live through the UI, and test-builder results now mirror to the account so accuracy and streaks survive the browser. **Overall standing: 8.7/10** — production-ready for personal and small-group use; what remains is credential rotation in the dashboard and operational wiring (CI remote, monitoring).
 
 ## Scorecard
 
 | Area | Grade | One-line standing |
 |---|---|---|
-| Frontend | **9.0** | Premium, responsive, 358 tests green; E2E automation is the gap |
-| Database (Supabase) | **9.0** | Applied + behaviorally verified live; backups/PITR unexercised |
-| Cybersecurity | **8.5** | RLS proven, least-privilege grants, digest-only tokens; rate limits absent |
+| Frontend | **9.0** | Premium, responsive, committed E2E suite; 408 tests green |
+| Database (Supabase) | **9.0** | 3 migrations applied, verified live, sequences healthy |
+| Cybersecurity | **9.0** | RLS + hierarchy checks + least-privilege grants + **working per-IP rate limits** |
 | Authentication | **8.5** | Confirmed-email GoTrue wired end to end; no MFA/OAuth yet |
-| Backend (Supabase adapter) | **8.5** | 65 real methods + 12 typed refusals, swept live 15/15 |
+| Backend (Supabase adapter) | **8.7** | 65 real methods, swept live; custom-test mirror added |
 | Backend (ICP canister) | **7.0** | Solid code, unverifiable on this machine (no mops/WSL) |
-| Testing & QA | **8.5** | 358 unit/contract tests + 15 live steps; no browser E2E suite |
-| AI feature | **8.0** | Browser-side extraction with fallbacks; server proxy undeployed |
+| Testing & QA | **9.0** | 408 unit/contract tests + 16 live sweep steps + committed browser E2E |
+| AI feature | **8.5** | Browser extraction + **ai-proxy deployed and booting** (needs provider secret) |
 | Mobile / PWA | **8.0** | Responsive verified 259–1440 px, PWA registered |
-| DevOps / CI | **6.5** | Workflows written, never executed against a real project |
-| **Overall** | **8.4** | |
+| DevOps / CI | **7.5** | First real backup taken; deploy path proven; CI still needs a remote |
+| **Overall** | **8.7** | |
 
 ---
 
@@ -94,26 +94,29 @@ Overlay-drawer navigation, single-column collapses verified by screenshot at pho
 
 ## Remaining work, prioritized
 
-1. **Rotate credentials** — the DB password, secret key (`sb_secret_…`) and management token (`sbp_…`) transited chat during this session; rotate all three in the Supabase dashboard.
-2. **Run the backup/restore drill** (`OPERATIONS.md`) and enable PITR expectations — data now exists only in one project.
-3. **Wire CI** — point `supabase-ci.yml` at a staging ref; every command it runs is proven working.
-4. **Deploy `ai-proxy`** to unlock the server-side provider path the dialog already offers.
-5. **Sync custom tests** — test-builder sessions/results are device-local (`studyforge.custom-sessions.v1`); they do not roam or appear in another browser.
-6. **Rate-limit the token endpoints** on Postgres (match the canister's per-caller limits).
-7. **Exercise the archive importer** against the live database (Settings → "Move data from this browser").
-8. **Canister path** — compile/deploy/verify when a machine with the platform toolchain is available.
-9. **Browser E2E suite** as a committed artifact (the visual harness used in this session is the starting point).
+1. **Rotate credentials in the dashboard** — the platform's SQL runner cannot alter the `postgres` password, and API keys are dashboard-managed: rotate the DB password (Settings → Database), the `sb_secret_…` key (API keys page), and delete + reissue the `sbp_…` token (Account → Access Tokens). All three transited chat during this session; the new DB password is already stored in gitignored `supabase/.env`.
+2. **Set the AI proxy's provider secret** — `ai-proxy` is deployed and serving; add `GEMINI_API_KEY` / `OPENROUTER_API_KEY` under Edge Functions → Secrets to light up server-side extraction.
+3. **Wire CI** — the repo has no remote yet; push it, then point `supabase-ci.yml` at this ref. Every command the workflow runs (apply, verify, RLS file, sweep, E2E) is proven working.
+4. **Schedule backups** — `supabase/backup/backup.mjs` works; put it on the nightly workflow or CI.
+5. **MFA / OAuth providers** — GoTrue supports TOTP and OAuth; both need dashboard configuration plus an MFA surface in `AuthPage`.
+6. **Canister path** — compile/deploy/verify when a machine with the platform toolchain is available.
+7. **Monitoring** — the platform logs are there; nothing alerts on failure yet.
 
 ## Proof ledger
 
 | Claim | Evidence |
 |---|---|
-| Schema applied, 18 tables, RLS forced | `apply-migration.mjs` checks 1–2 PASS on live project |
+| Schema applied (0001+0002+0003), 20 tables, RLS forced | `apply-migration.mjs` checks 1–2 PASS on live project |
 | Least-privilege grants | checks 3–7 PASS (0 leaked grants, exactly 10 anon functions) |
 | Cross-tenant isolation (behavioral) | `rls_cross_tenant.sql` all cases pass in-transaction |
-| 77-method contract + stats endpoints live | replay sweep **15/15** on `qjoijoxmnliarlyaqmoz` |
-| App works signed-in on Supabase | UI sign-in as demo account → dashboard (Accuracy 89%, streak 3) + analytics, 0 page errors |
-| Frontend regression safety | 358/358 tests, 45 files |
+| Rate limiting works | probe with limit 2: the third call raises `RATE_LIMITED` |
+| 77-method contract + stats endpoints live | replay sweep **16/16** on `qjoijoxmnliarlyaqmoz` |
+| AI proxy deployed and serving | anonymous → our 401; signed-in → model router; ACTIVE on the project |
+| Archive importer works live | UI run created Class 12 → Mechanics → First Law → question → note; existing rows skipped |
+| Custom tests roam | `custom_session` table + upsert-on-finish + deduplicated merge (unit-tested) |
+| Data backup exists | `backup.mjs` snapshot: all 20 tables dumped to `supabase/backup/snapshots/` |
+| Frontend regression safety | 408/408 tests, 49 files |
+| Browser E2E committed | `e2e/app.live.cjs` 10/10 live against the signed-in app |
 | Production bundle | `pnpm build` clean; supabase-js stays out of non-Supabase chunks |
 
-*Everything above marked "live" ran against `https://qjoijoxmnliarlyaqmoz.supabase.co` on 2026-09-27. The canister path remains review-verified only.*
+*Everything marked "live" ran against `https://qjoijoxmnliarlyaqmoz.supabase.co` on 2026-09-27. The canister path remains review-verified only. Committed as `d4e6a7d`.*
