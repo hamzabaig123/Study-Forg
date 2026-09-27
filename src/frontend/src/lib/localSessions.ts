@@ -6,13 +6,14 @@
  * by the same safe-storage helpers as everything else. Completed tests keep
  * per-question rows (with class/subject labels captured at build time) so
  * analytics can merge them with backend-recorded history.
+ *
+ * The store is keyed to the signed-in account (`lib/deviceScope`), because these
+ * rows are the learner's record and the dashboard reads them: a second sign-in
+ * on the same browser must not inherit another's accuracy and streak.
  */
 import { parseWithBigints, stringifyWithBigints } from "@/lib/bigintJson";
-import {
-  reportStorageProblem,
-  safeGetItem,
-  safeSetItem,
-} from "@/lib/localStore";
+import { adoptUnscoped, scopedKey, watchDeviceScope } from "@/lib/deviceScope";
+import { reportStorageProblem, safeSetItem } from "@/lib/localStore";
 import type { AssembledQuestion, TopicLabels } from "@/lib/sessionEngine";
 import type {
   AnswerData,
@@ -21,7 +22,7 @@ import type {
   SubmittedAnswer,
 } from "@/types";
 
-const STORAGE_KEY = "studyforge.custom-sessions.v1";
+const BASE_KEY = "studyforge.custom-sessions.v1";
 const COMPLETED_KEEP_LIMIT = 100;
 
 export interface LocalQuestionResult {
@@ -59,12 +60,16 @@ interface StoreShape {
 
 const listeners = new Set<() => void>();
 let cache: StoreShape | null = null;
+/** The bucket `cache` was read from, so a sign-in cannot reuse another's rows. */
+let cacheScope: string | null = null;
 
 function load(): StoreShape {
-  if (cache) return cache;
-  const raw = safeGetItem(STORAGE_KEY);
+  const scope = scopedKey(BASE_KEY);
+  if (cache && cacheScope === scope) return cache;
+  const raw = adoptUnscoped(BASE_KEY);
   if (raw === null) {
     cache = { version: 1, sessions: [] };
+    cacheScope = scope;
     return cache;
   }
   try {
@@ -84,12 +89,15 @@ function load(): StoreShape {
     );
     cache = { version: 1, sessions: [] };
   }
+  cacheScope = scope;
   return cache;
 }
 
 function persist(next: StoreShape): void {
+  const scope = scopedKey(BASE_KEY);
   cache = next;
-  if (safeSetItem(STORAGE_KEY, stringifyWithBigints(next))) {
+  cacheScope = scope;
+  if (safeSetItem(scope, stringifyWithBigints(next))) {
     for (const listener of listeners) listener();
   }
 }
@@ -189,7 +197,9 @@ export function listCompletedLocalSessions(): LocalSession[] {
 export function subscribeLocalSessions(listener: () => void): () => void {
   listeners.add(listener);
   const onStorage = (event: StorageEvent) => {
-    if (event.key === STORAGE_KEY) {
+    // The unscoped name is in the list because a sibling tab's first read can
+    // claim it: the row it moves out of is this tab's cache too.
+    if (event.key === scopedKey(BASE_KEY) || event.key === BASE_KEY) {
       cache = null;
       listener();
     }
@@ -200,3 +210,11 @@ export function subscribeLocalSessions(listener: () => void): () => void {
     window.removeEventListener("storage", onStorage);
   };
 }
+
+// A sign-in in this very tab moves the bucket without touching storage, so no
+// `storage` event reaches us; this is how a dashboard that is already open
+// stops showing the previous account's runs.
+watchDeviceScope(() => {
+  cache = null;
+  for (const listener of listeners) listener();
+});

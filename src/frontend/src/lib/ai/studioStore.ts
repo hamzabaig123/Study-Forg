@@ -6,6 +6,9 @@
  * queue on a refresh is the fastest way to make this page unusable. The upload
  * itself is not kept — a document has to be read again, and storing its text
  * next to its questions would only bloat local storage.
+ *
+ * The queue is stored per account (`lib/deviceScope`): a draft is someone's
+ * exam paper, and on a shared browser the next sign-in must not be handed it.
  */
 
 import {
@@ -13,8 +16,9 @@ import {
   type QuestionKind,
   draftKey,
 } from "@/lib/ai/questions";
+import { adoptUnscoped, scopedKey, watchDeviceScope } from "@/lib/deviceScope";
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 
 export type DraftStatus = "pending" | "approved" | "imported" | "rejected";
 
@@ -58,6 +62,35 @@ const EMPTY_FILTERS: QueueFilters = {
   status: "all",
   kind: "all",
   query: "",
+};
+
+/** The queue's storage name, before the account bucket is appended to it. */
+const QUEUE_KEY = "studyforge.ai-studio.v2";
+
+/**
+ * The persist backend that keeps one queue per account.
+ *
+ * A read claims the unscoped key the first time an account signs in, so a queue
+ * built before the queue was scoped is not orphaned in the browser; a write
+ * always lands in the bucket the queue belongs to.
+ */
+const accountQueueStorage = {
+  getItem: (name: string) => adoptUnscoped(name),
+  setItem: (name: string, value: string) => {
+    try {
+      window.localStorage.setItem(scopedKey(name), value);
+    } catch {
+      // A store that refuses the write loses persistence, not the review: the
+      // drafts stay on screen until this tab closes.
+    }
+  },
+  removeItem: (name: string) => {
+    try {
+      window.localStorage.removeItem(scopedKey(name));
+    } catch {
+      // Nothing to do: the queue is on its way out either way.
+    }
+  },
 };
 
 interface StudioState {
@@ -208,7 +241,8 @@ export const useStudioStore = create<StudioState>()(
         set((state) => ({ filters: { ...state.filters, ...filters } })),
     }),
     {
-      name: "studyforge.ai-studio.v2",
+      name: QUEUE_KEY,
+      storage: createJSONStorage(() => accountQueueStorage),
       partialize: (state) => ({
         drafts: state.drafts,
         source: state.source,
@@ -217,6 +251,42 @@ export const useStudioStore = create<StudioState>()(
     },
   ),
 );
+
+/** The bucket the queue was last read from; `device` while nobody is signed in. */
+let queueHydratedFor = scopedKey(QUEUE_KEY);
+
+/**
+ * Re-read the queue for the account that is signed in now.
+ *
+ * Called when the sign-in changes rather than on every mount: a queue the
+ * reviewer is working through has to survive an unrelated re-render, and a
+ * rehydrate that runs anyway would replace in-memory edits with whatever was
+ * last written. Answers whether it did anything.
+ */
+export function retargetStudioQueue(): boolean {
+  const next = scopedKey(QUEUE_KEY);
+  if (next === queueHydratedFor) return false;
+  queueHydratedFor = next;
+  if (adoptUnscoped(QUEUE_KEY) === null) {
+    // Nothing stored for this account. `rehydrate()` would be a no-op and leave
+    // the previous account's drafts on screen, so the queue is emptied here.
+    useStudioStore.setState({
+      drafts: [],
+      source: null,
+      target: EMPTY_TARGET,
+      filters: EMPTY_FILTERS,
+    });
+  } else {
+    void useStudioStore.persist?.rehydrate();
+  }
+  return true;
+}
+
+// Registering here rather than in the page: whichever route reaches the queue
+// gets the signed-in account's copy, and a sign-in that happens while the
+// studio is on screen re-reads it instead of leaving the reviewer editing
+// somebody else's drafts.
+watchDeviceScope(() => retargetStudioQueue());
 
 export function filterDrafts(
   drafts: StudioDraft[],

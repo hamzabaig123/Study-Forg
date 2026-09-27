@@ -18,6 +18,14 @@ const EXACT_KEYS = [
   "studyforge.reminders.v1",
 ];
 
+/**
+ * The note drafts and the review queue are cached per signed-in account (see
+ * `lib/deviceScope`, which puts that account's id at the end of each name), so
+ * they are matched by prefix: a browser that has seen two learners holds two of
+ * each, and the promise on the "Clear local data" button covers all of them.
+ * `studyforge.custom-sessions.v1` is absent on purpose — attempt history is
+ * account content, and it is scoped for the same reason it is not erased here.
+ */
 const KEY_PREFIXES = ["studyforge.note-draft.", "studyforge.ai-studio"];
 
 export function clearDeviceCache(): void {

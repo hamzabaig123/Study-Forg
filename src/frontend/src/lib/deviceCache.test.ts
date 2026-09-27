@@ -18,12 +18,18 @@ const CACHED = [
   ["localStorage", "studyforge.reminders.v1"],
   ["localStorage", "studyforge.ai-studio.queue.v1"],
   ["sessionStorage", "studyforge.note-draft.7"],
+  // The same two caches inside an account's own slot (`lib/deviceScope`).
+  ["localStorage", "studyforge.ai-studio.v2.test-account"],
+  ["localStorage", "studyforge.note-draft.7.test-account"],
 ] as const;
 
 const ACCOUNT_CONTENT = [
   ["localStorage", "studyforge.mock-backend.v1"],
   ["localStorage", "studyforge.auth"],
   ["localStorage", "studyforge.custom-sessions.v1"],
+  // A scoped history is still account content: the id only stops two learners
+  // reading each other's runs, it does not make the runs a cache.
+  ["localStorage", "studyforge.custom-sessions.v1.test-account"],
 ] as const;
 
 function store(name: "localStorage" | "sessionStorage"): Storage {

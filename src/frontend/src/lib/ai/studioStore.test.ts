@@ -9,8 +9,10 @@ import type { QuestionDraft } from "@/lib/ai/questions";
 import {
   countByStatus,
   filterDrafts,
+  retargetStudioQueue,
   useStudioStore,
 } from "@/lib/ai/studioStore";
+import { SESSION_KEY } from "@/lib/localAuth";
 import { beforeEach, describe, expect, it } from "vitest";
 
 function draft(over: Partial<QuestionDraft> & { id: string }): QuestionDraft {
@@ -199,5 +201,45 @@ describe("queue filters and counts", () => {
       imported: 0,
       rejected: 0,
     });
+  });
+});
+
+/**
+ * The queue holds extracted text the reviewer has not saved anywhere yet, so it
+ * is the cache least acceptable to hand to the next sign-in. `retargetStudioQueue`
+ * is what the account-change watcher calls; these drive it directly.
+ */
+describe("the review queue per account", () => {
+  function signInAs(accountId: string): void {
+    window.localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ accountId, token: "test-token", createdAt: "now" }),
+    );
+  }
+
+  it("gives the next account an empty queue and the first one back its own", () => {
+    signInAs("queue-account");
+    retargetStudioQueue();
+    useStudioStore.getState().replaceQueue([draft({ id: "mine" })], SOURCE);
+    expect(useStudioStore.getState().drafts).toHaveLength(1);
+
+    signInAs("other-account");
+    expect(retargetStudioQueue()).toBe(true);
+    expect(useStudioStore.getState().drafts).toEqual([]);
+
+    signInAs("queue-account");
+    expect(retargetStudioQueue()).toBe(true);
+    expect(useStudioStore.getState().drafts.map((item) => item.id)).toEqual([
+      "mine",
+    ]);
+  });
+
+  it("leaves an in-memory queue alone when the account has not moved", () => {
+    signInAs("steady-account");
+    retargetStudioQueue();
+    useStudioStore.getState().replaceQueue([draft({ id: "kept" })], SOURCE);
+
+    expect(retargetStudioQueue()).toBe(false);
+    expect(useStudioStore.getState().drafts).toHaveLength(1);
   });
 });

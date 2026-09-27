@@ -24,6 +24,7 @@ import {
   useRevokeNoteShare,
   useUpdateNote,
 } from "@/hooks/useNotes";
+import { adoptUnscoped, scopedKey } from "@/lib/deviceScope";
 import { formatRelativeTime } from "@/lib/format";
 import {
   BLOCK_KIND_LABELS,
@@ -71,13 +72,19 @@ interface LocalDraft {
   savedAt: number;
 }
 
-function draftKey(noteId: string): string {
+/**
+ * The unsaved draft for one note, in this account's own slot.
+ *
+ * Note ids are per-account, so two learners both have a note `7` and each
+ * autosave would otherwise overwrite the other's text on a shared browser.
+ */
+function draftBase(noteId: string): string {
   return `studyforge.note-draft.${noteId}`;
 }
 
 function readDraft(noteId: string): LocalDraft | null {
   try {
-    const raw = window.localStorage.getItem(draftKey(noteId));
+    const raw = adoptUnscoped(draftBase(noteId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<LocalDraft>;
     if (
@@ -108,7 +115,10 @@ function readDraft(noteId: string): LocalDraft | null {
 
 function writeDraft(noteId: string, draft: LocalDraft): void {
   try {
-    window.localStorage.setItem(draftKey(noteId), JSON.stringify(draft));
+    window.localStorage.setItem(
+      scopedKey(draftBase(noteId)),
+      JSON.stringify(draft),
+    );
   } catch {
     // Storage may be unavailable (private mode, quota). Autosave still works.
   }
@@ -116,7 +126,11 @@ function writeDraft(noteId: string, draft: LocalDraft): void {
 
 function clearDraft(noteId: string): void {
   try {
-    window.localStorage.removeItem(draftKey(noteId));
+    const base = draftBase(noteId);
+    window.localStorage.removeItem(scopedKey(base));
+    // The name a draft saved before this account existed is claimed on read, so
+    // a save that follows has to clear the slot the claim moved it out of too.
+    window.localStorage.removeItem(base);
   } catch {
     // Nothing to do — the draft simply stays until the next successful save.
   }
