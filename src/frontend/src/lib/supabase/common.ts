@@ -12,10 +12,6 @@ import type { Id } from "@/backend";
 import { tokenHash } from "./tokens";
 import type { Row, SupabaseTransport } from "./transport";
 
-interface Adapter {
-  transport: SupabaseTransport;
-}
-
 /**
  * The signed-in user's id.
  *

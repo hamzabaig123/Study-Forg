@@ -411,18 +411,17 @@ async function sendViaNotification(copy: DigestCopy): Promise<void> {
 
 /**
  * Fire the digest now — the "send test" button and the scheduler both come
- * through here. The recipient is the signed-in account's address; the manually
- * kept fallback only stands in when the account has none (Internet Identity).
+ * through here.
  *
  * On the Supabase backend the scheduled reminder-sender Edge Function does
- * the delivering — server-side numbers, sign-in address, reminder_log row.
- * On the mock the same copy surfaces as a browser notification. Whichever one runs, the day is stamped so the scheduler stays
+ * the delivering — server-side numbers, the sign-in address it reads from the
+ * caller's own session, and the reminder_log row — so no recipient is chosen
+ * on this device. On the mock the same copy surfaces as a browser
+ * notification. Whichever one runs, the day is stamped so the scheduler stays
  * quiet, and in the Supabase mode that stamp mirrors to the account's row.
  */
 export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
-  const settings = getReminderSettings();
   const copy = buildDigest(input);
-  const recipient = input.recipientEmail?.trim() || settings.email.trim();
   try {
     if (USE_SUPABASE) {
       const server = await import("@/lib/supabase/reminders");

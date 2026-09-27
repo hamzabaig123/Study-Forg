@@ -49,13 +49,14 @@ beforeEach(() => {
 
 describe("sendDigestNow", () => {
   function stubNotifications(permission: NotificationPermission) {
+    // A function rather than a class: it is constructible at any arity, and
+    // `permission` is the only member the code under test reads.
+    function NotificationStub() {}
     vi.stubGlobal(
       "Notification",
-      class {
-        static permission = permission;
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        constructor(_title: string, _options?: NotificationOptions) {}
-      },
+      Object.assign(NotificationStub, {
+        permission,
+      }),
     );
   }
 
