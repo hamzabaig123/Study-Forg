@@ -1,3 +1,4 @@
+import { ErrorBoundary } from "@/components/common/ErrorBoundary";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { useAccountCacheScope } from "@/hooks/useAccountCacheScope";
@@ -10,6 +11,16 @@ import { SpeedInsights } from "@vercel/speed-insights/react";
  * Query and Internet Identity providers live in main.tsx.
  */
 export default function App() {
+  // The boundary is outside the shell so a hook that throws in the shell is
+  // caught by it rather than blanking the page.
+  return (
+    <ErrorBoundary>
+      <AppShell />
+    </ErrorBoundary>
+  );
+}
+
+function AppShell() {
   useAccountCacheScope();
 
   return (
