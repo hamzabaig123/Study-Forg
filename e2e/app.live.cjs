@@ -53,8 +53,14 @@ async function main() {
   check(!/built with love/i.test(dashText), "no third-party credit in the footer");
 
   await page.goto(`${BASE}/analytics`, { waitUntil: "domcontentloaded", timeout: 90_000 });
-  await page.waitForTimeout(2500);
-  const analytics = await page.evaluate(() => document.body.innerText);
+  // The analytics chunk (recharts) compiles on first visit, so a fixed sleep
+  // races the render — poll for the history section instead of sleeping.
+  let analytics = "";
+  for (let waited = 0; waited < 30_000; waited += 500) {
+    analytics = await page.evaluate(() => document.body.innerText);
+    if (/attempt history/i.test(analytics) && /\d+%/.test(analytics)) break;
+    await page.waitForTimeout(500);
+  }
   check(/attempt history/i.test(analytics), "analytics renders the attempt history");
   check(/100%/.test(analytics) || /\d+%/.test(analytics), "analytics shows percentages");
 

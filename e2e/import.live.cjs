@@ -80,10 +80,19 @@ async function main() {
   await page.waitForTimeout(2_500);
   await page.getByRole("button", { name: /move it in/i }).click();
   await page.getByRole("button", { name: "Import", exact: true }).click();
-  // The report renders when the run finishes; give every row time to land.
-  await page.waitForTimeout(15_000);
-  const body = await page.evaluate(() => document.body.innerText);
-  check(/import|created|skipped/i.test(body), "the import report rendered");
+  // The report renders when the run finishes; rows land one request at a time,
+  // so poll for the report's own words (countLine says "… added.") instead of
+  // sleeping a fixed stretch.
+  let body = "";
+  for (let waited = 0; waited < 90_000; waited += 1_000) {
+    await page.waitForTimeout(1_000);
+    body = await page.evaluate(() => document.body.innerText);
+    if (/added\.|could not be imported|already here was left alone/i.test(body)) break;
+  }
+  check(
+    /added\.|could not be imported|already here was left alone/i.test(body),
+    "the import report rendered",
+  );
   check(!/fail/i.test(body) || /failures: 0/i.test(body), "no failure lines in the report");
   check(errors.length === 0, `zero page errors (saw ${errors.length})`);
   for (const e of errors) console.log("  pageerror:", e.slice(0, 200));
