@@ -396,14 +396,6 @@ export type SendOutcome =
   | { kind: "skipped"; reason: "disabled" | "already-sent" | "not-due" }
   | { kind: "failed"; reason: string };
 
-function isEmailjsConfigured(settings: ReminderSettings): boolean {
-  return (
-    settings.emailjsServiceId.trim().length > 0 &&
-    settings.emailjsTemplateId.trim().length > 0 &&
-    settings.emailjsPublicKey.trim().length > 0
-  );
-}
-
 async function sendViaNotification(copy: DigestCopy): Promise<void> {
   if (typeof Notification === "undefined") {
     throw new Error("This browser has no notification support");
@@ -423,22 +415,17 @@ async function sendViaNotification(copy: DigestCopy): Promise<void> {
  * through here. The recipient is the signed-in account's address; the manually
  * kept fallback only stands in when the account has none (Internet Identity).
  *
- * Delivery is tried in the order the reviewer set it up: their own EmailJS
- * account when the three IDs are on the device, otherwise the scheduled
- * reminder-sender Edge Function in the Supabase mode (which sends from the
- * server and records the attempt in `reminder_log`), otherwise a browser
- * notification. Whichever one runs, the day is stamped so the scheduler stays
+ * On the Supabase backend the scheduled reminder-sender Edge Function does
+ * the delivering — server-side numbers, sign-in address, reminder_log row.
+ * On the mock the same copy surfaces as a browser notification. Whichever one runs, the day is stamped so the scheduler stays
  * quiet, and in the Supabase mode that stamp mirrors to the account's row.
  */
 export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
   const settings = getReminderSettings();
   const copy = buildDigest(input);
   const recipient = input.recipientEmail?.trim() || settings.email.trim();
-  const viaEmailjs = isEmailjsConfigured(settings);
   try {
-    if (viaEmailjs) {
-      await sendViaEmailjs(settings, copy, recipient);
-    } else if (USE_SUPABASE) {
+    if (USE_SUPABASE) {
       const server = await import("@/lib/supabase/reminders");
       const { failures } = await server.sendTestViaServer();
       if (failures.length > 0) {
