@@ -29,9 +29,18 @@ const MAX_BODY_BYTES = 8_000_000;
 /** One upstream at a time gets ~30s; 55s is under the platform's wall clock. */
 const UPSTREAM_TIMEOUT_MS = 55_000;
 
-/** Per-account sliding window. Best effort: one value per edge-function isolate. */
+/**
+ * Per-account sliding window — a fair-use guardrail, not a quota defence.
+ *
+ * The map lives in one isolate and Supabase spreads requests across isolates
+ * (and cold-starts a fresh one on a burst), so N isolates admit N x RATE_LIMIT
+ * and any deploy resets every counter. Durable counting would have to live in
+ * Postgres, the way `enforce_rate_limit` does. What this bound honestly buys is
+ * one tab cannot hammer the owner's key by accident.
+ */
 const RATE_LIMIT = 20;
 const RATE_WINDOW_MS = 60_000;
+const MAX_TRACKED_ACCOUNTS = 1000;
 const hits = new Map<string, number[]>();
 
 function rateLimited(user: string): boolean {
@@ -43,8 +52,14 @@ function rateLimited(user: string): boolean {
   }
   recent.push(now);
   hits.set(user, recent);
-  // A visitor that stops never evicts their own entry.
-  if (hits.size > 1000) hits.clear();
+  // A visitor that stops never evicts their own entry, so drop the keys whose
+  // window has aged out — and only those. Clearing the whole map instead hands
+  // anyone who reaches that size a free reset for every other account.
+  if (hits.size > MAX_TRACKED_ACCOUNTS) {
+    for (const [key, times] of hits) {
+      if (!times.some((at) => now - at < RATE_WINDOW_MS)) hits.delete(key);
+    }
+  }
   return false;
 }
 

@@ -72,17 +72,26 @@ jobs:
           } >> "$GITHUB_ENV"
 
       # There is no `supabase/config.toml` in the repo, so `db push` has no
-      # schema history to diff against — the init script is applied with psql,
-      # which is exactly how README.md says to apply it by hand. A staging
-      # database that already carries the schema is left alone: re-running an
-      # init script over populated tables is not a migration.
-      - name: Apply the migration when staging has no schema yet
+      # schema history to diff against — the ladder is applied with psql, which
+      # is exactly how README.md says to apply it by hand. A staging database
+      # that already carries the schema is left alone: re-running an init script
+      # over populated tables is not a migration.
+      #
+      # All of it runs, in filename order, because the security checks below
+      # describe the *whole* schema: `verify.sql` asks about the reminder tables
+      # (0006/0007) and the function grants (0008), and applying only 0001 used
+      # to grade a project that never had them. Filename order is the documented
+      # apply order — 0002 before 0003, and 0008's revokes last.
+      - name: Apply the migration ladder when staging has no schema yet
         run: |
           already="$(psql "$PGURL" -Atc "select to_regclass('public.question') is not null")"
           if [ "$already" = "true" ]; then
-            echo "::notice::staging already has the schema; skipping 0001_init.sql"
+            echo "::notice::staging already has the schema; skipping the ladder"
           else
-            psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/migrations/0001_init.sql
+            for file in supabase/migrations/*.sql; do
+              echo "applying $file"
+              psql "$PGURL" -v ON_ERROR_STOP=1 -f "$file"
+            done
           fi
 
       # verify.sql is written for a human to read in the SQL editor, so it
@@ -106,7 +115,13 @@ jobs:
           version: latest
 
       - name: Deploy Edge Functions to staging
-        run: supabase functions deploy ai-proxy --project-ref "$PROJECT_REF" --no-verify-jwt
+        # Both, because the reminder path is the one that holds the cross-account
+        # helpers: a staging project that cannot deploy it cannot rehearse the
+        # production change. `--no-verify-jwt` because each function does its own
+        # bearer check (a pg_cron tick presents CRON_SECRET, not a user JWT).
+        run: |
+          supabase functions deploy ai-proxy --project-ref "$PROJECT_REF" --no-verify-jwt
+          supabase functions deploy reminder-sender --project-ref "$PROJECT_REF" --no-verify-jwt
 
   replay-sweep:
     needs: migration

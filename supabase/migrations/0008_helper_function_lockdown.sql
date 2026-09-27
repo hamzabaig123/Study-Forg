@@ -1,17 +1,20 @@
--- StudyForge 0008: finish the helper walk-back 0006's own blanket grant undid.
+-- StudyForge 0008: re-apply the walk-back 0006 states but this project never ran.
 --
--- 0006 walks `reminder_digest` and `due_reminders` back from every client role,
--- then further down re-runs 0001's harden block, whose blanket
--- `grant execute on all functions in schema public to authenticated`
--- re-grants both — the same ordering trap 0004 documented against 0002, this
--- time inside one file. 0006's blanket also re-granted `enforce_rate_limit`,
--- which 0005 had taken back. Measured live on 2026-09-28: a signed-in user
--- could execute `due_reminders()` and, whenever any account is due, read its
--- email, display name and settings across the whole project.
+-- 0006 ends by granting execute on every public function to `authenticated` and
+-- then walking that back, statement by statement, for the throttle and the two
+-- cross-account reminder views. Measured live on 2026-09-28, though, a signed-in
+-- user could execute `due_reminders()` and, whenever any account is due, read its
+-- email, display name and settings across the whole project — and `reminder_digest`
+-- and `enforce_rate_limit` were client-callable too. That is exactly the set the
+-- walk-back names, so the pasted 0006 stopped at the blanket grant; the revokes
+-- after it never ran. The committed file is not wrong (the replay in
+-- src/frontend/src/lib/supabase/sqlSurface.contract.test.ts proves its own order
+-- ends locked), which is why this file changes no function bodies and claims no
+-- fix beyond the three revokes below.
 --
--- This file re-applies the revokes LAST, so order no longer matters, and it is
--- idempotent: safe on any project where 0006 exists, before or after 0007
--- (0007 touches only table grants and policies). Run it after 0006.
+-- Revokes come last, so nothing here can be undone by ordering, and every
+-- statement is idempotent: safe on any project where 0006 exists, before or
+-- after 0007 (0007 touches only table grants and policies). Run it after 0006.
 
 revoke all on function public.reminder_digest(uuid, integer) from public, anon, authenticated;
 revoke all on function public.due_reminders() from public, anon, authenticated;
