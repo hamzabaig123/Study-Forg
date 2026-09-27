@@ -392,6 +392,7 @@ const HELVETICA_BOLD_WIDTHS: Record<string, number> = {
  * and accented letters are transliterated first.
  */
 function toWinAnsi(value: string): string {
+  if (!value) return "";
   return value
     .replace(/\r\n?/gu, "\n")
     .normalize("NFD")
