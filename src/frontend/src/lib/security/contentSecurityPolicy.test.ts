@@ -43,7 +43,6 @@ describe("contentSecurityPolicy", () => {
     for (const origin of [
       "https://generativelanguage.googleapis.com",
       "https://openrouter.ai",
-      "https://api.emailjs.com",
       "https://cdnjs.cloudflare.com",
       "http://localhost:11434",
       "https://vitals.vercel-insights.com",
@@ -51,6 +50,12 @@ describe("contentSecurityPolicy", () => {
     ]) {
       expect(directive("connect-src"), origin).toContain(origin);
     }
+  });
+
+  it("names no origin the app no longer talks to", () => {
+    // EmailJS is gone: the daily digest is delivered server-side by the
+    // reminder-sender Edge Function, so its API must not stay reachable.
+    expect(directive("connect-src")).not.toContain("emailjs.com");
   });
 
   it("grants scripts no inline exemption", () => {

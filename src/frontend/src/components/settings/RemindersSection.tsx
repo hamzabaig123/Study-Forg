@@ -252,8 +252,8 @@ export function RemindersSection() {
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
                 The mail runner checks every ten minutes and sends each
                 account's digest at its own local time — the app does not need
-                to be open. The numbers in the email are read from your
-                account, and every attempt is recorded below.
+                to be open. The numbers in the email are read from your account,
+                and every attempt is recorded below.
               </p>
             </div>
           </div>

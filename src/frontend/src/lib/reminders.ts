@@ -37,7 +37,7 @@ export interface ReminderSettings {
   /** Local day key of the last fired digest, so it fires once per day. */
   lastSentDate: string | null;
   /**
-     * fields above mirror to the account's database row.
+   * fields above mirror to the account's database row.
    */
 }
 

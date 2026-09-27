@@ -27,9 +27,6 @@ const OUTBOUND_ORIGINS = [
   // `lib/ai/providers.ts`); the canister's AI methods are not wired to anything.
   "https://generativelanguage.googleapis.com",
   "https://openrouter.ai",
-  // EmailJS carries the daily reminder when the user chose email over a
-  // notification (`lib/reminders.ts`).
-  "https://api.emailjs.com",
   // pdf.js is loaded from a CDN rather than bundled, so the app boots without a
   // PDF engine it may never use. The script tag also pins an SRI digest.
   "https://cdnjs.cloudflare.com",

@@ -14,7 +14,7 @@ const EXACT_KEYS = [
   "studyforge.ai.openai_key",
   // Queue left behind by the studio before it moved to `studyforge.ai-studio`.
   "studyforge.ai.extraction_queue.v1",
-  // Daily-reminder configuration, including the sender's EmailJS keys.
+  // Notification-fallback preferences for the mock mode (no keys are stored).
   "studyforge.reminders.v1",
 ];
 

@@ -13,7 +13,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabase/env";
 import { sessionStore } from "@/lib/supabase/session";
 
-/** Only these fields leave the device; the EmailJS IDs never do. */
+/** Only the preference fields leave the device. */
 export type RemoteReminderSettings = Partial<
   Pick<
     ReminderSettings,

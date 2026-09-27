@@ -105,14 +105,14 @@ const BRAND_DARK: Rgb = { r: 0.541, g: 0.243, b: 0.086 };
 const BRAND_DEEP: Rgb = { r: 0.337, g: 0.149, b: 0.055 };
 const BRAND_LIT: Rgb = { r: 0.886, g: 0.565, b: 0.255 };
 const BRAND_PALE: Rgb = { r: 0.949, g: 0.878, b: 0.804 };
-const BRAND_TINT: Rgb = { r: 0.988, g: 0.953, b: 0.910 };
+const BRAND_TINT: Rgb = { r: 0.988, g: 0.953, b: 0.91 };
 const INK: Rgb = { r: 0.173, g: 0.161, b: 0.153 };
 const MUTED: Rgb = { r: 0.42, g: 0.404, b: 0.384 };
 /** The warm hairline every card and frame edge is drawn with. */
 const SAND: Rgb = { r: 0.867, g: 0.804, b: 0.706 };
 const WASH: Rgb = { r: 0.973, g: 0.957, b: 0.929 };
 /** A card fill a shade off the page, so the border reads as a raised panel. */
-const CARD: Rgb = { r: 0.996, g: 0.988, b: 0.980 };
+const CARD: Rgb = { r: 0.996, g: 0.988, b: 0.98 };
 const WHITE: Rgb = { r: 1, g: 1, b: 1 };
 
 interface Rgb {
@@ -752,6 +752,16 @@ const KEY_EXPLAIN: TextStyle = {
 };
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+/** A, B ... Z, AA, AB - section letters never run out or repeat. */
+function sectionLetter(index: number): string {
+  const letter = LETTERS[index % LETTERS.length];
+  const prefix =
+    index >= LETTERS.length
+      ? (LETTERS[Math.floor(index / LETTERS.length) - 1] ?? "")
+      : "";
+  return `${prefix}${letter}`;
+}
+
 /** Baseline that puts a line of `size` at the top of a band. */
 function baselineIn(bandTop: number, size: number): number {
   return bandTop - size * 0.78;
@@ -762,10 +772,13 @@ function baselineInBox(boxY: number, boxHeight: number, size: number): number {
   return boxY + (boxHeight - size * 0.72) / 2;
 }
 
+/** The band printed at the top of every page after the first. */
+type RunningHeader = { title: string; tag: string };
+
 /** A fresh page with the frame, corner studs and footer already painted. */
 function newPage(
   doc: Doc,
-  options: { runningHeader?: string } = {},
+  options: { runningHeader?: RunningHeader } = {},
 ): { page: Page; top: number } {
   const page = new Page();
   doc.pages.push(page);
@@ -799,14 +812,7 @@ function newPage(
     page.rect(cornerX - 1.5, cornerY - 1.5, 3, 3, BRAND_PALE);
   }
 
-  page.line(
-    MARGIN,
-    FOOTER_RULE,
-    PAGE_WIDTH - MARGIN,
-    FOOTER_RULE,
-    SAND,
-    0.6,
-  );
+  page.line(MARGIN, FOOTER_RULE, PAGE_WIDTH - MARGIN, FOOTER_RULE, SAND, 0.6);
   page.text("STUDYFORGE", MARGIN, FOOTER_BASELINE, MICRO_LABEL);
   page.text(
     fitLine(
@@ -824,13 +830,13 @@ function newPage(
 
   const headerBaseline = PAGE_HEIGHT - 56;
   page.text(
-    fitLine(options.runningHeader, HEADER_LABEL, CONTENT_WIDTH - 140),
+    fitLine(options.runningHeader.title, HEADER_LABEL, CONTENT_WIDTH - 140),
     MARGIN,
     headerBaseline,
     HEADER_LABEL,
   );
   page.text(
-    "PRACTICE WORKSHEET",
+    options.runningHeader.tag,
     PAGE_WIDTH - MARGIN,
     headerBaseline,
     HEADER_RIGHT,
@@ -900,18 +906,30 @@ function drawCover(
     lineHeight: 9,
     color: BRAND_PALE,
   });
-  page.text(countLabel, rightEdge, monogramY + monogram - 11, {
-    font: "Helvetica-Bold",
-    size: 9,
-    lineHeight: 11,
-    color: WHITE,
-  });
-  page.text(dateLabel, rightEdge, monogramY + 2, {
-    font: "Helvetica",
-    size: 7.4,
-    lineHeight: 9,
-    color: BRAND_PALE,
-  });
+  page.text(
+    countLabel,
+    rightEdge,
+    monogramY + monogram - 11,
+    {
+      font: "Helvetica-Bold",
+      size: 9,
+      lineHeight: 11,
+      color: WHITE,
+    },
+    "right",
+  );
+  page.text(
+    dateLabel,
+    rightEdge,
+    monogramY + 2,
+    {
+      font: "Helvetica",
+      size: 7.4,
+      lineHeight: 9,
+      color: BRAND_PALE,
+    },
+    "right",
+  );
 
   const titleStyle: TextStyle = {
     font: "Helvetica-Bold",
@@ -990,13 +1008,17 @@ interface Pen {
   y: number;
 }
 
-function startPage(pen: Pen, runningHeader: string): void {
+function startPage(pen: Pen, runningHeader: RunningHeader): void {
   const next = newPage(pen.doc, { runningHeader });
   pen.page = next.page;
   pen.y = next.top;
 }
 
-function ensureRoom(pen: Pen, needed: number, runningHeader: string): void {
+function ensureRoom(
+  pen: Pen,
+  needed: number,
+  runningHeader: RunningHeader,
+): void {
   if (pen.y - needed < FLOOR) startPage(pen, runningHeader);
 }
 
@@ -1006,54 +1028,59 @@ function drawSectionHeading(
   letter: string,
   label: string,
   meta: string,
-  runningHeader: string,
+  runningHeader: RunningHeader,
+  reserve: number,
 ): void {
-  ensureRoom(pen, 96, runningHeader);
+  ensureRoom(pen, reserve, runningHeader);
   const height = 46;
   const y = pen.y - height;
   pen.page.shape(MARGIN - 5, y, CONTENT_WIDTH + 10, height, 7, { fill: WASH });
   pen.page.rect(MARGIN - 5, y + 8, 3.4, height - 16, BRAND);
-  pen.page.text(
-    `SECTION ${letter}`,
-    MARGIN + 10,
-    pen.y - 10,
-    SECTION_EYEBROW,
-  );
+  pen.page.text(`SECTION ${letter}`, MARGIN + 10, pen.y - 10, SECTION_EYEBROW);
   pen.page.text(
     label,
     MARGIN + 10,
     baselineIn(pen.y - 16, SECTION_TITLE.size),
     SECTION_TITLE,
   );
-  pen.page.text(meta, PAGE_WIDTH - MARGIN + 5, pen.y - 12, SECTION_META, "right");
+  pen.page.text(
+    meta,
+    PAGE_WIDTH - MARGIN + 5,
+    pen.y - 12,
+    SECTION_META,
+    "right",
+  );
   pen.page.line(MARGIN + 10, y + 8, PAGE_WIDTH - MARGIN + 5, y + 8, SAND, 0.6);
   pen.y = y - 11;
 }
 
-/** One question: a bordered card, a numbered chip, and its answer space. */
-function drawQuestionCard(
-  pen: Pen,
-  index: number,
-  total: number,
-  chipSide: number,
+interface CardMetrics {
+  promptLines: string[];
+  optionLines: string[][];
+  ruledLines: number;
+  height: number;
+}
+
+const CARD_PAD_TOP = 12;
+const CARD_GAP_HEADER = 9;
+const CARD_GAP_PROMPT = 7;
+const CARD_PAD_BOTTOM = 13;
+const SHORT_ANSWER_LINE = 18;
+
+/** Everything a card needs to draw itself, and the height it will occupy. */
+function measureQuestionCard(
   row: ExportableQuestion,
-  runningHeader: string,
-): void {
-  const padTop = 12;
-  const gapAfterHeader = 9;
-  const gapAfterPrompt = 7;
-  const padBottom = 13;
+  chipSide: number,
+): CardMetrics {
   const innerX = MARGIN + 13 + chipSide + 12;
   const right = PAGE_WIDTH - MARGIN - 14;
-  const optionTextX = innerX + 21;
-
   const promptLines = wrapText(row.prompt, PROMPT, right - innerX);
   const options =
     row.answer.__kind__ === "multipleChoice"
       ? row.answer.multipleChoice.options
       : [];
   const optionLines = options.map((option) =>
-    wrapText(option.text, OPTION, right - optionTextX),
+    wrapText(option.text, OPTION, right - (innerX + 21)),
   );
   const ruledLines = row.questionType === "shortAnswer" ? 3 : 0;
   const answerHeight =
@@ -1063,16 +1090,38 @@ function drawQuestionCard(
           0,
         ) + 3
       : ruledLines > 0
-        ? ruledLines * 18
+        ? ruledLines * SHORT_ANSWER_LINE
         : 17;
-  const height =
-    padTop +
-    chipSide +
-    gapAfterHeader +
-    promptLines.length * PROMPT.lineHeight +
-    gapAfterPrompt +
-    answerHeight +
-    padBottom;
+  return {
+    promptLines,
+    optionLines,
+    ruledLines,
+    height:
+      CARD_PAD_TOP +
+      chipSide +
+      CARD_GAP_HEADER +
+      promptLines.length * PROMPT.lineHeight +
+      CARD_GAP_PROMPT +
+      answerHeight +
+      CARD_PAD_BOTTOM,
+  };
+}
+
+/** One question: a bordered card, a numbered chip, and its answer space. */
+function drawQuestionCard(
+  pen: Pen,
+  index: number,
+  total: number,
+  chipSide: number,
+  row: ExportableQuestion,
+  metrics: CardMetrics,
+  runningHeader: RunningHeader,
+): void {
+  const innerX = MARGIN + 13 + chipSide + 12;
+  const right = PAGE_WIDTH - MARGIN - 14;
+  const optionTextX = innerX + 21;
+  const { promptLines, optionLines, ruledLines } = metrics;
+  const { height } = metrics;
 
   ensureRoom(pen, height + 6, runningHeader);
   const page = pen.page;
@@ -1087,7 +1136,7 @@ function drawQuestionCard(
   page.rect(MARGIN + 0.7, cardY + 10, 3.2, height - 20, BRAND);
 
   const chipX = MARGIN + 13;
-  const chipY = top - padTop - chipSide;
+  const chipY = top - CARD_PAD_TOP - chipSide;
   page.shape(chipX + 1.5, chipY - 1.5, chipSide, chipSide, 6, {
     fill: BRAND_PALE,
   });
@@ -1114,13 +1163,13 @@ function drawQuestionCard(
     "right",
   );
 
-  let bandTop = chipY - gapAfterHeader;
+  let bandTop = chipY - CARD_GAP_HEADER;
   for (const line of promptLines) {
     page.text(line, innerX, baselineIn(bandTop, PROMPT.size), PROMPT);
     bandTop -= PROMPT.lineHeight;
   }
 
-  const answerTop = bandTop - PROMPT.size * 0.22 - gapAfterPrompt;
+  const answerTop = bandTop - PROMPT.size * 0.22 - CARD_GAP_PROMPT;
   if (optionLines.length > 0) {
     let rowTop = answerTop;
     optionLines.forEach((lines, optionIndex) => {
@@ -1148,7 +1197,7 @@ function drawQuestionCard(
     let lineY = answerTop - 4;
     for (let line = 0; line < ruledLines; line += 1) {
       page.line(innerX, lineY, right, lineY, SAND, 0.7, "1 3.2");
-      lineY -= 18;
+      lineY -= SHORT_ANSWER_LINE;
     }
   } else {
     let pillX = innerX;
@@ -1219,11 +1268,7 @@ function assemblePdf(doc: Doc, objects: string[]): string {
 }
 
 /** The gradient band that opens the answer-key pages. */
-function drawKeyBand(
-  page: Page,
-  subtitle: string,
-  meta: string,
-): number {
+function drawKeyBand(page: Page, subtitle: string, meta: string): number {
   const height = 74;
   const y = PAGE_HEIGHT - 34 - height;
   page.gradient(PANEL_X, y, PANEL_WIDTH, height, BRAND_DARK, BRAND, 56);
@@ -1253,12 +1298,18 @@ function drawKeyBand(
     lineHeight: 11,
     color: BRAND_PALE,
   });
-  page.text(meta, PAGE_WIDTH - PANEL_X - 22, y + height - 30, {
-    font: "Helvetica-Bold",
-    size: 8.6,
-    lineHeight: 11,
-    color: WHITE,
-  });
+  page.text(
+    meta,
+    PAGE_WIDTH - PANEL_X - 22,
+    y + height - 30,
+    {
+      font: "Helvetica-Bold",
+      size: 8.6,
+      lineHeight: 11,
+      color: WHITE,
+    },
+    "right",
+  );
   return y - 22;
 }
 
@@ -1326,12 +1377,50 @@ function drawKeyEntry(
   }
   bandTop -= 1;
   for (const line of metrics.explanation) {
-    page.text(line, textX + 6, baselineIn(bandTop, KEY_EXPLAIN.size), KEY_EXPLAIN);
+    page.text(
+      line,
+      textX + 6,
+      baselineIn(bandTop, KEY_EXPLAIN.size),
+      KEY_EXPLAIN,
+    );
     bandTop -= KEY_EXPLAIN.lineHeight;
   }
   const ruleY = top + metrics.rule;
   page.line(x, ruleY, x + width, ruleY, SAND, 0.45);
   return top - metrics.height;
+}
+
+/** How many entries a column of `capacity` takes, always at least one. */
+function entriesInColumn(
+  metrics: KeyEntryMetrics[],
+  start: number,
+  capacity: number,
+): number {
+  let used = 0;
+  let index = start;
+  while (
+    index < metrics.length &&
+    (index === start || used + metrics[index].height <= capacity)
+  ) {
+    used += metrics[index].height;
+    index += 1;
+  }
+  return index;
+}
+
+function drawKeyColumn(
+  page: Page,
+  top: number,
+  x: number,
+  width: number,
+  from: number,
+  to: number,
+  metrics: KeyEntryMetrics[],
+): void {
+  let y = top;
+  for (let index = from; index < to; index += 1) {
+    y = drawKeyEntry(page, y, index + 1, x, width, metrics[index]);
+  }
 }
 
 function pdfFile(name: string, rows: ExportableQuestion[]): ExportFile {
@@ -1344,13 +1433,14 @@ function pdfFile(name: string, rows: ExportableQuestion[]): ExportFile {
   });
   const plural = (count: number, word: string) =>
     `${count} ${count === 1 ? word : `${word}s`}`;
-  const runningHeader = name;
+  const runningHeader: RunningHeader = {
+    title: name,
+    tag: "PRACTICE WORKSHEET",
+  };
+  const keyHeader: RunningHeader = { title: name, tag: "ANSWER KEY" };
 
   const cover = newPage(doc);
-  const chipSide = Math.max(
-    20,
-    widthOf(String(rows.length), CHIP_NUMBER) + 11,
-  );
+  const chipSide = Math.max(20, widthOf(String(rows.length), CHIP_NUMBER) + 11);
   const afterCover = drawCover(
     cover.page,
     name,
@@ -1361,7 +1451,7 @@ function pdfFile(name: string, rows: ExportableQuestion[]): ExportFile {
   const pen: Pen = { doc, page: cover.page, y: afterCover };
   pen.y = drawCandidateStrip(pen.page, pen.y);
   const introLines = wrapText(
-    `This paper was built from your StudyForge bank on ${today}. Work through the sections in order, then mark it against the answer key at the back - every answer carries its explanation.`,
+    `This paper was built from your StudyForge bank on ${today}. Answer every question in order, then mark it against the answer key at the back - each answer carries its explanation.`,
     NOTE,
     CONTENT_WIDTH,
   );
@@ -1379,60 +1469,123 @@ function pdfFile(name: string, rows: ExportableQuestion[]): ExportFile {
     else runs.push({ type: row.questionType, from: index + 1, to: index + 1 });
   });
 
+  // A band is a section, so it names a set: a lone question already carries
+  // its type on the card and does not need a heading above it. The whole
+  // letters advance with the bands, not with the runs, so "SECTION A / B / C"
+  // is never skipped and never repeated.
   let runIndex = 0;
+  let letterIndex = 0;
   rows.forEach((row, index) => {
+    const metrics = measureQuestionCard(row, chipSide);
     const run = runs[runIndex];
     if (run && index + 1 === run.from) {
-      const range =
-        run.to === run.from
-          ? `Question ${run.from}`
-          : `Questions ${run.from}-${run.to}`;
-      drawSectionHeading(
-        pen,
-        LETTERS[runIndex] ?? LETTERS[0],
-        TYPE_LABEL[run.type],
-        `${range} - ${plural(run.to - run.from + 1, "question")}`,
-        runningHeader,
-      );
+      if (run.to > run.from || runs.length === 1) {
+        const range =
+          run.to === run.from
+            ? `Question ${run.from}`
+            : `Questions ${run.from}-${run.to}`;
+        drawSectionHeading(
+          pen,
+          sectionLetter(letterIndex),
+          TYPE_LABEL[run.type],
+          `${range} - ${plural(run.to - run.from + 1, "question")}`,
+          runningHeader,
+          // A heading never belongs at the foot of a page: keep its first card
+          // in view with it, or move both.
+          57 + Math.min(metrics.height + 12, BODY_TOP - FLOOR),
+        );
+        letterIndex += 1;
+      }
       runIndex += 1;
     }
-    drawQuestionCard(pen, index + 1, rows.length, chipSide, row, runningHeader);
+    drawQuestionCard(
+      pen,
+      index + 1,
+      rows.length,
+      chipSide,
+      row,
+      metrics,
+      runningHeader,
+    );
   });
 
-  // Answer key: filled column by column, in question order, over as many
-  // pages as the entries need.
+  // Answer key: question order, two columns per page, over as many pages as
+  // the entries need.
   const columnWidth = (CONTENT_WIDTH - 26) / 2;
-  const key = newPage(doc, { runningHeader: "Answer key" });
+  const columnX = (column: number) => MARGIN + column * (columnWidth + 26);
+  const entryMetrics = rows.map((row) => measureKeyEntry(row, columnWidth));
+  const key = newPage(doc, { runningHeader: keyHeader });
   let keyPage = key.page;
   let columnTop = drawKeyBand(
     keyPage,
     "Correct answers, each with the reasoning behind it.",
     plural(rows.length, "answer"),
   );
-  let column = 0;
-  let y = columnTop;
-  rows.forEach((row, index) => {
-    const metrics = measureKeyEntry(row, columnWidth);
-    if (y - metrics.height < FLOOR) {
-      if (column === 1) {
-        const next = newPage(doc, { runningHeader: "Answer key" });
-        keyPage = next.page;
-        columnTop = next.top;
-        column = 0;
-      } else {
-        column = 1;
+  let start = 0;
+  while (start < entryMetrics.length) {
+    const capacity = columnTop - FLOOR;
+    const restHeight = entryMetrics
+      .slice(start)
+      .reduce((sum, metrics) => sum + metrics.height, 0);
+    if (restHeight <= capacity * 2) {
+      // The last page splits its entries evenly between the columns, so a key
+      // that fits on one page never reads as half empty.
+      let used = 0;
+      let cut = entryMetrics.length;
+      for (let index = start; index < entryMetrics.length; index += 1) {
+        used += entryMetrics[index].height;
+        if (used >= restHeight / 2) {
+          cut = index + 1;
+          break;
+        }
       }
-      y = columnTop;
+      drawKeyColumn(
+        keyPage,
+        columnTop,
+        columnX(0),
+        columnWidth,
+        start,
+        cut,
+        entryMetrics,
+      );
+      drawKeyColumn(
+        keyPage,
+        columnTop,
+        columnX(1),
+        columnWidth,
+        cut,
+        entryMetrics.length,
+        entryMetrics,
+      );
+      break;
     }
-    y = drawKeyEntry(
+    const middle = entriesInColumn(entryMetrics, start, capacity);
+    drawKeyColumn(
       keyPage,
-      y,
-      index + 1,
-      MARGIN + column * (columnWidth + 26),
+      columnTop,
+      columnX(0),
       columnWidth,
-      metrics,
+      start,
+      middle,
+      entryMetrics,
     );
-  });
+    const end = entriesInColumn(entryMetrics, middle, capacity);
+    drawKeyColumn(
+      keyPage,
+      columnTop,
+      columnX(1),
+      columnWidth,
+      middle,
+      end,
+      entryMetrics,
+    );
+    start = end;
+    if (start < entryMetrics.length) {
+      const next = newPage(doc, { runningHeader: keyHeader });
+      keyPage = next.page;
+      columnTop = next.top;
+    }
+  }
 
   return {
     content: assemblePdf(doc, objects),
