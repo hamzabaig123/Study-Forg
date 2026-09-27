@@ -247,16 +247,11 @@ Stated plainly, because a runbook that hides its holes is worse than none:
   was applied by hand over a direct Postgres session on 2026-09-27, not by the
   migration job, so the pipeline has never had a schema revision to compare
   against and the first automated run will meet an existing schema.
-- **`0002_rate_limits.sql`, `0003_short_code_entropy.sql` and
-  `0004_correctness.sql` are written and not applied.** Until 0002 is, the ten
-  token-addressed functions `anon` may execute have no database-side throttle.
-  Until 0003 is, the database still refuses anything but a 7-character code
-  (~35 bits) even though `lib/supabase/tokens.ts` now mints 10 (~50 bits) — so
-  creating a short link against the live project fails as `badCode` until that
-  migration lands, which makes it a functional requirement and not only a
-  hardening one. Until 0004 is, two tabs finishing one test write two result
-  rows for it and the analytics accuracy buckets drift upward with no visible
-  cause. **Order: 0001 → 0002 → 0003 → 0004.** 0003 re-declares `create_link`,
+- **`0002`–`0007` are live on production (verified 2026-09-27 by PostgREST
+  probes — see README.md → *What is not done yet*) but have no CI history
+  behind them.** They were applied by hand over a direct Postgres session, not
+  by the migration job, so a fresh project (staging) still has to run them in
+  order. 0003 re-declares `create_link`,
   so it must follow 0002, whose own copy still validates exactly 7 characters —
   re-running 0002 later would put the narrow rule back. And 0004's revoke of
   `enforce_rate_limit` from `authenticated` only holds if 0002 went first,

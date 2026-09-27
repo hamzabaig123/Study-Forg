@@ -1,7 +1,7 @@
 // StudyForge reminder-sender — the server half of the daily digest.
 //
 // Two callers:
-//   • a pg_cron tick (every 10 minutes, service-role bearer): finds every
+//   • a pg_cron tick (every 10 minutes, bearer = CRON_SECRET): finds every
 //     account whose local time has reached its configured send time today and
 //     whose digest has not gone out yet, then builds and sends each one.
 //   • a signed-in user pressing "Send a test now": same pipeline, addressed to
@@ -17,8 +17,13 @@
 //   optional: RESEND_FROM="StudyForge <notices@yourdomain.com>" (default:
 //   "StudyForge <onboarding@resend.dev>", which Resend restricts to the
 //   account owner's own address until a domain is verified)
+//   also: APP_URL=<deployed origin> (the email's CTA links to
+//   ${APP_URL}/dashboard); CRON_SECRET=<tick bearer>, required only once the
+//   pg_cron tick is scheduled
 //
-// Schedule (SQL editor / apply-migration lane) — see 0006's due_reminders().
+// Schedule (SQL editor): the `cron.schedule` snippet lives in
+// supabase/README.md → The reminder pipeline. due_reminders() (migration 0006)
+// decides who is due; nothing in the schema schedules the tick itself.
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
