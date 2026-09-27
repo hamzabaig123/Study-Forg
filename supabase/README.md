@@ -197,6 +197,32 @@ account's local send time), so the tick can safely run every 10 minutes in UTC.
 Confirm afterwards with `select * from cron.job`, and remove it again with
 `select cron.unschedule('studyforge-reminder-tick')`.
 
+## Brevo as the auth mailer (custom SMTP)
+
+Verification and password-reset emails are sent by **Supabase Auth itself**,
+not by `reminder-sender` — and the built-in mailer allows only a few per hour,
+which is where "email rate limit exceeded" comes from. Pointing Supabase at
+[Brevo](https://brevo.com) (free: 300 emails/day) removes that ceiling, and a
+domain-verified sender is what lands the mail in Gmail's inbox rather than
+spam. Pure dashboard work, no code:
+
+1. Create a Brevo account → **Senders** → add and verify a sender (your own
+   address). With a domain you own: **Senders & Domains → Domains** → add it
+   and paste the DNS records it shows — this is what makes Gmail trust the mail.
+2. **SMTP & API** → copy the SMTP host (`smtp-relay.brevo.com`, port 587), your
+   Brevo login email, and the SMTP key.
+3. Supabase dashboard → **Authentication → SMTP Settings** → enable custom SMTP
+   and fill in those values → Save. From then on, verification, password
+   reset, invite and magic-link emails all ride Brevo. If anything goes wrong,
+   the same toggle switches back to the built-in mailer instantly.
+4. The reminder chain here reads the API key too: set `BREVO_API_KEY` and
+   `BREVO_FROM` (the verified sender address) as function secrets, and digest
+   email goes out through Brevo first — Resend stays as the fallback behind it.
+
+For web push, generate a P-256 VAPID pair once; the public half goes to the
+browser (it already ships in `lib/push.ts`), the private half becomes the
+`VAPID_PRIVATE_KEY` secret alongside `VAPID_PUBLIC_KEY`.
+
 ## Running the app against it
 
 Three variables decide what the browser talks to, all read once in
@@ -247,11 +273,19 @@ its own mail path and the auth flows need this one.
 
 Brevo works because it has both halves: an SMTP relay for GoTrue, and a REST
 API for the digest. Until it is switched on, both emails leave through
-Supabase's built-in sender — **60 messages a day, a shared `*.supabase.co`
-domain, and Gmail treats it as junk** — and the confirmation mail that "was
-sent" but never appears is that sender, not a bug in the app.
+Supabase's built-in sender, which is capped at **2 messages per hour** and
+sends from a shared `*.supabase.co` address that Gmail files under Spam — that
+cap is the real reason a second verification mail "never arrives" right after
+the first one worked. After you configure your own relay, Supabase still starts
+it at **30 messages per hour**, raisable under Authentication → **Rate limits**.
 
-Dashboard → Authentication → **SMTP settings**:
+**Saving these settings does not test them.** The dashboard accepts wrong
+credentials and reports nothing; the failure only surfaces on the next request,
+so use `e2e/auth-mail-check.mjs` below as the actual check.
+
+Dashboard → Authentication → **SMTP settings** (the fields map to GoTrue's
+`smtp_host`, `smtp_port`, `smtp_user`, `smtp_pass`, `smtp_admin_email`,
+`smtp_sender_name`):
 
 | Field | Value |
 | --- | --- |

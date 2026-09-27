@@ -43,12 +43,13 @@ password inside the email itself.
 2. **Authentication → Sign In / Providers**: only Email is used; the templates
    above cover every email the project sends.
 3. **Authentication → SMTP settings** decides whether these templates ever
-   reach anybody. On the built-in sender they leave from a shared
-   `*.supabase.co` domain, capped at 60 a day, and Gmail files them under
-   Spam — so a correctly pasted template can still look like "the verification
-   email never came". Route them through your own verified domain first; the
-   field values and the SMTP-key-vs-API-key trap are in `../README.md` →
-   *Sending auth mail through an SMTP relay*, and
+   reach anybody. On the built-in sender they are capped at two messages an
+   hour, leave from a shared `*.supabase.co` address, and Gmail files them
+   under Spam — so a correctly pasted template can still look like "the
+   verification email never came". Saving the settings does not test them: the
+   failure only surfaces on the next request. Route them through your own
+   verified domain first; the field values and the SMTP-key-vs-API-key trap are
+   in `../README.md` → *Sending auth mail through an SMTP relay*, and
    `../e2e/auth-mail-check.mjs` proves which side failed.
 4. If a template is edited in the dashboard later, copy the change back into
    the matching file here — these files are the version of record.
