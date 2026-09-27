@@ -8,16 +8,20 @@
 -- tests/rls_cross_tenant.sql, which the script also runs. Numbers 9 and 10 are
 -- about migrations 0003 and 0004, so read them as "0 rows / matches" only once
 -- those files have been applied — 10 is meant to be run BEFORE 0004 as well.
+-- Number 11 is about 0006_reminders.sql.
 
--- 1. Every table the app needs exists. Expected: 19 rows
---    (17 owner tables + abuse_report + rate_limit + custom_session)
---    (17 owner-scoped tables plus abuse_report).
+-- 1. Every table the app needs exists. Expected: 21 rows once 0001–0006 are all
+--    applied — 18 from 0001, minus the ai_draft 0005 drops, plus rate_limit and
+--    custom_session from 0002, plus reminder_settings and reminder_log from 0006.
+--    (17 owner tables + abuse_report + rate_limit + custom_session + the two
+--    reminder tables.)
 select table_name
   from information_schema.tables
  where table_schema = 'public'
  order by 1;
 
--- 2. RLS is on and enforced for the owner. Expected: 19 rows, both columns true.
+-- 2. RLS is on and enforced for the owner. Expected: the same 21 rows, both
+--    columns true.
 --    FORCE is what protects the owner's own writes: without it a row inserted by
 --    the table owner (postgres, the SQL editor) skips every policy.
 --    abuse_report carries no policies: with RLS enabled and nothing granted, no
@@ -34,13 +38,17 @@ select c.relname, c.relrowsecurity, c.relforcerowsecurity
 
 -- 3. No table is missing its four owner policies. Expected: 0 rows.
 --    (`pg_policies.cmd`, not `permutation` — and INSERT policies carry their
---    check in `with_check`, where `qual` is null.)
+--    check in `with_check`, where `qual` is null.) reminder_settings joins this
+--    check from 0006 onward: it carries the same four per-command policies as
+--    the owner tables. reminder_log is excluded on purpose — it is read-only for
+--    its owner and writable only by the delivery function, so a client can never
+--    claim a send it did not make.
 with required(role) as (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'))
 select t.tablename, r.role
   from pg_tables t
  cross join required r
  where t.schemaname = 'public'
-   and t.tablename not in ('abuse_report', 'rate_limit')
+   and t.tablename not in ('abuse_report', 'rate_limit', 'reminder_log')
    and not exists (
      select 1 from pg_policies p
       where p.schemaname = 'public'
@@ -140,3 +148,48 @@ select 'link_scan country is not a country', count(*)
   from link_scan
  where country is not null
    and country !~ '^[A-Z][A-Z]$';
+
+-- 11. The reminder invariants 0006 promises, stated over the live schema.
+--     Expected: six rows, each reading true. The shape
+--     here is a boolean rather than a violation count because the table starts
+--     empty — there are no rows to scan, only catalog facts to confirm: the
+--     primary key really is the user id, both shape CHECKs are the ones the
+--     app writes (HH:MM time, YYYY-MM-DD last-fired day), and RLS is forced.
+select invariant, ok
+  from (values
+    ('primary key is user_id',
+      exists (select 1 from pg_constraint
+               where conrelid = 'public.reminder_settings'::regclass
+                 and contype = 'p'
+                 and (select string_agg(attname, ', ' order by attnum)
+                        from unnest(conkey) with ordinality as k(attnum, ord)
+                        join pg_attribute a on a.attrelid = conrelid and a.attnum = k.attnum)
+                     = 'user_id')),
+    ('time_of_day check is HH:MM',
+      exists (select 1 from pg_constraint
+               where conrelid = 'public.reminder_settings'::regclass
+                 and contype = 'c'
+                 and pg_get_constraintdef(oid) like '%time_of_day%~^([01][0-9]|2[0-3]):[0-5][0-9]$%')),
+    ('last_sent_on check is YYYY-MM-DD',
+      exists (select 1 from pg_constraint
+               where conrelid = 'public.reminder_settings'::regclass
+                 and contype = 'c'
+                 and pg_get_constraintdef(oid) like '%last_sent_on%~^[0-9]{4}-[0-9]{2}-[0-9]{2}$%')),
+    ('rls enabled and forced',
+      exists (select 1 from pg_class
+               where oid = 'public.reminder_settings'::regclass
+                 and relrowsecurity and relforcerowsecurity)),
+    ('reminder_log status check is sent|failed',
+      exists (select 1 from pg_constraint
+               where conrelid = 'public.reminder_log'::regclass
+                 and contype = 'c'
+                 and pg_get_constraintdef(oid) like '%status%'
+                 and pg_get_constraintdef(oid) like '%sent%'
+                 and pg_get_constraintdef(oid) like '%failed%')),
+    ('reminder_log grants no client write path',
+      not exists (select 1 from pg_policies
+                   where schemaname = 'public'
+                     and tablename = 'reminder_log'
+                     and cmd <> 'SELECT'))
+  ) as checks(invariant, ok)
+ order by 1;

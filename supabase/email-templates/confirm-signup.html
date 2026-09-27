@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Verify your email — StudyForge</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f4;">
+<div style="display:none;max-height:0;overflow:hidden;">Confirm {{ .Email }} to start tracking your study streak.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f4;">
+<tr>
+<td align="center" style="padding:32px 12px;">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+<tr>
+<td style="background:linear-gradient(135deg,#f59e0b 0%,#ea580c 100%);border-radius:16px 16px 0 0;padding:26px 32px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td align="left" style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;color:#ffffff;letter-spacing:0.02em;">StudyForge</td>
+<td align="right" style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#ffedd5;">Confirm your email</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="background-color:#ffffff;border:1px solid #e7e5e4;border-top:none;border-radius:0 0 16px 16px;padding:28px 32px 32px;">
+<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:#1c1917;">You are one step away from your study dashboard</p>
+<p style="margin:10px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#78716c;line-height:1.6;">Confirm <strong style="color:#1c1917;">{{ .Email }}</strong> as the address for your StudyForge account. Verification keeps your results and notes attached to you — and it is what lets the daily progress digest land in the right inbox.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 0;">
+<tr>
+<td align="center" style="background-color:#ea580c;border-radius:12px;">
+<a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.02em;">Verify email address</a>
+</td>
+</tr>
+</table>
+<p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#a8a29e;line-height:1.7;">The button does not work? Paste this link into your browser:<br>
+<a href="{{ .ConfirmationURL }}" style="color:#b45309;word-break:break-all;">{{ .ConfirmationURL }}</a></p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:20px 0 0;">
+<tr>
+<td style="border-left:3px solid #f59e0b;background-color:#fffbeb;border-radius:0 12px 12px 0;padding:12px 16px;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#78716c;line-height:1.6;">
+This link is single-use and expires shortly. If it lapses, sign in and choose <strong style="color:#1c1917;">Resend confirmation</strong> from the verification screen.
+</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td align="center" style="padding:20px 24px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#a8a29e;line-height:1.7;">
+You received this because this address was used to create a StudyForge account.<br>
+If that was not you, you can safely ignore this message — no account becomes active without the click.
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

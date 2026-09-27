@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confirm your new email — StudyForge</title>
+</head>
+<body style="margin:0;padding:0;background-color:#f5f5f4;">
+<div style="display:none;max-height:0;overflow:hidden;">Confirm {{ .NewEmail }} as the new address for your StudyForge account.&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;</div>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f4;">
+<tr>
+<td align="center" style="padding:32px 12px;">
+<table role="presentation" width="560" cellpadding="0" cellspacing="0" style="width:100%;max-width:560px;">
+<tr>
+<td style="background:linear-gradient(135deg,#f59e0b 0%,#ea580c 100%);border-radius:16px 16px 0 0;padding:26px 32px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+<tr>
+<td align="left" style="font-family:Arial,Helvetica,sans-serif;font-size:20px;font-weight:800;color:#ffffff;letter-spacing:0.02em;">StudyForge</td>
+<td align="right" style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#ffedd5;">New email address</td>
+</tr>
+</table>
+</td>
+</tr>
+<tr>
+<td style="background-color:#ffffff;border:1px solid #e7e5e4;border-top:none;border-radius:0 0 16px 16px;padding:28px 32px 32px;">
+<p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:16px;font-weight:700;color:#1c1917;">Confirm your new email address</p>
+<p style="margin:10px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#78716c;line-height:1.6;">Your StudyForge sign-in address is being changed from <strong style="color:#1c1917;">{{ .Email }}</strong> to <strong style="color:#1c1917;">{{ .NewEmail }}</strong>. Confirm the new address below to finish the switch — your results, notes, and reminder digest move with it.</p>
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:24px 0 0;">
+<tr>
+<td align="center" style="background-color:#ea580c;border-radius:12px;">
+<a href="{{ .ConfirmationURL }}" target="_blank" style="display:inline-block;padding:14px 32px;font-family:Arial,Helvetica,sans-serif;font-size:15px;font-weight:800;color:#ffffff;text-decoration:none;letter-spacing:0.02em;">Confirm new email</a>
+</td>
+</tr>
+</table>
+<p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#a8a29e;line-height:1.7;">The button does not work? Paste this link into your browser:<br>
+<a href="{{ .ConfirmationURL }}" style="color:#b45309;word-break:break-all;">{{ .ConfirmationURL }}</a></p>
+<p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#a8a29e;line-height:1.7;">This link is single-use and expires shortly. The change is not applied until you confirm.</p>
+</td>
+</tr>
+<tr>
+<td align="center" style="padding:20px 24px 0;font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#a8a29e;line-height:1.7;">
+If you did not ask to change your email, ignore this message — your address stays as it is.<br>
+<a href="{{ .SiteURL }}" style="color:#78716c;">Open StudyForge</a>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+</table>
+</body>
+</html>

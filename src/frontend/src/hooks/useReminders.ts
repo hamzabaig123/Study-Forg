@@ -4,7 +4,9 @@
  */
 import { useDashboardStats } from "@/hooks/useAnalytics";
 import { useAuth } from "@/hooks/useAuth";
+import { useBackend } from "@/hooks/useBackend";
 import { useStudyProgress } from "@/hooks/useStudyProgress";
+import { USE_SUPABASE } from "@/lib/authMode";
 import {
   type DigestInput,
   type ReminderSettings,
@@ -15,8 +17,40 @@ import {
   startReminderScheduler,
 } from "@/lib/reminders";
 import { subscribeReminderSettings } from "@/lib/reminders";
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSyncExternalStore } from "react";
+
+type ReminderLogEntryClient = {
+  id: string;
+  sentAt: string;
+  kind: "daily" | "test";
+  status: "sent" | "failed";
+  detail: string | null;
+};
+
+const NO_LOG_ENTRIES: ReminderLogEntryClient[] = [];
+
+/**
+ * The account's recent delivery attempts (Supabase mode). Empty on the mock —
+ * there, the digest arrives as a notification and nothing is logged — and empty
+ * while the `reminder_log` table is missing or the query fails, since the
+ * settings page has to render either way.
+ */
+export function useReminderLog(): ReminderLogEntryClient[] {
+  const { actor } = useBackend();
+  const query = useQuery({
+    queryKey: ["reminders", "log"],
+    queryFn: async () => {
+      const server = await import("@/lib/supabase/reminders");
+      return server.fetchReminderLog(5);
+    },
+    enabled: !!actor && USE_SUPABASE,
+    staleTime: 30_000,
+    retry: false,
+  });
+  return query.data ?? NO_LOG_ENTRIES;
+}
 
 export function useReminderSettings(): ReminderSettings {
   return useSyncExternalStore(
@@ -28,7 +62,7 @@ export function useReminderSettings(): ReminderSettings {
 
 /** The digest StudyForge would send right now, from live progress data. */
 export function useDigestInput(): DigestInput | null {
-  const { displayName } = useAuth();
+  const { displayName, account } = useAuth();
   const progress = useStudyProgress();
   const statsQuery = useDashboardStats();
 
@@ -48,6 +82,7 @@ export function useDigestInput(): DigestInput | null {
     );
     return {
       displayName,
+      recipientEmail: account?.email ?? null,
       accuracyPercent: progress.accuracy.percent,
       answeredTotal: progress.accuracy.total,
       correctTotal: progress.accuracy.correct,
@@ -65,7 +100,7 @@ export function useDigestInput(): DigestInput | null {
         day: "numeric",
       }),
     };
-  }, [displayName, progress, statsQuery.data]);
+  }, [displayName, account, progress, statsQuery.data]);
 }
 
 /**

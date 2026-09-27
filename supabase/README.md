@@ -11,7 +11,11 @@ the localStorage archive the app used when there was no server.
 
 `migrations/0003_short_code_entropy.sql` | Widens `link.code` from exactly 7 characters to 7–12 and re-declares `create_link` with the same range, so the client can mint ~50-bit codes. **Must be applied after 0002**, whose own copy of `create_link` still validates exactly 7 characters — whichever of the two runs last owns that function. **Written, not applied.**
 `migrations/0004_correctness.sql` | Nine failure modes the first three files allowed: one result per session (unique index plus a row lock in `complete_session`), a revision check in `update_note` that actually holds, `resolve_link` clamping a browser locale that is not a country code, cast-free `trueFalse` grading, the duration bound `start_session` was missing, `create_link` and `resolve_link` answering a throttle with the reason the UI already has copy for, `enforce_rate_limit` taken back off `authenticated`, and the indexes the list pages needed. **Written, not applied.** It runs before, between or after 0002/0003 without error — every step that needs them asks the catalog first — but its `enforce_rate_limit` revoke only *holds* if 0002 went first, so the documented order is 0001 → 0002 → 0003 → 0004.
-`verify.sql` | Ten read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise
+`migrations/0005_limiter_window_and_cleanup.sql` | Makes `enforce_rate_limit`'s `p_window_seconds` parameter real (0002 truncated to the minute and ignored it), prunes finished windows on every hit, and drops the never-referenced `ai_draft` table. **Written, not applied.** Run after 0004: it re-declares the function 0004 step 8 revoked privileges on, and inherits that revoke.
+`migrations/0006_reminders.sql` | The per-account reminder half of the schema: `reminder_settings` keyed by `user_id` (fire time, the account's UTC offset, which sections it carries, the day it last fired) with the four owner policies in the house style and shape CHECKs, plus `reminder_log` — read-only for its owner, writable only by the delivery function, so a client cannot record a send it did not make — and the two `security definer` views the runner needs (`reminder_digest(uuid, integer)` for one account's numbers, `due_reminders()` for the whole tick). Both are `service_role` only: they answer across accounts, so no signed-in client may call them, and the blanket function grant at the bottom of the file is walked back for them and for `enforce_rate_limit`. Additive — no other object is touched. The digest's recipient is the account's sign-in address, so nothing here stores an address a user typed. **Written, not applied.** Any hand order works, but after 0002 it is the honest state of the rest of the schema
+`functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by the service key or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. Deploying it is three commands and a secret — see its file header. The browser does **not** wait for it: the frontend tries the user's own EmailJS account first, so a project without this function deployed still delivers digests.
+`verify.sql` | Eleven read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all
+`email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
 `tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the other three files are pasted by hand until a runner that knows about all of them exists
 `e2e/replay-sweep.mjs` | The 77-method contract driven against a live database through the real client. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and **either** `SUPABASE_DB_URL` **or** `SUPABASE_SERVICE_ROLE_KEY`; creates three throwaway accounts (two confirmed, one deliberately left unconfirmed) and deletes all three. No service key required — see the header of the script
@@ -79,7 +83,9 @@ have a live equivalent already; finish with the RLS file in the dashboard editor
    own copy of `create_link` with the old 7-character validator, so running it
    after 0003 would silently put the narrow rule back. If you skip 0002, 0003
    still works — it calls the throttle only when that function exists.
-   Then paste `migrations/0004_correctness.sql` last. It will not error if an
+   Then paste `migrations/0004_correctness.sql`, and after it
+   `migrations/0005_limiter_window_and_cleanup.sql` and
+   `migrations/0006_reminders.sql`. 0004 will not error if an
    earlier file is missing — each step that depends on 0002 (`enforce_rate_limit`,
    `rate_limit`, `custom_session`) or on 0003 (the widened `link.code`) first asks
    the catalog whether that object exists — but run it **after** 0002 all the
@@ -88,11 +94,26 @@ have a live equivalent already; finish with the RLS file in the dashboard editor
    0004 step 8 is what takes it away. It also refuses rather than repairing: if
    any session already has two result rows, or a stored `custom_session` breaks a
    check 0004 adds, the script raises and names the count, leaving every row
-   intact. `verify.sql` check 10 is the dry run of exactly that question.
+   intact. `verify.sql` check 10 is the dry run of exactly that question. 0005
+   re-declares the limiter 0004 just tightened, so it comes after, and 0006 is
+   additive so its position only matters for the count check 1 reports. 0006 ends
+   with the same blanket `grant execute on all functions … to authenticated`, and
+   walks it back for `enforce_rate_limit` plus its own two cross-account helpers
+   (`reminder_digest`, `due_reminders`), which are `service_role` only — so
+   running it last leaves the limiter revoked rather than re-granted.
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
-4. Then run `tests/rls_cross_tenant.sql` in the same editor, and once the
+4. Paste the five files in `email-templates/` into dashboard → Authentication →
+   **Email Templates**, one per template, with the subjects listed in that
+   folder's README. The Site URL in Authentication → URL Configuration has to be
+   the deployed app origin first, or the confirmation link lands nowhere.
+5. Optional, and only if you want digests to go out while the app is closed:
+   deploy `functions/reminder-sender`, set its `RESEND_API_KEY`, and schedule the
+   tick — the three commands are at the top of that file. Without it the browser
+   sends through the account's own EmailJS credentials, which needs no server
+   setup at all.
+6. Then run `tests/rls_cross_tenant.sql` in the same editor, and once the
    publishable key and either a direct database URL or a service role key are
    available on a machine that has Node,
    `node supabase/e2e/replay-sweep.mjs`. The CI workflow runs all three
@@ -204,6 +225,21 @@ credential:
   against a real project, and `backup.mjs` has never produced a snapshot. Until
   those two things happen the honest statement is "we can restore", not "we can
   recover".
+- `migrations/0002`–`0006` are **not applied** to this project yet, so the live
+  schema is still 0001 alone. Two consequences worth naming: short links answer
+  `badCode` for a 10-character code until 0003 runs, and the reminder settings
+  mirror has no `reminder_settings` table to write to, so
+  `pushRemote`/`pullRemote` in `src/frontend/src/lib/reminders.ts` swallow that
+  and the preference stays device-only. The digest already goes to the
+  account's own address regardless, because the recipient comes from the session
+  and not from the table.
+- `functions/reminder-sender` is **not deployed**, `RESEND_API_KEY` is **not
+  set**, and the `pg_cron` tick is **not scheduled** — none of the three can be
+  done from this machine, which has no `supabase` CLI. Until they are, the
+  server path is the second choice in `sendDigestNow` and answers with the
+  function's own 404; the first choice, the account's own EmailJS credentials,
+  sends a real email today with nothing installed on the server. The Settings
+  page says which of the two is standing by.
 - `studyforge.custom-sessions.v1` (Test Builder runs and their results) is
   device-local in every mode: it is not in the archive the exporter writes, not
   erased by "Clear local data", and has no table in this schema.
