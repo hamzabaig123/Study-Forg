@@ -78,7 +78,35 @@ async function main() {
     "notes workspace opens",
   );
 
-  check(errors.length === 0, `zero page errors (saw ${errors.length})`);
+  // The whole-shell tour: every signed-in page must fill its main content
+  // region and carry the entrance transition, with zero page errors across the
+  // trip. Content is read from the page body only, so the sidebar's own labels
+  // cannot make a route look alive when it is not.
+  const tour = [
+    "/dashboard", "/classes", "/analytics", "/test-builder", "/notes",
+    "/ai-studio", "/share", "/export", "/qr", "/settings",
+  ];
+  for (const route of tour) {
+    await page.goto(`${BASE}${route}`, {
+      waitUntil: "domcontentloaded",
+      timeout: 90_000,
+    });
+    await page.waitForTimeout(1_200);
+    const main = await page.evaluate(() => {
+      // /qr lives in the public shell, the rest in the signed-in shell —
+      // either way the tour reads the routed content region, not the chrome.
+      const region = document.querySelector(
+        '[data-ocid="app.main"], [data-ocid="public.main"]',
+      );
+      return {
+        text: region ? region.innerText : "",
+        animated: region ? region.innerHTML.includes("animate-fade-up") : false,
+      };
+    });
+    check(main.text.trim().length > 60, `${route} renders its content`);
+    check(main.animated, `${route} carries the entrance transition`);
+  }
+  check(errors.length === 0, `zero page errors across the tour (saw ${errors.length})`);
   for (const e of errors) console.log("  pageerror:", e.slice(0, 200));
 
   await page.screenshot({ path: path.join(os.tmpdir(), "e2e-last.png"), fullPage: false });

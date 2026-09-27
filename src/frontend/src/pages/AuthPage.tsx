@@ -55,7 +55,7 @@ export default function AuthPage({
 
 function ConnectionProblem({ message }: { message: string }) {
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg items-center px-5 py-12">
+    <main className="mx-auto flex min-h-screen max-w-lg items-center motion-safe:animate-fade-up px-5 py-12">
       <Card className="w-full">
         <CardHeader>
           <span className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -102,7 +102,7 @@ function InternetIdentityAuthPage() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg items-center px-5 py-12">
+    <main className="mx-auto flex min-h-screen max-w-lg items-center motion-safe:animate-fade-up px-5 py-12">
       <Card className="w-full shadow-elevated">
         <CardHeader>
           <div className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -277,7 +277,7 @@ function EmailPasswordAuthPage({
     }
   }
   return (
-    <main className="mx-auto flex min-h-screen max-w-lg items-center px-5 py-12">
+    <main className="mx-auto flex min-h-screen max-w-lg items-center motion-safe:animate-fade-up px-5 py-12">
       <Card className="w-full shadow-elevated">
         <CardHeader>
           <div className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -508,7 +508,7 @@ function VerifyEmailScreen() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center px-5 py-10 sm:py-12">
+    <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center motion-safe:animate-fade-up px-5 py-10 sm:py-12">
       <Card className="w-full shadow-elevated">
         <CardHeader>
           <span className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -659,7 +659,7 @@ function ForgotPasswordScreen() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center px-5 py-10 sm:py-12">
+    <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center motion-safe:animate-fade-up px-5 py-10 sm:py-12">
       <Card className="w-full shadow-elevated">
         <CardHeader>
           <span className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -747,7 +747,7 @@ function NewPasswordScreen() {
   const save = updatePassword;
   if (!isAuthenticated) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center px-5 py-10 sm:py-12">
+      <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center motion-safe:animate-fade-up px-5 py-10 sm:py-12">
         <Card className="w-full shadow-elevated">
           <CardHeader>
             <CardTitle>Open the link from your email</CardTitle>
@@ -795,7 +795,7 @@ function NewPasswordScreen() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center px-5 py-10 sm:py-12">
+    <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center motion-safe:animate-fade-up px-5 py-10 sm:py-12">
       <Card className="w-full shadow-elevated">
         <CardHeader>
           <span className="mb-2 flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">

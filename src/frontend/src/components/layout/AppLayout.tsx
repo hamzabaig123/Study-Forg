@@ -3,7 +3,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { StorageHealthBanner } from "@/components/layout/StorageHealthBanner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useReminderScheduler } from "@/hooks/useReminders";
-import { Outlet } from "@tanstack/react-router";
+import { Outlet, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 
 /**
@@ -15,6 +15,12 @@ export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Daily email/notification digest, checked once a minute while signed in.
   useReminderScheduler();
+  // Re-keying the page body on every navigation replays its entrance, which
+  // is the whole page-transition: a short rise the route content makes as it
+  // arrives. motion-safe keeps it off for visitors who ask for less motion.
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
 
   return (
     <div className="flex min-h-dvh flex-col bg-background">
@@ -33,7 +39,9 @@ export function AppLayout() {
         >
           <div className="mx-auto w-full max-w-6xl">
             <StorageHealthBanner />
-            <Outlet />
+            <div key={pathname} className="motion-safe:animate-fade-up">
+              <Outlet />
+            </div>
           </div>
         </main>
       </div>
@@ -77,6 +85,9 @@ function SkipLink() {
  * falls back to the routed `<Outlet />` when used as a layout route.
  */
 export function PublicLayout({ children }: { children?: ReactNode }) {
+  const pathname = useRouterState({
+    select: (state) => state.location.pathname,
+  });
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <SkipLink />
@@ -87,7 +98,12 @@ export function PublicLayout({ children }: { children?: ReactNode }) {
         className="min-w-0 flex-1 px-4 py-8 outline-none sm:px-6 lg:px-8 lg:py-12"
         data-ocid="public.main"
       >
-        <div className="mx-auto w-full max-w-6xl">{children ?? <Outlet />}</div>
+        <div
+          key={pathname}
+          className="mx-auto w-full max-w-6xl motion-safe:animate-fade-up"
+        >
+          {children ?? <Outlet />}
+        </div>
       </main>
       <footer className="pb-safe border-t border-border bg-card px-4 py-5 sm:px-6">
         <p className="text-center text-xs text-muted-foreground">
