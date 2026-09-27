@@ -3,6 +3,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useAccountCacheScope } from "@/hooks/useAccountCacheScope";
 import { router } from "@/router";
 import { RouterProvider } from "@tanstack/react-router";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 /**
  * App shell: theme provider, router, and the global toast surface.
@@ -14,6 +15,7 @@ export default function App() {
   return (
     <ThemeProvider>
       <RouterProvider router={router} />
+      <SpeedInsights />
       <Toaster position="top-right" richColors closeButton />
     </ThemeProvider>
   );

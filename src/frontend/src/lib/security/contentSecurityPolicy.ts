@@ -35,6 +35,9 @@ const OUTBOUND_ORIGINS = [
   "https://cdnjs.cloudflare.com",
   // A local Ollama, which is the only offline model path the studio offers.
   "http://localhost:11434",
+  // Vercel Speed Insights collects performance metrics and sends vitals.
+  "https://vitals.vercel-insights.com",
+  "https://va.vercel-scripts.com",
 ];
 
 /**
@@ -94,7 +97,7 @@ export function contentSecurityPolicy(options: PolicyOptions = {}): string {
     "form-action 'none'",
     "img-src 'self' data: blob:",
     "object-src 'none'",
-    "script-src 'self' https://cdnjs.cloudflare.com",
+    "script-src 'self' https://cdnjs.cloudflare.com https://va.vercel-scripts.com",
     "style-src 'self' 'unsafe-inline'",
     "worker-src 'self' blob: https://cdnjs.cloudflare.com",
   ].join("; ");

@@ -46,6 +46,8 @@ describe("contentSecurityPolicy", () => {
       "https://api.emailjs.com",
       "https://cdnjs.cloudflare.com",
       "http://localhost:11434",
+      "https://vitals.vercel-insights.com",
+      "https://va.vercel-scripts.com",
     ]) {
       expect(directive("connect-src"), origin).toContain(origin);
     }
@@ -56,6 +58,7 @@ describe("contentSecurityPolicy", () => {
     // line: an inline block would be refused at runtime, not at build time.
     expect(directive("script-src")).not.toContain("'unsafe-inline'");
     expect(directive("script-src")).toContain("https://cdnjs.cloudflare.com");
+    expect(directive("script-src")).toContain("https://va.vercel-scripts.com");
   });
 
   it("carries the resource types the pages actually generate", () => {
