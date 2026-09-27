@@ -1,0 +1,12 @@
+{
+  "name": "studyforge-e2e",
+  "private": true,
+  "description": "Browser E2E checks for the live app. Drives the installed Edge through playwright-core — no browser download.",
+  "scripts": {
+    "app": "node app.live.cjs",
+    "import": "node import.live.cjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}
