@@ -14,8 +14,9 @@ the localStorage archive the app used when there was no server.
 `migrations/0005_limiter_window_and_cleanup.sql` | Makes `enforce_rate_limit`'s `p_window_seconds` parameter real (0002 truncated to the minute and ignored it), prunes finished windows on every hit, and drops the never-referenced `ai_draft` table. **Applied.** Run after 0004: it re-declares the function 0004 step 8 revoked privileges on, and inherits that revoke.
 `migrations/0006_reminders.sql` | The per-account reminder half of the schema: `reminder_settings` keyed by `user_id` (fire time, the account's UTC offset, which sections it carries, the day it last fired) with the four owner policies in the house style and shape CHECKs, plus `reminder_log` — read-only for its owner, writable only by the delivery function, so a client cannot record a send it did not make — and the two `security definer` views the runner needs (`reminder_digest(uuid, integer)` for one account's numbers, `due_reminders()` for the whole tick). Both are `service_role` only: they answer across accounts, so no signed-in client may call them, and the blanket function grant at the bottom of the file is walked back for them and for `enforce_rate_limit`. Additive — no other object is touched. The digest's recipient is the account's sign-in address, so nothing here stores an address a user typed. **Applied.** Any hand order works, but after 0002 it is the honest state of the rest of the schema
 `migrations/0007_reminder_grants.sql` | The grants 0006's tables were missing — 0001's harden block repeated: DML on `reminder_settings` and read on `reminder_log` for `authenticated`, RLS enabled and forced on both, and the five owner policies re-asserted idempotently. **Applied.**
+`migrations/0008_helper_function_lockdown.sql` | Finishes the walk-back 0006's own blanket grant undid: `reminder_digest`, `due_reminders` and `enforce_rate_limit` are revoked from `public`, `anon` and `authenticated` again, re-granted to `service_role`, and `notify pgrst, 'reload schema'` pushes the denials to the API cache. Revokes come last, so the ordering trap cannot recur. **Written — needs one paste into the SQL editor** (verify.sql check 12 proves it once applied).
 `functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by its `CRON_SECRET` bearer or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. Deploying it is three commands and a secret — see its file header — and the full setup, including the Resend sender restriction and the optional tick, is in [The reminder pipeline](#the-reminder-pipeline) below. On the mock backend the digest is a browser notification instead.
-`verify.sql` | Eleven read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all
+`verify.sql` | Twelve read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, and 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter
 `email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
 `tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the later migrations are pasted by hand until a runner that knows about all of them exists
@@ -97,11 +98,16 @@ have a live equivalent already; finish with the RLS file in the dashboard editor
    check 0004 adds, the script raises and names the count, leaving every row
    intact. `verify.sql` check 10 is the dry run of exactly that question. 0005
    re-declares the limiter 0004 just tightened, so it comes after, and 0006 is
-   additive so its position only matters for the count check 1 reports. 0006 ends
-   with the same blanket `grant execute on all functions … to authenticated`, and
-   walks it back for `enforce_rate_limit` plus its own two cross-account helpers
-   (`reminder_digest`, `due_reminders`), which are `service_role` only — so
-   running it last leaves the limiter revoked rather than re-granted.
+   additive so its position only matters for the count check 1 reports — but
+   its own blanket `grant execute on all functions … to authenticated` runs
+   *after* its walk-back and re-grants `enforce_rate_limit` and the two
+   cross-account helpers (`reminder_digest`, `due_reminders`) to every signed-in
+   user; measured live on 2026-09-28, that let a signed-in account execute
+   `due_reminders()` and read every due account's contact details. Finish with
+   the two reminder files: after 0006, paste `migrations/0007_reminder_grants.sql`
+   and then `migrations/0008_helper_function_lockdown.sql` (both idempotent;
+   0008 re-applies the revokes last and ends with `notify pgrst, 'reload schema'`
+   so the denials reach the API promptly).
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
@@ -293,6 +299,14 @@ credential:
   `reminder_settings` and `reminder_log` answer 401 (table exists, zero `anon`
   grants) while the dropped `ai_draft` answers 404 — which also proves 0005
   ran.
+- `migrations/0008_helper_function_lockdown.sql` is **written, not applied** —
+  the one migration standing between this project and its own security claim.
+  Until it runs in the SQL editor, any signed-in user can execute
+  `due_reminders()` (and, with the right arguments, `reminder_digest()`) and
+  read other accounts' reminder contacts whenever they are due;
+  `enforce_rate_limit` is also re-granted to `authenticated`. The battery
+  (`e2e/security-battery.mjs`) fails its `due_reminders refuses authenticated`
+  check until it is applied.
 - `functions/reminder-sender` **is deployed** — its own "RESEND_API_KEY is not
   set" error reached the Settings toast on 2026-09-27, which means the deploy,
   the session auth and the `reminder_settings` read all work. The remaining gap

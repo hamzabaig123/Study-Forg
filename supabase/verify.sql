@@ -8,7 +8,9 @@
 -- tests/rls_cross_tenant.sql, which the script also runs. Numbers 9 and 10 are
 -- about migrations 0003 and 0004, so read them as "0 rows / matches" only once
 -- those files have been applied — 10 is meant to be run BEFORE 0004 as well.
--- Number 11 is about 0006_reminders.sql.
+-- Number 11 is about 0006_reminders.sql. Number 12 is about
+-- 0008_helper_function_lockdown.sql, the lockdown of the reminder helpers and
+-- the rate limiter that 0006's own blanket grant undid.
 
 -- 1. Every table the app needs exists. Expected: 21 rows once 0001–0006 are all
 --    applied — 18 from 0001, minus the ai_draft 0005 drops, plus rate_limit and
@@ -191,5 +193,48 @@ select invariant, ok
                    where schemaname = 'public'
                      and tablename = 'reminder_log'
                      and cmd <> 'SELECT'))
+  ) as checks(invariant, ok)
+ order by 1;
+
+-- 12. The function-grant invariants 0008 promises, stated over the live schema.
+--     0006's own blanket grant (the harden block at its bottom) re-granted the
+--     two reminder helpers — and 0005's revocation of the limiter — to
+--     `authenticated`, which is how a signed-in user could execute
+--     `due_reminders()` and read every due account's contact details. After
+--     0008, no client role may execute any of the three. All three rows must
+--     read true; if a helper is missing entirely (dropped, or never applied)
+--     the regprocedure cast errors — run 0006/0008 first.
+select invariant, ok
+  from (values
+    ('reminder_digest grants no client role',
+      not exists (
+        select 1
+          from pg_proc p,
+               aclexplode(coalesce(p.proacl, acldefault('f', p.proowner)))
+                 as a(grantor, grantee, privilege_type)
+               join pg_roles g on g.oid = a.grantee
+         where p.oid = 'public.reminder_digest(uuid, integer)'::regprocedure
+           and a.privilege_type = 'EXECUTE'
+           and g.rolname in ('anon', 'authenticated', 'public'))),
+    ('due_reminders grants no client role',
+      not exists (
+        select 1
+          from pg_proc p,
+               aclexplode(coalesce(p.proacl, acldefault('f', p.proowner)))
+                 as a(grantor, grantee, privilege_type)
+               join pg_roles g on g.oid = a.grantee
+         where p.oid = 'public.due_reminders()'::regprocedure
+           and a.privilege_type = 'EXECUTE'
+           and g.rolname in ('anon', 'authenticated', 'public'))),
+    ('enforce_rate_limit grants no client role',
+      not exists (
+        select 1
+          from pg_proc p,
+               aclexplode(coalesce(p.proacl, acldefault('f', p.proowner)))
+                 as a(grantor, grantee, privilege_type)
+               join pg_roles g on g.oid = a.grantee
+         where p.oid = 'public.enforce_rate_limit(text, integer, integer)'::regprocedure
+           and a.privilege_type = 'EXECUTE'
+           and g.rolname in ('anon', 'authenticated', 'public')))
   ) as checks(invariant, ok)
  order by 1;
