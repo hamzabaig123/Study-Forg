@@ -426,6 +426,18 @@ describe("resetting a password", () => {
     );
   });
 
+  it("translates the mailer's rate limit into what the visitor should do", async () => {
+    // GoTrue's own wording ("email rate limit exceeded") is a quota code, not
+    // an instruction — the store owes the visitor the hourly window instead.
+    const fake = fakeClient();
+    fake.reply.reset = { error: { message: "email rate limit exceeded" } };
+    const store = createSessionStore(fake.client);
+
+    await expect(store.requestPasswordReset("ada@example.com")).rejects.toThrow(
+      /wait about an hour/,
+    );
+  });
+
   it("refuses two different passwords before asking the project", async () => {
     const fake = fakeClient();
     const store = createSessionStore(fake.client);

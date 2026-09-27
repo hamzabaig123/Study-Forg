@@ -204,6 +204,11 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
     ) {
       return `Could not reach the Supabase project${SUPABASE_URL ? ` at ${SUPABASE_URL}` : ""} (${message}). Check VITE_SUPABASE_URL, and that this device is online.`;
     }
+    // GoTrue's own wording for the shared mailer's hourly quota — the visitor
+    // cannot fix it by retrying, so say what to do instead of the raw code.
+    if (/rate limit/i.test(message)) {
+      return "Too many emails were requested in a short window. The free mailer allows only a few per hour — wait about an hour and request a fresh link.";
+    }
     return message || "The sign-in request was refused.";
   }
 

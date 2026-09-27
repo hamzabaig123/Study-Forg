@@ -416,6 +416,13 @@ function EmailPasswordAuthPage({
 /** How long a re-send waits before the button lights up again. */
 const RESEND_COOLDOWN_SECONDS = 30;
 
+/**
+ * What the mailer's own refusal costs: when GoTrue answers "rate limit
+ * exceeded" the hourly quota is already burned, so a 30-second wait would only
+ * end in the same refusal — the button stays quiet for five minutes instead.
+ */
+const RATE_LIMIT_COOLDOWN_SECONDS = 300;
+
 /** How often the screen asks whether the link has been opened yet. */
 const SESSION_POLL_MILLISECONDS = 2000;
 
@@ -640,6 +647,7 @@ function ForgotPasswordScreen() {
     event.preventDefault();
     setBusy(true);
     setProblem("");
+    let wait = RESEND_COOLDOWN_SECONDS;
     try {
       // Awaited rather than fired and forgotten: the project refuses a redirect
       // it does not recognise, and a screen that said "check your inbox" through
@@ -647,14 +655,19 @@ function ForgotPasswordScreen() {
       await send(email);
       setSent(email);
     } catch (error) {
-      setProblem(
+      const message =
         error instanceof Error
           ? error.message
-          : "The reset link could not be sent.",
-      );
+          : "The reset link could not be sent.";
+      setProblem(message);
+      // The mailer's hourly quota is spent when it says "rate limit" — a
+      // 30-second retry would meet the same wall, so wait out five minutes.
+      if (/rate limit/i.test(message)) {
+        wait = RATE_LIMIT_COOLDOWN_SECONDS;
+      }
     } finally {
       setBusy(false);
-      setCooldown(RESEND_COOLDOWN_SECONDS);
+      setCooldown(wait);
     }
   }
 

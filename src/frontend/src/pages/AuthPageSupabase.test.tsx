@@ -447,6 +447,29 @@ describe("AuthPage with a Supabase session", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
+  it("answers the mailer's rate limit with a long wait, not a fast retry", async () => {
+    // The shared mailer allows only a few reset emails per hour; when the
+    // failure names the quota, a 30-second countdown would end in the same
+    // wall — the button owes the visitor a wait that matches it. (The friendly
+    // wording itself is the session store's job, tested in session.test.ts.)
+    store.requestPasswordReset.mockRejectedValue(
+      new Error("email rate limit exceeded"),
+    );
+    await renderLogin("/forgot-password");
+
+    await user.type(await screen.findByLabelText("Email"), "ada@example.com");
+    await user.click(
+      screen.getByRole("button", { name: /send the reset link/i }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/rate limit/i);
+    const resend = screen.getByRole("button", {
+      name: /send the link again/i,
+    });
+    expect(resend).toBeDisabled();
+    expect(resend).toHaveTextContent(/in (2[5-9][0-9]|300)s/);
+  });
+
   it("sends the new password the reset link was opened for", async () => {
     store.updatePassword.mockResolvedValue(undefined);
     store.settleRecovery(ada);
