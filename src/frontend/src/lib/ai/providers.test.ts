@@ -11,6 +11,7 @@ import {
   activeProvider,
   callProvider,
   findProvider,
+  keyPersistence,
   listModels,
   offlineChosen,
   removeKey,
@@ -55,6 +56,9 @@ let fetchMock: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   window.localStorage.clear();
+  // A key saved for the session is invisible to `clear()` on the other store,
+  // and would otherwise leak from one test into the next provider assertion.
+  window.sessionStorage.clear();
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
 });
@@ -104,6 +108,51 @@ describe("the provider catalogue", () => {
     expect(ollama?.requiresKey).toBe(false);
     expect(ollama?.storageKey).toBeNull();
     expect(ollama?.liveModels).toBe(true);
+  });
+});
+
+describe("where a key is kept", () => {
+  const geminiKey = "studyforge.ai.gemini_key";
+
+  it("keeps a key for the tab unless the reviewer asks for the device", () => {
+    expect(saveKey("gemini", "AIza-session")).toBe("session");
+    expect(window.sessionStorage.getItem(geminiKey)).toBe("AIza-session");
+    expect(window.localStorage.getItem(geminiKey)).toBeNull();
+    expect(keyPersistence("gemini")).toBe("session");
+
+    expect(saveKey("gemini", "AIza-device", true)).toBe("device");
+    expect(window.localStorage.getItem(geminiKey)).toBe("AIza-device");
+    expect(keyPersistence("gemini")).toBe("device");
+  });
+
+  it("leaves exactly one key per provider, whichever store took it", () => {
+    saveKey("gemini", "AIza-device", true);
+    saveKey("gemini", "AIza-session");
+    // The device copy goes: a second stored key that reads as the live one is
+    // how a key the reviewer replaced keeps being used after a reload.
+    expect(window.localStorage.getItem(geminiKey)).toBeNull();
+    expect(activeProvider()?.key).toBe("AIza-session");
+  });
+
+  it("refuses the device store when the page is not a secure context", () => {
+    vi.stubGlobal("isSecureContext", false);
+    expect(saveKey("gemini", "AIza-on-http", true)).toBe("session");
+    expect(window.localStorage.getItem(geminiKey)).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("clears both stores, so a removed key cannot come back", () => {
+    saveKey("gemini", "AIza-device", true);
+    saveKey("gemini", "AIza-session");
+    removeKey("gemini");
+    expect(keyPersistence("gemini")).toBe("none");
+    expect(window.sessionStorage.getItem(geminiKey)).toBeNull();
+    expect(window.localStorage.getItem(geminiKey)).toBeNull();
+    expect(activeProvider()).toBeNull();
+  });
+
+  it("reports none for a provider that holds no key at all", () => {
+    expect(keyPersistence("ollama")).toBe("none");
   });
 });
 

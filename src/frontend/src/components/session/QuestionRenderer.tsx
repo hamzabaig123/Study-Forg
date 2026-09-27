@@ -70,7 +70,7 @@ export function QuestionRenderer({
       <h2
         data-ocid={`${marker}.prompt`}
         className={cn(
-          "font-display text-xl leading-snug font-semibold text-balance sm:text-2xl",
+          "font-display text-xl leading-snug font-semibold text-balance break-words sm:text-2xl",
         )}
       >
         {prompt}

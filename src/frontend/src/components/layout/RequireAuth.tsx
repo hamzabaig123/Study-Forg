@@ -14,7 +14,8 @@ import { Navigate } from "@tanstack/react-router";
  * route.
  */
 export function RequireAuth() {
-  const { isAuthenticated, isInitializing, isVerified } = useAuth();
+  const { isAuthenticated, isInitializing, isVerified, awaitsNewPassword } =
+    useAuth();
   const { actor } = useBackend();
 
   if (isInitializing) {
@@ -23,6 +24,15 @@ export function RequireAuth() {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  // A session that came from a reset link has proved the address is reachable and
+  // nothing else, so it is not yet an account allowed to read its own rows. It
+  // reads like a signed-in visitor everywhere else in this app, which is exactly
+  // why the gate has to be here rather than on the page that asks for the
+  // password.
+  if (awaitsNewPassword) {
+    return <Navigate to="/reset-password" replace />;
   }
 
   if (!isVerified) {

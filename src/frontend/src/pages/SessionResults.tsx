@@ -1,13 +1,12 @@
 import { ResultReview } from "@/components/session/ResultReview";
+import { ScoreSummary } from "@/components/session/ScoreSummary";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
 import { useSessionResult } from "@/hooks/useSessions";
-import { formatDuration, scorePercent } from "@/lib/format";
-import { cn } from "@/lib/utils";
+import { scorePercent } from "@/lib/format";
 import { type Id, SessionMode } from "@/types";
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowRight, RotateCcw, Target, Timer, Trophy } from "lucide-react";
+import { ArrowRight, RotateCcw } from "lucide-react";
 
 const MARKER = "results";
 
@@ -106,85 +105,14 @@ export default function SessionResults() {
       >
         <div className="bg-gradient-primary h-1.5 w-full" aria-hidden="true" />
         <CardContent className="pt-6">
-          <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:gap-8">
-            <div className="flex flex-col items-center">
-              <div className="relative flex size-32 items-center justify-center">
-                <svg
-                  viewBox="0 0 120 120"
-                  className="absolute inset-0 -rotate-90"
-                  aria-hidden="true"
-                >
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="52"
-                    fill="none"
-                    strokeWidth="10"
-                    className="stroke-muted"
-                  />
-                  <circle
-                    cx="60"
-                    cy="60"
-                    r="52"
-                    fill="none"
-                    strokeWidth="10"
-                    strokeLinecap="round"
-                    strokeDasharray={2 * Math.PI * 52}
-                    strokeDashoffset={2 * Math.PI * 52 * (1 - percent / 100)}
-                    className={cn(
-                      percent >= 75
-                        ? "stroke-success"
-                        : percent >= 50
-                          ? "stroke-primary"
-                          : "stroke-destructive",
-                    )}
-                  />
-                </svg>
-                <div className="flex flex-col items-center">
-                  <span
-                    data-ocid={`${MARKER}.score`}
-                    className="numeric text-3xl font-semibold"
-                  >
-                    {percent.toFixed(0)}%
-                  </span>
-                  <span className="text-muted-foreground text-[0.65rem] font-medium tracking-widest uppercase">
-                    score
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            <div className="min-w-0 flex-1 text-center sm:text-left">
-              <p className="font-display text-lg font-semibold">
-                {score} of {total} correct
-              </p>
-              <p className="text-muted-foreground mt-1 text-sm">
-                {scoreMessage(percent)}
-              </p>
-              <Progress
-                value={percent}
-                className="mt-4 h-2"
-                aria-label={`Score ${percent.toFixed(0)} percent`}
-              />
-              <dl className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
-                <Stat
-                  icon={<Trophy className="size-3.5" />}
-                  label="Correct"
-                  value={`${score}`}
-                />
-                <Stat
-                  icon={<Target className="size-3.5" />}
-                  label="Missed"
-                  value={`${Math.max(0, total - score)}`}
-                />
-                <Stat
-                  icon={<Timer className="size-3.5" />}
-                  label="Time"
-                  value={formatDuration(durationSeconds)}
-                />
-              </dl>
-            </div>
-          </div>
+          <ScoreSummary
+            percent={percent}
+            score={score}
+            total={total}
+            durationSeconds={durationSeconds}
+            message={scoreMessage(percent)}
+            marker={MARKER}
+          />
         </CardContent>
       </Card>
 
@@ -213,24 +141,6 @@ export default function SessionResults() {
           <Link to="/classes">Browse classes</Link>
         </Button>
       </div>
-    </div>
-  );
-}
-
-interface StatProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}
-
-function Stat({ icon, label, value }: StatProps) {
-  return (
-    <div className="rounded-lg border bg-card/60 px-3 py-2">
-      <dt className="text-muted-foreground flex items-center gap-1.5 text-[0.65rem] font-medium tracking-wider uppercase">
-        {icon}
-        {label}
-      </dt>
-      <dd className="numeric mt-0.5 text-base font-semibold">{value}</dd>
     </div>
   );
 }

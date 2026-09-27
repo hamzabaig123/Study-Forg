@@ -35,13 +35,20 @@ function detectDevice(): DeviceType {
   return DeviceType.other;
 }
 
-/** Best-effort country hint from the browser locale, e.g. "en-GB" -> "GB". */
+/**
+ * Best-effort country hint from the browser locale, e.g. "en-GB" -> "GB".
+ *
+ * `link_scan.country` only stores exactly two letters, and until migration
+ * 0004 a value that failed the column CHECK aborted the whole `resolve_link`
+ * call — which this page then rendered as "This link doesn't exist". Chrome's
+ * locale for Latin American Spanish is "es-419" and Simplified Chinese
+ * arrives as "zh-Hans-CN", so the region is verified here rather than
+ * trusted: a locale that names no country contributes nothing to the scan.
+ */
 function detectCountry(): string | null {
   if (typeof navigator === "undefined") return null;
-  const locale = navigator.language;
-  if (!locale) return null;
-  const region = locale.split("-")[1];
-  return region ? region.toUpperCase() : null;
+  const region = navigator.language?.split("-")[1];
+  return region && /^[A-Za-z]{2}$/.test(region) ? region.toUpperCase() : null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -257,7 +264,10 @@ function ScanUnavailable({
         )}
       </div>
 
-      {!copy.transient && (
+      {/* A report can only name a link the service actually issued: every
+          backend refuses unknown codes, so offering the form on the not-found
+          page would offer a submission that cannot succeed. */}
+      {!copy.transient && reason !== UnavailableReason.notFound && (
         <Card className="mt-10 rounded-lg border-border shadow-none">
           <CardContent className="pt-6">
             <ReportAbuseForm code={code} />

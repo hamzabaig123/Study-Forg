@@ -16,11 +16,12 @@
  *   SUPABASE_DB_URL      postgres://postgres.<ref>:<password>@<pooler>:5432/postgres
  *   SUPABASE_SERVICE_ROLE_KEY
  *
- * No service-role key is required. The sweep signs the two throwaway accounts
- * up through GoTrue's public `/auth/v1/signup` — the same call the login screen
+ * No service-role key is required. The sweep signs its throwaway accounts up
+ * through GoTrue's public `/auth/v1/signup` — the same call the login screen
  * makes — and uses the privileged connection only to stamp `email_confirmed_at`
- * (a project with no SMTP provider cannot confirm by email) and to delete both
- * accounts at the end. `SUPABASE_DB_URL` is therefore the credential to reach
+ * on the two that need one (a project with no SMTP provider cannot confirm by
+ * email; the third account is left unconfirmed on purpose) and to delete all
+ * three at the end. `SUPABASE_DB_URL` is therefore the credential to reach
  * for: it is the same one `supabase/e2e/apply-migration.mjs` needs, it cannot
  * read or write any app row outside `auth.users` without going through the
  * policies, and it is never stored in a repo file. The service-role key still

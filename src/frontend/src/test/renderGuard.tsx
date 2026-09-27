@@ -14,10 +14,10 @@ import type { ComponentType } from "react";
 
 /**
  * Mount the signed-in shell guard at `/dashboard`, alongside the public landing
- * page and the two auth screens the guard can redirect to, so every branch of
- * the gate lands on a route that exists.
+ * page and the auth screens the guard can redirect to, so every branch of the
+ * gate lands on a route that exists.
  *
- * The guard is passed in because the two `RequireAuth` suites differ only in
+ * The guard is passed in because the three `RequireAuth` suites differ only in
  * which authentication mode is pinned for the file.
  */
 export async function renderGuard(Guard: ComponentType) {
@@ -37,6 +37,11 @@ export async function renderGuard(Guard: ComponentType) {
     path: "/verify-email",
     component: () => <h1>Verify your email</h1>,
   });
+  const resetRoute = createRoute({
+    getParentRoute: () => rootRoute,
+    path: "/reset-password",
+    component: () => <h1>New password screen</h1>,
+  });
   const appRoute = createRoute({
     getParentRoute: () => rootRoute,
     id: "app",
@@ -52,6 +57,7 @@ export async function renderGuard(Guard: ComponentType) {
       landingRoute,
       loginRoute,
       verifyRoute,
+      resetRoute,
       appRoute.addChildren([dashboardRoute]),
     ]),
     history: createMemoryHistory({ initialEntries: ["/dashboard"] }),

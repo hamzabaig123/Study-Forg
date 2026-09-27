@@ -246,7 +246,7 @@ function BlockEditor({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-7 rounded-full"
+            className="size-9 rounded-full"
             onClick={() => onMove(-1)}
             disabled={disabled || index === 0}
             aria-label={`Move block ${position} up`}
@@ -258,7 +258,7 @@ function BlockEditor({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-7 rounded-full"
+            className="size-9 rounded-full"
             onClick={() => onMove(1)}
             disabled={disabled || index === total - 1}
             aria-label={`Move block ${position} down`}
@@ -270,7 +270,7 @@ function BlockEditor({
             type="button"
             variant="ghost"
             size="icon"
-            className="size-7 rounded-full text-muted-foreground hover:text-destructive"
+            className="size-9 rounded-full text-muted-foreground hover:text-destructive"
             onClick={onRemove}
             disabled={disabled}
             aria-label={`Remove block ${position}`}
@@ -316,7 +316,7 @@ function BlockEditor({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-8 shrink-0 rounded-full text-muted-foreground hover:text-destructive"
+                className="size-9 shrink-0 rounded-full text-muted-foreground hover:text-destructive"
                 disabled={disabled || block.items.length <= 1}
                 onClick={() =>
                   onChange({
@@ -810,7 +810,7 @@ export default function NoteDetail() {
         </div>
       ) : null}
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,22rem)]">
         {/* --- Editor column ------------------------------------------------ */}
         <div className="min-w-0 space-y-6">
           <Card className="rounded-lg border-border/70 shadow-none">

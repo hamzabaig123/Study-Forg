@@ -30,15 +30,17 @@ export function StatCard({
     <Card
       data-ocid={`dashboard.stat_card.${index}`}
       className={cn(
-        "relative gap-0 overflow-hidden rounded-lg border-border/70 py-0 shadow-none transition-smooth hover:-translate-y-0.5 hover:shadow-md",
+        "group relative gap-0 overflow-hidden rounded-lg border-border/70 py-0 shadow-none transition-smooth hover:-translate-y-0.5 hover:shadow-elevated",
         featured && "border-primary/40",
       )}
     >
       <span
         aria-hidden="true"
         className={cn(
-          "absolute inset-x-0 top-0 h-1",
-          featured ? "bg-gradient-primary" : "bg-border",
+          "absolute inset-x-0 top-0 h-1 transition-smooth",
+          featured
+            ? "bg-gradient-primary"
+            : "bg-border group-hover:bg-primary/40",
         )}
       />
       <div className="flex items-start justify-between gap-3 p-5">
@@ -57,10 +59,10 @@ export function StatCard({
         </div>
         <span
           className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-lg",
+            "flex size-10 shrink-0 items-center justify-center rounded-lg transition-smooth group-hover:scale-105",
             featured
               ? "bg-gradient-primary text-primary-foreground"
-              : "bg-muted text-muted-foreground",
+              : "bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary",
           )}
         >
           <Icon className="size-5" aria-hidden="true" />

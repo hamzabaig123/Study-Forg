@@ -56,8 +56,10 @@ export function useAiProviders() {
   const refresh = useCallback(() => setProviders(readProviderState()), []);
 
   const connect = useCallback(
-    (id: ProviderId, key: string) => {
-      saveKey(id, key);
+    (id: ProviderId, key: string, persist = false) => {
+      // The third argument is "keep on this device"; saveKey decides whether it
+      // may, and `keyPersistence()` is how the dialog reads back where it went.
+      saveKey(id, key, persist);
       setPreferredChoice(key.trim() ? id : null);
       refresh();
     },

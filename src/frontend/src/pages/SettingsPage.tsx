@@ -2,6 +2,8 @@ import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { ArchiveImport } from "@/components/settings/ArchiveImport";
+import { InstallRow } from "@/components/settings/InstallRow";
+import { RemindersSection } from "@/components/settings/RemindersSection";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,7 @@ import { cn } from "@/lib/utils";
 import type { SettingsError, ThemeName, UserSettingsView } from "@/types";
 import {
   AlertTriangle,
+  BellRing,
   Check,
   CloudOff,
   CloudUpload,
@@ -50,7 +53,12 @@ import { toast } from "sonner";
 /* Section model                                                               */
 /* -------------------------------------------------------------------------- */
 
-type SectionId = "account" | "appearance" | "privacy" | "security";
+type SectionId =
+  | "account"
+  | "appearance"
+  | "reminders"
+  | "privacy"
+  | "security";
 
 interface SectionMeta {
   id: SectionId;
@@ -71,6 +79,12 @@ const SECTIONS: SectionMeta[] = [
     label: "Appearance",
     hint: "Light, dark, or frosted",
     Icon: Sun,
+  },
+  {
+    id: "reminders",
+    label: "Reminders",
+    hint: "Daily email and report",
+    Icon: BellRing,
   },
   {
     id: "privacy",
@@ -426,6 +440,7 @@ export default function SettingsPage() {
   const sectionRefs = useRef<Record<SectionId, HTMLElement | null>>({
     account: null,
     appearance: null,
+    reminders: null,
     privacy: null,
     security: null,
   });
@@ -488,7 +503,7 @@ export default function SettingsPage() {
         actions={<SyncStatus state={syncState} onRetry={handleRetry} />}
       />
 
-      <div className="grid gap-8 lg:grid-cols-[220px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[220px_minmax(0,1fr)]">
         {/* Section navigation */}
         <nav
           aria-label="Settings sections"
@@ -506,7 +521,7 @@ export default function SettingsPage() {
                     aria-current={active ? "true" : undefined}
                     data-ocid={`settings.section_nav.${id}`}
                     className={cn(
-                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-smooth",
+                      "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-smooth outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
                       active
                         ? "section-rail text-foreground"
                         : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -669,7 +684,7 @@ export default function SettingsPage() {
                     onClick={() => handleThemeSelect(name)}
                     data-ocid={`settings.appearance.theme_card.${name}`}
                     className={cn(
-                      "group flex flex-col gap-3 rounded-xl border p-3 text-left transition-smooth",
+                      "group flex flex-col gap-3 rounded-xl border p-3 text-left transition-smooth outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
                       selected
                         ? "border-primary bg-primary/5 shadow-subtle"
                         : "border-border bg-background hover:border-primary/40 hover:bg-muted/40",
@@ -719,6 +734,23 @@ export default function SettingsPage() {
               Your theme is remembered on this device and saved to your account
               when you save changes.
             </p>
+            <InstallRow />
+          </Card>
+
+          {/* Reminders */}
+          <Card
+            ref={(node) => {
+              sectionRefs.current.reminders = node;
+            }}
+            className="scroll-mt-24 rounded-xl border-border bg-card p-5 shadow-subtle md:p-6"
+            data-ocid="settings.reminders.section"
+          >
+            <SectionHeading
+              Icon={BellRing}
+              title="Reminders"
+              description="A daily nudge and your numbers, straight from StudyForge."
+            />
+            <RemindersSection />
           </Card>
 
           {/* Privacy and export */}

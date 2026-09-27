@@ -13,23 +13,37 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
+  useChapter,
   useChapters,
+  useClass,
   useClasses,
+  useSubject,
   useSubjects,
+  useTopicPath,
   useTopics,
 } from "@/hooks/useContent";
 import { useCreateShare, useRevokeShare, useShares } from "@/hooks/useSharing";
 import type { Id, ShareLink } from "@/types";
-import { Link } from "@tanstack/react-router";
-import { Share2 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { Link, useSearch } from "@tanstack/react-router";
+import { Lock, Share2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 function shareUrl(token: string): string {
   return `${window.location.origin}/shared/${token}`;
 }
 
+function parseIdParam(value: unknown): Id | null {
+  if (typeof value !== "string" && typeof value !== "number") return null;
+  const text = String(value).trim();
+  return /^\d+$/.test(text) ? BigInt(text) : null;
+}
+
 export default function SharePage() {
+  const search = useSearch({ strict: false }) as {
+    topic?: string | number;
+    chapter?: string | number;
+  };
   const classesQuery = useClasses();
   const sharesQuery = useShares();
   const createShare = useCreateShare();
@@ -40,10 +54,51 @@ export default function SharePage() {
   const [chapterId, setChapterId] = useState<Id | null>(null);
   const [topicId, setTopicId] = useState<Id | null>(null);
   const [pendingRevoke, setPendingRevoke] = useState<ShareLink | null>(null);
+  const [freshToken, setFreshToken] = useState<string | null>(null);
 
   const subjectsQuery = useSubjects(classId);
   const chaptersQuery = useChapters(subjectId);
   const topicsQuery = useTopics(chapterId);
+
+  /* Preselect the cascade from ?topic= / ?chapter= ------------------------- */
+  const topicParamId = parseIdParam(search.topic);
+  const chapterParamId = parseIdParam(search.chapter);
+  const topicPathQuery = useTopicPath(topicParamId);
+  const preChapterQuery = useChapter(chapterParamId);
+  const preSubjectQuery = useSubject(
+    preChapterQuery.data?.chapter.subjectId ?? null,
+  );
+  const preClassQuery = useClass(preSubjectQuery.data?.subject.classId ?? null);
+  const appliedRef = useRef(false);
+
+  useEffect(() => {
+    if (appliedRef.current) return;
+    const path = topicPathQuery.data;
+    if (!path || topicParamId === null) return;
+    appliedRef.current = true;
+    setClassId(path.class.id);
+    setSubjectId(path.subject.id);
+    setChapterId(path.chapter.id);
+    setTopicId(path.topic.id);
+  }, [topicPathQuery.data, topicParamId]);
+
+  useEffect(() => {
+    if (appliedRef.current) return;
+    const chapter = preChapterQuery.data?.chapter;
+    const subject = preSubjectQuery.data?.subject;
+    const klass = preClassQuery.data?.class;
+    if (!chapter || !subject || !klass || chapterParamId === null) return;
+    appliedRef.current = true;
+    setClassId(klass.id);
+    setSubjectId(subject.id);
+    setChapterId(chapter.id);
+    setTopicId(null);
+  }, [
+    preChapterQuery.data,
+    preSubjectQuery.data,
+    preClassQuery.data,
+    chapterParamId,
+  ]);
 
   const classes = classesQuery.data ?? [];
   const subjects = subjectsQuery.data ?? [];
@@ -66,7 +121,8 @@ export default function SharePage() {
           toast.error("Couldn't create the share link.");
           return;
         }
-        toast.success("Share link ready.");
+        setFreshToken(result.ok.token);
+        toast.success("Private link ready — copied below.");
       },
       onError: () => toast.error("Couldn't create the share link."),
     });
@@ -75,8 +131,12 @@ export default function SharePage() {
   function handleRevoke() {
     if (!pendingRevoke) return;
     revokeShare.mutate(pendingRevoke.token, {
-      onSuccess: () => {
-        toast.success("Share link revoked.");
+      onSuccess: (revoked) => {
+        if (revoked) {
+          toast.success("Share link revoked. Visitors now see a closed page.");
+        } else {
+          toast.error("That link was already revoked or has changed.");
+        }
         setPendingRevoke(null);
       },
       onError: () => toast.error("Couldn't revoke the link."),
@@ -87,13 +147,14 @@ export default function SharePage() {
     <div data-ocid="share.page" className="space-y-8">
       <PageHeader
         eyebrow="Share"
-        title="Publish a read-only link"
-        description="Share a chapter or topic with anyone. Visitors see the questions without answers and never need an account."
+        title="Publish a private link"
+        description="Generate a secret link to a chapter or topic. Anyone holding the link can open a read-only copy — no account, no sign-in — and you can cut access at any moment."
       />
 
       <Card className="rounded-lg border-border/70 shadow-none">
         <CardHeader className="border-b border-border/60 px-5 py-4">
-          <CardTitle className="font-display text-base font-semibold">
+          <CardTitle className="flex items-center gap-2 font-display text-base font-semibold">
+            <Lock className="size-4 text-muted-foreground" aria-hidden="true" />
             Choose what to share
           </CardTitle>
         </CardHeader>
@@ -199,9 +260,11 @@ export default function SharePage() {
                 Topic (optional)
               </Label>
               <Select
-                value={topicId ? topicId.toString() : undefined}
+                value={topicId ? topicId.toString() : "all"}
                 disabled={chapterId === null}
-                onValueChange={(next) => setTopicId(BigInt(next))}
+                onValueChange={(next) =>
+                  setTopicId(next === "all" ? null : BigInt(next))
+                }
               >
                 <SelectTrigger
                   className="w-full rounded-lg"
@@ -210,6 +273,7 @@ export default function SharePage() {
                   <SelectValue placeholder="Whole chapter" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="all">Whole chapter</SelectItem>
                   {topics.map((item) => (
                     <SelectItem
                       key={item.id.toString()}
@@ -227,8 +291,8 @@ export default function SharePage() {
             <p className="text-sm text-muted-foreground">
               {target
                 ? topicId !== null
-                  ? "Sharing a single topic."
-                  : "Sharing the whole chapter."
+                  ? "Sharing a single topic. Answers stay hidden from visitors."
+                  : "Sharing the whole chapter. Answers stay hidden from visitors."
                 : "Pick a chapter, or a topic inside one."}
             </p>
             <Button
@@ -239,7 +303,7 @@ export default function SharePage() {
               data-ocid="share.create_button"
             >
               <Share2 className="size-4" aria-hidden="true" />
-              {createShare.isPending ? "Creating…" : "Create share link"}
+              {createShare.isPending ? "Creating…" : "Create private link"}
             </Button>
           </div>
         </CardContent>
@@ -254,6 +318,7 @@ export default function SharePage() {
         }}
         isRevoking={revokeShare.isPending}
         revokingToken={pendingRevoke?.token ?? null}
+        highlightToken={freshToken}
       />
 
       <p className="text-sm text-muted-foreground">

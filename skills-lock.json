@@ -130,6 +130,12 @@
       "source": "caffeinelabs/skills",
       "sourceType": "github",
       "computedHash": "3b4a0f7fdea33367cdbad94172c0e196e94797b701b77a0a43e76d61456b2808"
+    },
+    "supabase-server": {
+      "source": "supabase/server",
+      "sourceType": "github",
+      "skillPath": "skills/supabase-server/SKILL.md",
+      "computedHash": "e0724ea04077c2401ca90e2969318000bf8ad64e9ab816478efd60ae62a3376f"
     }
   }
 }

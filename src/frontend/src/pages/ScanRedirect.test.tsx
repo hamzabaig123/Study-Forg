@@ -53,6 +53,46 @@ describe("ScanRedirect", () => {
     expect(await screen.findByText(/taking you there/i)).toBeInTheDocument();
   });
 
+  /**
+   * `link_scan.country` stores exactly two letters, and until migration 0004 a
+   * value that failed the column CHECK aborted `resolve_link` itself — which
+   * this page then rendered as "This link doesn't exist" for a live link.
+   * Chrome's Latin-American Spanish is "es-419" and Simplified Chinese arrives
+   * as "zh-Hans-CN", so the region has to be verified here.
+   */
+  describe.each([
+    ["en-GB", "GB"],
+    ["pt-BR", "BR"],
+    ["es-419", null],
+    ["zh-Hans-CN", null],
+    ["en", null],
+  ])("locale %s", (locale, expected) => {
+    it(`sends ${expected === null ? "no country" : expected}`, async () => {
+      Object.defineProperty(window.navigator, "language", {
+        configurable: true,
+        value: locale,
+      });
+      const resolveCode = vi.fn().mockResolvedValue({
+        __kind__: "unavailable",
+        unavailable: "paused",
+      });
+      setMockActor(createMockActor({ resolveCode }));
+
+      await renderRoute(<ScanRedirect />, {
+        path: "/r/$code",
+        initialPath: "/r/abc1234",
+      });
+
+      await waitFor(() => {
+        expect(resolveCode).toHaveBeenCalledWith(
+          "abc1234",
+          expect.anything(),
+          expected,
+        );
+      });
+    });
+  });
+
   it("shows the paused unavailable page instead of redirecting", async () => {
     const resolveCode = vi.fn().mockResolvedValue({
       __kind__: "unavailable",
@@ -104,13 +144,18 @@ describe("ScanRedirect", () => {
     expect(
       await screen.findByRole("heading", { name: /this link doesn't exist/i }),
     ).toBeInTheDocument();
+    // Every backend refuses reports for unknown codes, so the page must not
+    // offer a form that could only ever fail.
+    expect(
+      screen.queryByLabelText(/report this link/i),
+    ).not.toBeInTheDocument();
   });
 
   it("submits an abuse report for an unavailable link", async () => {
     const user = userEvent.setup();
     const resolveCode = vi.fn().mockResolvedValue({
       __kind__: "unavailable",
-      unavailable: "notFound",
+      unavailable: "paused",
     });
     const reportAbuse = vi.fn().mockResolvedValue({ __kind__: "ok" });
     setMockActor(createMockActor({ resolveCode, reportAbuse }));

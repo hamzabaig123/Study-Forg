@@ -63,6 +63,9 @@ function contentActor(overrides: Partial<MockActor> = {}): MockActor {
 
 beforeEach(() => {
   window.localStorage.clear();
+  // A key saved by one test is in the tab store now, and a stale one there
+  // would make the next test's dialog open with a key nobody typed.
+  window.sessionStorage.clear();
   setMockAuth(createAuthState());
   useStudioStore.setState({
     drafts: [],
@@ -265,10 +268,12 @@ describe("AI Studio", () => {
     );
 
     await waitFor(() => {
-      expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+      expect(window.sessionStorage.getItem("studyforge.ai.gemini_key")).toBe(
         "AIza-test-key-123456",
       );
     });
+    // Nothing was written to the store that outlives the tab.
+    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBeNull();
     expect(window.localStorage.getItem("studyforge.ai.provider")).toBe(
       "gemini",
     );
@@ -334,15 +339,15 @@ describe("AI Studio", () => {
       within(dialog).getByRole("button", { name: /^save key$/i }),
     );
 
-    // The key is on the device now, and the dialog stayed open to prove it.
+    // The key is in the tab store now, and the dialog stayed open to prove it.
     await waitFor(() => {
-      expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+      expect(window.sessionStorage.getItem("studyforge.ai.gemini_key")).toBe(
         "AIza-first-key-1234",
       );
     });
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(
-      within(dialog).getByText(/key saved on this device/i),
+      within(dialog).getByText(/key saved for this tab only/i),
     ).toBeInTheDocument();
 
     fireEvent.change(within(dialog).getByLabelText(/gemini key/i), {
@@ -355,10 +360,49 @@ describe("AI Studio", () => {
     expect(within(dialog).getByLabelText(/gemini key/i)).toHaveValue(
       "AIza-not-saved-yet-5678",
     );
-    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+    expect(window.sessionStorage.getItem("studyforge.ai.gemini_key")).toBe(
       "AIza-first-key-1234",
     );
     vi.unstubAllGlobals();
+  });
+
+  it("writes a key to the device only when the reviewer turns the toggle on", async () => {
+    const user = userEvent.setup();
+    setMockActor(contentActor());
+
+    await renderWithProviders(<AiStudio />);
+    await user.click(
+      await screen.findByRole("button", { name: /connect ai key/i }),
+    );
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("radio", { name: /gemini/i }));
+
+    const toggle = within(dialog).getByRole("button", {
+      name: /keep on this device/i,
+    });
+    expect(toggle).toHaveAttribute("aria-pressed", "false");
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.change(within(dialog).getByLabelText(/gemini key/i), {
+      target: { value: "AIza-kept-on-device" },
+    });
+    await user.click(
+      within(dialog).getByRole("button", { name: /^save key$/i }),
+    );
+
+    await waitFor(() => {
+      expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+        "AIza-kept-on-device",
+      );
+    });
+    // Opting in moves the key rather than copying it: one stored value per key.
+    expect(
+      window.sessionStorage.getItem("studyforge.ai.gemini_key"),
+    ).toBeNull();
+    expect(
+      within(dialog).getByText(/key saved on this device/i),
+    ).toBeInTheDocument();
   });
 
   it("offers a provider's models and remembers the one picked", async () => {

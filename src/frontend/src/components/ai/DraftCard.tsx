@@ -328,8 +328,8 @@ export function DraftCard({
                         aria-label={`Mark option ${letter} correct`}
                         className={
                           correctIndex === optionIndex
-                            ? "flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary font-mono text-xs font-bold text-primary-foreground"
-                            : "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40 font-mono text-xs font-bold text-muted-foreground hover:border-primary/50"
+                            ? "flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] font-mono text-xs font-bold text-primary-foreground"
+                            : "flex size-8 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/40 font-mono text-xs font-bold text-muted-foreground hover:border-primary/50 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
                         }
                       >
                         {letter}

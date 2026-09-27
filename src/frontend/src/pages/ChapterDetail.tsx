@@ -125,9 +125,33 @@ export default function ChapterDetail() {
         actions={
           <>
             <Button asChild variant="outline" className="rounded-full">
-              <Link to="/share" data-ocid="chapter_detail.share_link">
+              <Link
+                to="/share"
+                search={{ chapter: chapter.id.toString() }}
+                data-ocid="chapter_detail.share_link"
+              >
                 <Share2 className="size-4" aria-hidden="true" />
                 Share
+              </Link>
+            </Button>
+            <Button
+              asChild
+              variant="outline"
+              className="rounded-full"
+              aria-disabled={topics.length === 0}
+            >
+              <Link
+                to="/test-builder"
+                search={{ chapter: chapter.id.toString(), mode: "timed" }}
+                data-ocid="chapter_detail.timed_test_button"
+                className={
+                  topics.length === 0
+                    ? "pointer-events-none opacity-50"
+                    : undefined
+                }
+              >
+                <Timer className="size-4" aria-hidden="true" />
+                Timed test
               </Link>
             </Button>
             <Button

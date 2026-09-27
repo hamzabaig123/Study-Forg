@@ -14,22 +14,34 @@ const EXACT_KEYS = [
   "studyforge.ai.openai_key",
   // Queue left behind by the studio before it moved to `studyforge.ai-studio`.
   "studyforge.ai.extraction_queue.v1",
+  // Daily-reminder configuration, including the sender's EmailJS keys.
+  "studyforge.reminders.v1",
 ];
 
 const KEY_PREFIXES = ["studyforge.note-draft.", "studyforge.ai-studio"];
 
 export function clearDeviceCache(): void {
-  for (const key of EXACT_KEYS) {
-    window.localStorage.removeItem(key);
-  }
-  const prefixed: string[] = [];
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index);
-    if (key && KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
-      prefixed.push(key);
+  // Both stores, because a provider key now defaults to the session one ("keep
+  // it for this tab only"). The Settings label promises this erases the keys;
+  // clearing only localStorage would leave the newest copy exactly where the
+  // reviewer cannot see it and cannot remove.
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    for (const key of EXACT_KEYS) {
+      storage.removeItem(key);
+    }
+    for (const key of prefixedKeys(storage)) {
+      storage.removeItem(key);
     }
   }
-  for (const key of prefixed) {
-    window.localStorage.removeItem(key);
+}
+
+function prefixedKeys(storage: Storage): string[] {
+  const found: string[] = [];
+  for (let index = 0; index < storage.length; index += 1) {
+    const key = storage.key(index);
+    if (key && KEY_PREFIXES.some((prefix) => key.startsWith(prefix))) {
+      found.push(key);
+    }
   }
+  return found;
 }

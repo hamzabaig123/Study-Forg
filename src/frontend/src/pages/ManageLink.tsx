@@ -398,7 +398,7 @@ export default function ManageLink() {
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Button
                   type="submit"
                   disabled={updateTarget.isPending || draftUrl.trim() === ""}

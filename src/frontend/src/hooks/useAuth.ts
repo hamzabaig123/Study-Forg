@@ -42,6 +42,13 @@ export interface AuthState {
   isVerified: boolean;
   isInitializing: boolean;
   isLoggingIn: boolean;
+  /**
+   * A session that has not chosen the password a reset link was sent for.
+   *
+   * Only the email/password paths can be in that state; Internet Identity has no
+   * password to reset, so it is always false there.
+   */
+  awaitsNewPassword: boolean;
   signOut: () => void;
 }
 
@@ -62,7 +69,33 @@ export interface EmailPasswordAuthState extends AuthState {
   /** A seeded account for the mock backend; a real project has none to offer. */
   startDemo: (() => EmailAccount) | null;
   verification: "local" | "email";
-  verifyEmail: () => void | Promise<void>;
+  /**
+   * Send the confirmation link. The address is optional because the screen that
+   * calls it is often showing an account the browser has no session for yet —
+   * the moment just after signing up.
+   */
+  verifyEmail: (email?: string) => void | Promise<void>;
+  /**
+   * Read the session again, for a screen that waits on something this browser is
+   * not told about — the confirmation link opened in another tab. Only a store
+   * whose session lives outside the page has anything to re-read; a local account
+   * list is state this window already holds, so its answer is the current one.
+   */
+  refreshSession: () => Promise<void>;
+  /**
+   * Send a "choose a new password" link.
+   *
+   * `null` where there is no mail server to send it with, which is what keeps the
+   * dev app's sign-in screen from offering a link that could only ever fail.
+   */
+  requestPasswordReset: ((email: string) => Promise<void>) | null;
+  /**
+   * Complete a reset with the new password. Paired with the request above, and
+   * `null` for the same reason.
+   */
+  updatePassword:
+    | ((password: string, confirmation: string) => Promise<void>)
+    | null;
 }
 
 /** Internet Identity session: the identity itself is the credential. */
@@ -128,6 +161,12 @@ export function useLocalAccountAuth(): EmailPasswordAuthState {
     isInitializing: false,
     isLoggingIn: false,
     verification: "local",
+    // A local account is a row in this browser's storage with no mail server
+    // behind it, so there is no link to send and nothing to follow. The screen
+    // says so rather than offering a button that can only fail.
+    awaitsNewPassword: false,
+    requestPasswordReset: null,
+    updatePassword: null,
     signIn: useCallback(
       async (email: string, password: string) =>
         emailAccountOf(await loginAccount(email, password)),
@@ -140,6 +179,9 @@ export function useLocalAccountAuth(): EmailPasswordAuthState {
     ),
     startDemo: useCallback(() => emailAccountOf(startDemoAccount()), []),
     verifyEmail: useCallback(() => verifyCurrentAccount(), []),
+    // Nothing to pull: a local account lives in this browser's storage, and the
+    // subscription above already saw the confirmation land.
+    refreshSession: useCallback(async () => {}, []),
     signOut: useCallback(() => logoutAccount(), []),
   };
 }
@@ -171,6 +213,9 @@ export function useInternetIdentityAuth(): InternetIdentityAuthState {
     isVerified: isAuthenticated,
     isInitializing,
     isLoggingIn,
+    // Internet Identity has no password to reset: the identity itself is the
+    // credential, and a lost one is re-minted by the provider.
+    awaitsNewPassword: false,
     login,
     loginError,
     signOut: clear,
@@ -183,6 +228,18 @@ function subscribeSupabaseSession(listener: () => void) {
 
 function supabaseSessionSnapshot() {
   return sessionStore().snapshot();
+}
+
+/**
+ * The recovery flag, as a string.
+ *
+ * A second subscription with its own snapshot rather than a field inside the
+ * account JSON: `useSyncExternalStore` re-renders on a changed snapshot, and the
+ * account itself does not change when a reset link is opened — only what the app
+ * is allowed to do with it does.
+ */
+function supabaseRecoverySnapshot() {
+  return sessionStore().awaitsNewPassword() ? "awaiting" : "settled";
 }
 
 /**
@@ -208,6 +265,11 @@ export function useSupabaseAuth(): EmailPasswordAuthState {
     }
   }, [snapshot]);
   const email = account?.email ?? "";
+  const recovery = useSyncExternalStore(
+    subscribeSupabaseSession,
+    supabaseRecoverySnapshot,
+    () => "settled",
+  );
   return {
     account,
     principal: account?.id ?? null,
@@ -216,6 +278,7 @@ export function useSupabaseAuth(): EmailPasswordAuthState {
     isVerified: Boolean(account?.emailVerified),
     isInitializing: false,
     isLoggingIn: false,
+    awaitsNewPassword: recovery === "awaiting",
     verification: "email",
     signIn: useCallback(
       (address: string, password: string) =>
@@ -228,9 +291,24 @@ export function useSupabaseAuth(): EmailPasswordAuthState {
       [],
     ),
     startDemo: null,
-    verifyEmail: useCallback(async () => {
-      await sessionStore().resendConfirmation(email);
-    }, [email]),
+    verifyEmail: useCallback(
+      async (address?: string) => {
+        // A confirmation can be re-sent to an address the browser holds no
+        // session for — that is exactly the state right after signing up.
+        await sessionStore().resendConfirmation(address || email);
+      },
+      [email],
+    ),
+    refreshSession: useCallback(() => sessionStore().refresh(), []),
+    requestPasswordReset: useCallback(async (address: string) => {
+      await sessionStore().requestPasswordReset(address);
+    }, []),
+    updatePassword: useCallback(
+      async (password: string, confirmation: string) => {
+        await sessionStore().updatePassword(password, confirmation);
+      },
+      [],
+    ),
     signOut: useCallback(() => {
       void sessionStore().signOut();
     }, []),

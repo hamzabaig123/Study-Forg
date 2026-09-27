@@ -4,8 +4,10 @@
 -- `studyforge.mock-backend.v1` (MockDb in src/frontend/src/mocks/backend.ts),
 -- with three deliberate differences:
 --
---   1. every row carries `owner_id`, and RLS restricts it to `auth.uid()`. Two
---      accounts in one browser share one archive today; that is impossible here.
+--   1. every row carries `owner_id`, and RLS restricts it to `auth.uid()` behind
+--      a confirmed address. Two accounts in one browser share one archive today;
+--      that is impossible here, and neither is reading as an owner who has yet to
+--      click the link Supabase emailed them.
 --   2. the `nextId` counter is gone. Postgres issues ids, so the cross-tab
 --      collision the mock patches over in `adoptForeignNextId` cannot occur.
 --   3. grading, session sampling and link resolution are server-side functions.
@@ -384,19 +386,6 @@ create trigger link_touch before update on link for each row execute function to
 create trigger user_settings_touch before update on user_settings for each row execute function touch_updated_at();
 create trigger ai_draft_touch before update on ai_draft for each row execute function touch_updated_at();
 
--- Uniform random string over `alphabet`. `random()` is a continuous double, so
--- `floor(random() * card(alphabet))` has no modulo bias — unlike the byte
--- arithmetic the mock's `randomAlphabet` does, which this replaces server-side.
-create function random_token(alphabet text, chars integer) returns text
-language sql
-volatile
-as $$
-  select string_agg(
-           substr(alphabet, 1 + floor(random() * length(alphabet))::integer, 1),
-           '' order by s)
-    from generate_series(1, chars) as s;
-$$;
-
 create function host_refused() returns text
 language sql
 immutable
@@ -503,10 +492,18 @@ as $$
 $$;
 
 -- ---------------------------------------------------------------------------
--- Row level security: owner-only, everywhere.
+-- Row level security: owner-only, and only once the address is confirmed.
 --
 -- Anonymous visitors reach shared content exclusively through the SECURITY
--- DEFINER functions below; no table is readable by `anon`.
+-- DEFINER functions further down; no table is readable by `anon`.
+--
+-- The app holds an unconfirmed session on the verification screen, but that is a
+-- user-interface rule and a crafted request ignores it. `auth.uid()` is already
+-- inside the token Supabase hands out at sign-up, so owner-only is not
+-- confirmed-owner-only until the confirmation timestamp is read as well — which
+-- takes a definer function, because `authenticated` holds no SELECT on
+-- `auth.users`. A project that has email confirmation switched off stamps that
+-- column during sign-up, so its accounts pass here exactly as they do in the app.
 --
 -- Four policies per table is enough because every row is either the caller's or
 -- invisible: `link` and `link_scan` can also hold ownerless rows (a visitor's
@@ -514,7 +511,31 @@ $$;
 -- including the ones that come later. Those rows are reachable only by edit
 -- token, through the definer functions, which is exactly how the /manage page
 -- already works.
+--
+-- `abuse_report` is the one table with no owner and no policies: the grants below
+-- hand `authenticated` the table privileges the owner tables get, and only RLS
+-- stands between that and every signed-in user reading every report. Enabling
+-- RLS with zero policies denies the table to everyone; `report_link_abuse`
+-- writes through its definer function, which RLS does not apply to. That is the
+-- "no rows reachable by anybody" the comment on the table already claims.
 -- ---------------------------------------------------------------------------
+
+create function owner_is_verified() returns boolean
+language sql
+stable
+security definer
+set search_path = pg_catalog
+as $$
+  select exists (
+    select 1
+    from auth.users u
+    where u.id = auth.uid()
+      and u.email_confirmed_at is not null
+  );
+$$;
+
+revoke all on function owner_is_verified() from public;
+grant execute on function owner_is_verified() to authenticated;
 
 do $$
 declare
@@ -531,11 +552,68 @@ begin
     -- FORCE so the table owner is subject to the policies too; a later role
     -- change must not silently open the data.
     execute format('alter table %I force row level security', t);
-    execute format('create policy owner_select_%I on %I for select to authenticated using (owner_id = auth.uid())', t, t);
-    execute format('create policy owner_insert_%I on %I for insert to authenticated with check (owner_id = auth.uid())', t, t);
-    execute format('create policy owner_update_%I on %I for update to authenticated using (owner_id = auth.uid()) with check (owner_id = auth.uid())', t, t);
-    execute format('create policy owner_delete_%I on %I for delete to authenticated using (owner_id = auth.uid())', t, t);
+    execute format('create policy owner_select_%I on %I for select to authenticated using (owner_id = auth.uid() and owner_is_verified())', t, t);
+    execute format('create policy owner_insert_%I on %I for insert to authenticated with check (owner_id = auth.uid() and owner_is_verified())', t, t);
+    execute format('create policy owner_update_%I on %I for update to authenticated using (owner_id = auth.uid() and owner_is_verified()) with check (owner_id = auth.uid() and owner_is_verified())', t, t);
+    execute format('create policy owner_delete_%I on %I for delete to authenticated using (owner_id = auth.uid() and owner_is_verified())', t, t);
   end loop;
+
+  -- Deny-by-default for the report table: no owner, no policies, no direct
+  -- access for any role. Writes arrive only through report_link_abuse().
+  execute 'alter table abuse_report enable row level security';
+  execute 'alter table abuse_report force row level security';
+end
+$$;
+
+-- Hierarchy integrity: the loop above only checks a row's own owner_id, which
+-- would let account B hang its subject under account A's class — invisible to
+-- A (every read filters owner_id) but corrupting to the tree all the same. The
+-- child tables re-check the parent, and because the parent lookup itself runs
+-- under the caller's row level security, a parent owned by somebody else is
+-- simply not there to be found. session/content_share point at a polymorphic
+-- scope (topic or chapter) and are written only through their definer RPCs,
+-- which already validate ownership, so they stay on the generic policies.
+do $$
+begin
+  drop policy owner_insert_subject on subject;
+  create policy owner_insert_subject on subject for insert to authenticated
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from class c where c.id = class_id and c.owner_id = auth.uid()));
+  drop policy owner_update_subject on subject;
+  create policy owner_update_subject on subject for update to authenticated
+    using (owner_id = auth.uid() and owner_is_verified())
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from class c where c.id = class_id and c.owner_id = auth.uid()));
+
+  drop policy owner_insert_chapter on chapter;
+  create policy owner_insert_chapter on chapter for insert to authenticated
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from subject s where s.id = subject_id and s.owner_id = auth.uid()));
+  drop policy owner_update_chapter on chapter;
+  create policy owner_update_chapter on chapter for update to authenticated
+    using (owner_id = auth.uid() and owner_is_verified())
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from subject s where s.id = subject_id and s.owner_id = auth.uid()));
+
+  drop policy owner_insert_topic on topic;
+  create policy owner_insert_topic on topic for insert to authenticated
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from chapter c where c.id = chapter_id and c.owner_id = auth.uid()));
+  drop policy owner_update_topic on topic;
+  create policy owner_update_topic on topic for update to authenticated
+    using (owner_id = auth.uid() and owner_is_verified())
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from chapter c where c.id = chapter_id and c.owner_id = auth.uid()));
+
+  drop policy owner_insert_question on question;
+  create policy owner_insert_question on question for insert to authenticated
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from topic t where t.id = topic_id and t.owner_id = auth.uid()));
+  drop policy owner_update_question on question;
+  create policy owner_update_question on question for update to authenticated
+    using (owner_id = auth.uid() and owner_is_verified())
+    with check (owner_id = auth.uid() and owner_is_verified()
+      and exists (select 1 from topic t where t.id = topic_id and t.owner_id = auth.uid()));
 end
 $$;
 
@@ -1489,7 +1567,6 @@ revoke all on function private_host_problem(text) from public;
 revoke all on function url_target_problem(text) from public;
 revoke all on function normalize_answer_text(text) from public;
 revoke all on function answer_is_correct(jsonb, jsonb) from public;
-revoke all on function random_token(text, integer) from public;
 
 grant execute on function shared_content(text) to anon, authenticated;
 grant execute on function shared_note(text) to anon, authenticated;
@@ -1525,6 +1602,22 @@ grant execute on function topic_rows(bigint, bigint) to authenticated;
 revoke all on all tables in schema public from anon;
 revoke all on all sequences in schema public from anon;
 revoke all on all functions in schema public from anon;
+-- Functions grant EXECUTE to PUBLIC by default, and the revokes above only
+-- reach `anon` — without this line every RPC stays reachable by anyone.
+revoke all on all functions in schema public from public;
+-- `authenticated` was reaching its functions through that PUBLIC grant, so it
+-- now gets its own explicit grant — minus the four host/URL helpers, which
+-- exist only for the definer link functions above. `answer_is_correct` and
+-- `normalize_answer_text` are the exception: `submit_answer` is security
+-- invoker and grades through them, so its caller must be able to execute them.
+-- Both are pure (a submitted answer against an expected answer) and leak
+-- nothing.
+grant execute on all functions in schema public to authenticated;
+revoke all on function host_refused() from authenticated;
+revoke all on function private_host_problem(text) from authenticated;
+revoke all on function url_target_problem(text) from authenticated;
+grant execute on function answer_is_correct(jsonb, jsonb) to authenticated;
+grant execute on function normalize_answer_text(text) to authenticated;
 
 -- Re-grant the anonymous surface the blanket revoke above just removed. Keep
 -- this list in step with the grants above, or the QR generator and every share

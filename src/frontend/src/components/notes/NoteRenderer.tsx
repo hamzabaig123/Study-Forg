@@ -15,7 +15,7 @@ function BlockView({ block }: { block: NoteBlock }) {
     case "heading":
       return (
         <h2
-          className="font-display text-xl font-semibold tracking-tight text-foreground sm:text-2xl"
+          className="font-display text-xl font-semibold tracking-tight break-words text-foreground sm:text-2xl"
           data-block="heading"
         >
           {block.text || "\u00a0"}
@@ -24,7 +24,7 @@ function BlockView({ block }: { block: NoteBlock }) {
     case "paragraph":
       return (
         <p
-          className="text-sm leading-relaxed text-foreground/90 sm:text-base"
+          className="text-sm leading-relaxed break-words text-foreground/90 sm:text-base"
           data-block="paragraph"
         >
           {block.text || "\u00a0"}

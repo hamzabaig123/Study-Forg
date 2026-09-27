@@ -55,6 +55,14 @@ interface Unit {
   images: DocumentImage[];
   /** The page a unit came from, when it covers exactly one. */
   page: number | null;
+  /**
+   * Whether the source has pages at all. A text PDF is split on `--- Page N
+   * ---` markers and a packed unit asks the model to name the page per
+   * question, so its `sourcePage` is worth keeping. Pasted text has no pages,
+   * so a number the model returns for it cannot be true of anything, and the
+   * queue would print "Page 99" as a fact about a document that has no page 99.
+   */
+  pagesNamed: boolean;
 }
 
 const PAGE_INSTRUCTION =
@@ -151,6 +159,7 @@ function packPages(
         : `Pages ${batch[0].page}–${batch[batch.length - 1].page} of "${fileName}", as text. Each page below starts with its own "--- Page N ---" marker. Read every page and extract every question on it, setting sourcePage to the page the marker gives.\n\n${text}`,
       images: [],
       page: only,
+      pagesNamed: true,
     });
     batch = [];
     size = 0;
@@ -177,6 +186,7 @@ function textUnits(source: SourceDocument): Unit[] {
         instruction: `Page ${page.page} of "${source.fileName}", as text.\n\n${PAGE_INSTRUCTION}\n\n${page.text.trim()}`,
         images: [],
         page: page.page,
+        pagesNamed: true,
       }));
     }
     const units = packPages(pages, source.fileName);
@@ -188,6 +198,7 @@ function textUnits(source: SourceDocument): Unit[] {
       instruction: `Part of "${source.fileName}", sent in sections. Extract every complete question in this section.\n\n${chunk}`,
       images: [],
       page: null,
+      pagesNamed: false,
     }));
   }
 
@@ -196,6 +207,7 @@ function textUnits(source: SourceDocument): Unit[] {
       instruction: `Document: "${source.fileName}".\n\n${text}`,
       images: [],
       page: null,
+      pagesNamed: false,
     },
   ];
 }
@@ -205,6 +217,7 @@ function buildUnits(source: SourceDocument): Unit[] {
     instruction: `Page ${image.page} of "${source.fileName}".\n\n${PAGE_INSTRUCTION}`,
     images: [image],
     page: image.page,
+    pagesNamed: true,
   }));
   // A partly-scanned PDF carries both halves: pages with a text layer and pages
   // that were rasterised. Reading only one of them would drop the other's
@@ -250,6 +263,11 @@ async function callAndParse(
   // remember that page — it mislabels items whenever it is tired.
   if (unit.page !== null) {
     for (const draft of drafts) draft.page = unit.page;
+  } else if (!unit.pagesNamed) {
+    // Past text has no pages, so the number is not a mislabel to correct but a
+    // fact about a document that has none. The queue would otherwise show
+    // "Page 99" over a question from a 153-character paste.
+    for (const draft of drafts) draft.page = null;
   }
   return drafts;
 }

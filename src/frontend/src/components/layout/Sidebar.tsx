@@ -7,6 +7,7 @@ import {
   Download,
   LayoutDashboard,
   Library,
+  ListChecks,
   NotebookPen,
   QrCode,
   Settings,
@@ -25,6 +26,7 @@ interface NavEntry {
 const PRIMARY_NAV: NavEntry[] = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard, exact: true },
   { label: "Classes", to: "/classes", icon: Library },
+  { label: "Build a test", to: "/test-builder", icon: ListChecks },
   { label: "Notes", to: "/notes", icon: NotebookPen },
   { label: "AI Studio", to: "/ai-studio", icon: Sparkles },
   { label: "Analytics", to: "/analytics", icon: BarChart3 },
@@ -82,7 +84,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
 
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-50 flex w-72 flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-out lg:sticky lg:top-16 lg:z-0 lg:h-[calc(100vh-4rem)] lg:w-64 lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-50 flex w-72 max-w-[86vw] flex-col border-r border-sidebar-border bg-sidebar transition-transform duration-300 ease-out lg:sticky lg:top-16 lg:z-0 lg:h-[calc(100dvh-4rem)] lg:w-64 lg:max-w-none lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full",
         )}
         aria-label="Primary navigation"
@@ -124,7 +126,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
           </ul>
         </nav>
 
-        <div className="border-t border-sidebar-border p-4">
+        <div className="border-t border-sidebar-border p-4 pb-safe">
           <div className="flex items-start gap-2.5 rounded-md bg-sidebar-accent/60 p-3">
             <BookOpen
               className="mt-0.5 h-4 w-4 shrink-0 text-sidebar-primary"

@@ -7,6 +7,8 @@ import AuthPage from "@/pages/AuthPage";
 import ChapterDetail from "@/pages/ChapterDetail";
 import ClassDetail from "@/pages/ClassDetail";
 import Classes from "@/pages/Classes";
+import CustomResults from "@/pages/CustomResults";
+import CustomTest from "@/pages/CustomTest";
 import Dashboard from "@/pages/Dashboard";
 import ExportPage from "@/pages/ExportPage";
 import Landing from "@/pages/Landing";
@@ -22,6 +24,7 @@ import SharePage from "@/pages/SharePage";
 import SharedNoteView from "@/pages/SharedNoteView";
 import SharedView from "@/pages/SharedView";
 import SubjectDetail from "@/pages/SubjectDetail";
+import TestBuilder from "@/pages/TestBuilder";
 import TimedTest from "@/pages/TimedTest";
 import TopicDetail from "@/pages/TopicDetail";
 import {
@@ -47,6 +50,21 @@ const rootRoute = createRootRoute({ component: RootRoute });
  * can do it after sending a signed-out visitor to the login screen.
  */
 const BACKEND_GATED_PREFIXES = ["/shared", "/manage", "/r", "/qr"];
+
+/**
+ * `?email=` on the sign-in and verification screens.
+ *
+ * TanStack parses `?topic=6` as the *number* 6, so a validator written as
+ * `typeof x === "string"` silently deletes the param; these addresses are typed
+ * by a person and accepted either way.
+ */
+function emailSearch(search: Record<string, unknown>): { email?: string } {
+  const raw =
+    typeof search.email === "string" || typeof search.email === "number"
+      ? String(search.email).trim()
+      : "";
+  return { email: raw || undefined };
+}
 
 function RootRoute() {
   const pathname = useRouterState({
@@ -78,16 +96,54 @@ const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   component: () => <AuthPage mode="login" />,
+  validateSearch: emailSearch,
 });
 const registerRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/register",
   component: () => <AuthPage mode="register" />,
 });
+/**
+ * The verification screen, reachable with or without a session.
+ *
+ * A sign-up that requires confirmation leaves the browser signed out by design,
+ * so the address has to travel in the URL — otherwise the one screen that can
+ * re-send the link has nothing to send it to, and the new account is stranded
+ * between a login that answers "Email not confirmed" and a dashboard it cannot
+ * open.
+ */
 const verifyEmailRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/verify-email",
   component: () => <AuthPage mode="verify" />,
+  validateSearch: emailSearch,
+});
+
+/**
+ * Ask for a password reset link. Public, and reachable from the sign-in card.
+ *
+ * The address travels in `?email=` for the same reason the verification screen
+ * takes it: a visitor who has forgotten their password is by definition signed
+ * out, so there is no session to read it from.
+ */
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/forgot-password",
+  component: () => <AuthPage mode="forgot" />,
+  validateSearch: emailSearch,
+});
+
+/**
+ * Where the reset link lands, and where the new password is chosen.
+ *
+ * This is the `redirectTo` the session store sends with the request, so the two
+ * have to agree. Opening it without the link gets a page that says so: the
+ * recovery session is what authorises the change, and it arrives with the link.
+ */
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/reset-password",
+  component: () => <AuthPage mode="reset" />,
 });
 
 /** Public: read-only shared content, reachable without signing in. */
@@ -203,6 +259,48 @@ const timedTestRoute = createRoute({
   component: TimedTest,
 });
 
+/**
+ * The test builder. `?topic=` / `?chapter=` pre-select a source, which is how
+ * the topic and chapter pages hand over to this page. As with the AI Studio
+ * route, the router parses `?topic=6` as a number, so ids are widened here.
+ */
+const testBuilderRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/test-builder",
+  component: TestBuilder,
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { topic?: string; chapter?: string; mode?: string } => {
+    const widen = (value: unknown): string | undefined => {
+      const text =
+        typeof value === "string" || typeof value === "number"
+          ? String(value).trim()
+          : "";
+      return text || undefined;
+    };
+    const mode = widen(search.mode);
+    return {
+      topic: widen(search.topic),
+      chapter: widen(search.chapter),
+      mode: mode === "practice" || mode === "timed" ? mode : undefined,
+    };
+  },
+});
+
+/** Runs a locally assembled test (practice or timed). */
+const customTestRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/custom-test/$sessionId",
+  component: CustomTest,
+});
+
+/** Results for a locally assembled test. */
+const customResultsRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/custom-results/$sessionId",
+  component: CustomResults,
+});
+
 const resultsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/results/$sessionId",
@@ -215,10 +313,29 @@ const analyticsRoute = createRoute({
   component: Analytics,
 });
 
+/**
+ * Share. `?topic=` / `?chapter=` pre-select the cascade, which is how the
+ * topic and chapter pages hand over without the user re-picking everything.
+ */
 const shareRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/share",
   component: SharePage,
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
+    topic?: string;
+    chapter?: string;
+  } => {
+    const widen = (value: unknown): string | undefined => {
+      const text =
+        typeof value === "string" || typeof value === "number"
+          ? String(value).trim()
+          : "";
+      return text || undefined;
+    };
+    return { topic: widen(search.topic), chapter: widen(search.chapter) };
+  },
 });
 
 const exportRoute = createRoute({
@@ -252,6 +369,8 @@ const routeTree = rootRoute.addChildren([
   loginRoute,
   registerRoute,
   verifyEmailRoute,
+  forgotPasswordRoute,
+  resetPasswordRoute,
   sharedRoute,
   qrRoute,
   manageLinkRoute,
@@ -267,6 +386,9 @@ const routeTree = rootRoute.addChildren([
     aiStudioRoute,
     practiceRoute,
     timedTestRoute,
+    testBuilderRoute,
+    customTestRoute,
+    customResultsRoute,
     resultsRoute,
     analyticsRoute,
     shareRoute,

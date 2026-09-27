@@ -35,7 +35,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 /* -------------------------------------------------------------------------- */
@@ -111,10 +111,20 @@ function describeCreateError(error: CreateLinkError): string {
   }
 }
 
-const ERROR_LEVELS: { value: QrErrorLevel; label: string }[] = [
+const ERROR_LEVELS: { value: QrErrorLevel; label: ReactNode }[] = [
   { value: "L", label: "L — Low (7%)" },
   { value: "M", label: "M — Medium (15%)" },
-  { value: "Q", label: "Q — Quartile (25%) · recommended" },
+  {
+    value: "Q",
+    // The value node mirrors the chosen item into the trigger, which cannot
+    // wrap, so the hint only shows where the column is wide enough for it.
+    label: (
+      <>
+        Q — Quartile (25%)
+        <span className="hidden sm:inline"> · recommended</span>
+      </>
+    ),
+  },
   { value: "H", label: "H — High (30%)" },
 ];
 
@@ -284,7 +294,7 @@ export default function QrGenerator() {
             {/* ---------------------------------------------------------------- */}
             {/* Two-column workstation                                           */}
             {/* ---------------------------------------------------------------- */}
-            <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start">
+            <div className="mt-10 grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,26rem)] lg:items-start">
               {/* ---------------------------- Form ---------------------------- */}
               <div className="space-y-6">
                 <section
@@ -745,15 +755,7 @@ export default function QrGenerator() {
       </main>
       <footer className="border-t border-border bg-card px-4 py-5 sm:px-6">
         <p className="text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()}. Built with love using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-accent underline-offset-4 hover:underline"
-          >
-            caffeine.ai
-          </a>
+          © {new Date().getFullYear()} StudyForge
         </p>
       </footer>
     </div>

@@ -8,9 +8,17 @@
  * the caller exactly once, at creation.
  */
 
-/** Same alphabet as the mock's short codes, so existing /r/:code links stay valid in shape. */
-const SHORT_CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
-const SHORT_CODE_LENGTH = 7;
+/**
+ * The alphabet and length the database agrees to: `link.code` carries
+ * `check (code ~ '^[2-9a-hjkmnp-z]{7,12}$')` (0001 minted the column, 0003
+ * widened it) and `create_link` re-validates `p_code` against the same range.
+ * Ten characters of a 31-symbol alphabet is ~49.6 bits, which is wide enough
+ * that the public `/r/:code` redirect — the one endpoint with no session in
+ * front of it — is not worth probing. `sqlSurface.contract.test.ts` fails if
+ * these two constants and the SQL regexes stop agreeing.
+ */
+export const SHORT_CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
+export const SHORT_CODE_LENGTH = 10;
 
 /** Same alphabet and length as the mock's edit tokens. */
 const EDIT_TOKEN_ALPHABET =

@@ -21,13 +21,14 @@ import type { ProviderState } from "@/hooks/useAiExtraction";
 import type { ModelOption } from "@/lib/ai/providers";
 import {
   OLLAMA_ORIGIN,
-  PROVIDERS,
   type ProviderId,
   findProvider,
+  keyPersistence,
   listModels,
   maskKey,
   savedModel,
   setSavedModel,
+  visibleProviders,
   withCurrent,
 } from "@/lib/ai/providers";
 import {
@@ -47,12 +48,15 @@ interface ProviderDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   providers: ProviderState;
-  onConnect: (id: ProviderId, key: string) => void;
+  onConnect: (id: ProviderId, key: string, persist?: boolean) => void;
   onChoose: (id: ProviderId) => void;
   onDisconnect: (id: ProviderId) => void;
   onChooseOffline: () => void;
   onFollowKey: () => void;
 }
+
+/** Module scope: `SERVER_PROXY_AVAILABLE` cannot change while the page is open. */
+const LISTED = visibleProviders();
 
 /**
  * Choosing what reads the document: a model behind the reviewer's own key, a
@@ -70,17 +74,20 @@ export function ProviderDialog({
   onChooseOffline,
   onFollowKey,
 }: ProviderDialogProps) {
-  const [selected, setSelected] = useState<ProviderId>(PROVIDERS[0].id);
-  const [model, setModel] = useState(savedModel(PROVIDERS[0].id));
+  const [selected, setSelected] = useState<ProviderId>(LISTED[0].id);
+  const [model, setModel] = useState(savedModel(LISTED[0].id));
   /** One draft per provider, so switching tabs never throws a typed key away. */
   const [keyDrafts, setKeyDrafts] = useState<Record<ProviderId, string>>({
     gemini: "",
     openRouter: "",
     ollama: "",
+    serverProxy: "",
   });
   const [reveal, setReveal] = useState(false);
   const [saved, setSaved] = useState<ProviderId | null>(null);
-  const [models, setModels] = useState<ModelOption[]>(PROVIDERS[0].models);
+  /** "Keep on this device" — off means the key dies with the tab. */
+  const [persist, setPersist] = useState(false);
+  const [models, setModels] = useState<ModelOption[]>(LISTED[0].models);
   const [loadingModels, setLoadingModels] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [reload, setReload] = useState(0);
@@ -99,10 +106,14 @@ export function ProviderDialog({
     const next =
       providers.preference && providers.preference !== "offline"
         ? providers.preference
-        : (providers.active?.provider.id ?? PROVIDERS[0].id);
+        : (providers.active?.provider.id ?? LISTED[0].id);
     setSelected(next);
     setModel(savedModel(next));
-    setKeyDrafts({ gemini: "", openRouter: "", ollama: "" });
+    setKeyDrafts({ gemini: "", openRouter: "", ollama: "", serverProxy: "" });
+    // Show what is actually stored: a key saved on the device before this
+    // default changed stays there until the reviewer clears it, and the toggle
+    // would be lying if it opened switched off.
+    setPersist(keyPersistence(next) === "device");
     setReveal(false);
     setSaved(null);
     setReload(0);
@@ -144,8 +155,7 @@ export function ProviderDialog({
     };
   }, [open, selected, reload]);
 
-  const provider =
-    PROVIDERS.find((entry) => entry.id === selected) ?? PROVIDERS[0];
+  const provider = LISTED.find((entry) => entry.id === selected) ?? LISTED[0];
   const savedKey = providers.keys[provider.id] ?? "";
   const trimmed = keyDrafts[provider.id].trim();
   const current = models.find((entry) => entry.id === model) ?? null;
@@ -173,14 +183,14 @@ export function ProviderDialog({
    * at another.
    */
   const saveDraft = () => {
-    onConnect(provider.id, trimmed);
+    onConnect(provider.id, trimmed, persist);
     setKeyDrafts((drafts) => ({ ...drafts, [provider.id]: "" }));
     setSaved(provider.id);
   };
 
   const confirm = () => {
     if (!provider.requiresKey) onChoose(provider.id);
-    else if (trimmed) onConnect(provider.id, trimmed);
+    else if (trimmed) onConnect(provider.id, trimmed, persist);
     else onChoose(provider.id);
     onOpenChange(false);
   };
@@ -202,7 +212,7 @@ export function ProviderDialog({
             aria-label="Extraction engine"
             className="space-y-2"
           >
-            {PROVIDERS.map((entry) => {
+            {LISTED.map((entry) => {
               const key = providers.keys[entry.id] ?? "";
               const isCurrent =
                 !useOffline && providers.active?.provider.id === entry.id;
@@ -254,7 +264,9 @@ export function ProviderDialog({
                     <p className="mt-0.5 text-xs text-muted-foreground">
                       {entry.requiresKey
                         ? "Reads text, images and scanned PDF pages."
-                        : `Runs on the Ollama server on this computer at ${OLLAMA_ORIGIN}.`}
+                        : entry.id === "serverProxy"
+                          ? "Your project's Edge Function calls the model with keys stored on the server — nothing to paste, nothing in this browser."
+                          : `Runs on the Ollama server on this computer at ${OLLAMA_ORIGIN}.`}
                     </p>
                     {key ? (
                       <div className="mt-2 flex items-center justify-between gap-2">
@@ -382,7 +394,9 @@ export function ProviderDialog({
                 ? "Every model OpenRouter currently serves for free, vision-capable ones first."
                 : provider.id === "ollama"
                   ? "The models pulled into your local Ollama. Nothing leaves this computer."
-                  : "Google's current Flash models, which read text, images and scans."}
+                  : provider.id === "serverProxy"
+                    ? "The models the project's proxy is configured to forward. Its keys never reach the browser."
+                    : "Google's current Flash models, which read text, images and scans."}
             </p>
           </div>
 
@@ -435,7 +449,7 @@ export function ProviderDialog({
                   type="button"
                   onClick={() => setReveal((current) => !current)}
                   aria-label={reveal ? "Hide key" : "Show key"}
-                  className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground"
+                  className="absolute right-1 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground hover:text-foreground outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]"
                 >
                   {reveal ? (
                     <EyeOff className="size-4" aria-hidden="true" />
@@ -444,29 +458,54 @@ export function ProviderDialog({
                   )}
                 </button>
               </div>
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="space-y-2">
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Saved in this browser only. Extraction is sent straight from
-                  your device to {provider.name}; StudyForge never stores the
-                  key.
+                  Extraction is sent straight from your device to{" "}
+                  {provider.name}; StudyForge never stores the key. Left as is,
+                  the key is kept until you close this tab — a plaintext value
+                  that survives in storage can be read back by anything that
+                  ever runs on this page.
                 </p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="chip"
-                  disabled={trimmed.length === 0}
-                  onClick={saveDraft}
-                  data-ocid="ai_studio.save_key_button"
-                >
-                  <KeyRound className="size-3.5" aria-hidden="true" />
-                  Save key
-                </Button>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <Button
+                    type="button"
+                    variant={persist ? "default" : "outline"}
+                    size="chip"
+                    aria-pressed={persist}
+                    onClick={() => setPersist((current) => !current)}
+                    data-ocid="ai_studio.persist_toggle"
+                  >
+                    {persist ? (
+                      <ShieldCheck className="size-3.5" aria-hidden="true" />
+                    ) : (
+                      <KeyRound className="size-3.5" aria-hidden="true" />
+                    )}
+                    Keep on this device
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="chip"
+                    disabled={trimmed.length === 0}
+                    onClick={saveDraft}
+                    data-ocid="ai_studio.save_key_button"
+                  >
+                    <KeyRound className="size-3.5" aria-hidden="true" />
+                    Save key
+                  </Button>
+                </div>
               </div>
               {saved === provider.id ? (
                 <p className="flex items-center gap-1.5 text-[11px] text-success">
                   <ShieldCheck className="size-3.5" aria-hidden="true" />
-                  {provider.name} key saved on this device. Press &ldquo;Use{" "}
-                  {provider.name}&rdquo; to extract with it.
+                  {/* Read back from storage rather than trusting the toggle: an
+                      insecure origin refuses the device store, and the line has
+                      to say where the key actually went. */}
+                  {provider.name} key saved{" "}
+                  {keyPersistence(provider.id) === "device"
+                    ? "on this device"
+                    : "for this tab only"}
+                  . Press &ldquo;Use {provider.name}&rdquo; to extract with it.
                 </p>
               ) : willRun ? null : (
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
@@ -481,23 +520,35 @@ export function ProviderDialog({
               <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                 No key needed
               </p>
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
-                Ollama runs locally, so StudyForge talks to{" "}
-                <span className="numeric">{OLLAMA_ORIGIN}</span> directly and
-                your pages never leave the machine. Start the server with
-                &ldquo;ollama serve&rdquo; and pull a model such as
-                &ldquo;ollama pull qwen2.5vl:7b&rdquo;.
-              </p>
-              <a
-                href={provider.keyPage}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-1 text-xs text-primary hover:underline"
-                data-ocid="ai_studio.key_page_link"
-              >
-                Install Ollama
-                <ExternalLink className="size-3" aria-hidden="true" />
-              </a>
+              {provider.id === "serverProxy" ? (
+                <p className="text-[11px] leading-relaxed text-muted-foreground">
+                  The page you send is read by your Supabase project&rsquo;s{" "}
+                  <span className="numeric">ai-proxy</span> function, which
+                  holds the provider keys as server-side secrets. Extraction is
+                  rate limited per account, and no key is ever sent to this
+                  browser.
+                </p>
+              ) : (
+                <>
+                  <p className="text-[11px] leading-relaxed text-muted-foreground">
+                    Ollama runs locally, so StudyForge talks to{" "}
+                    <span className="numeric">{OLLAMA_ORIGIN}</span> directly
+                    and your pages never leave the machine. Start the server
+                    with &ldquo;ollama serve&rdquo; and pull a model such as
+                    &ldquo;ollama pull qwen2.5vl:7b&rdquo;.
+                  </p>
+                  <a
+                    href={provider.keyPage}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1 text-xs text-primary hover:underline"
+                    data-ocid="ai_studio.key_page_link"
+                  >
+                    Install Ollama
+                    <ExternalLink className="size-3" aria-hidden="true" />
+                  </a>
+                </>
+              )}
             </div>
           )}
         </div>

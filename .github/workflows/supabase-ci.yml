@@ -1,0 +1,153 @@
+name: supabase-ci
+
+# Frontend gates run on every pull request. The migration job only runs when
+# the repository has a staging project wired up (SUPABASE_ACCESS_TOKEN plus the
+# two vars below); without them it skips rather than fails, so a fork with no
+# cloud project still gets green tests.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: supabase-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install
+        run: pnpm install --prefer-offline
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint (biome)
+        run: pnpm check
+
+      - name: Build
+        run: pnpm build
+
+  migration:
+    needs: frontend
+    if: ${{ vars.SUPABASE_STAGING_PROJECT_REF != '' }}
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: ${{ vars.SUPABASE_STAGING_PROJECT_REF }}
+      DB_PASSWORD: ${{ secrets.SUPABASE_STAGING_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgres client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Build the connection string
+        run: |
+          {
+            echo "PGURL=postgresql://postgres.${PROJECT_REF}:${DB_PASSWORD}@db.${PROJECT_REF}.supabase.co:5432/postgres"
+            echo "PGSSLMODE=require"
+          } >> "$GITHUB_ENV"
+
+      # There is no `supabase/config.toml` in the repo, so `db push` has no
+      # schema history to diff against — the init script is applied with psql,
+      # which is exactly how README.md says to apply it by hand. A staging
+      # database that already carries the schema is left alone: re-running an
+      # init script over populated tables is not a migration.
+      - name: Apply the migration when staging has no schema yet
+        run: |
+          already="$(psql "$PGURL" -Atc "select to_regclass('public.question') is not null")"
+          if [ "$already" = "true" ]; then
+            echo "::notice::staging already has the schema; skipping 0001_init.sql"
+          else
+            psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/migrations/0001_init.sql
+          fi
+
+      # verify.sql is written for a human to read in the SQL editor, so it
+      # reports rather than raises. The one check that decides whether the
+      # publishable key is safe to ship in a browser is therefore re-asserted
+      # here as a hard gate: `anon` must hold no table-level grants at all.
+      - name: Report the read-only security checks
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/verify.sql
+
+      - name: Assert anon holds no table grants
+        run: |
+          count="$(psql "$PGURL" -Atc "select count(*) from information_schema.role_table_grants where grantee='anon'")"
+          echo "anon table grants: $count"
+          [ "$count" = "0" ] || { echo "::error::anon can read tables directly; RLS is not the only door"; exit 1; }
+
+      - name: Cross-tenant RLS checks
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/rls_cross_tenant.sql
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy Edge Functions to staging
+        run: supabase functions deploy ai-proxy --project-ref "$PROJECT_REF" --no-verify-jwt
+
+  replay-sweep:
+    needs: migration
+    if: ${{ vars.SUPABASE_STAGING_PROJECT_REF != '' }}
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_URL: ${{ format('https://{0}.supabase.co', vars.SUPABASE_STAGING_PROJECT_REF) }}
+      SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_STAGING_ANON_KEY }}
+      # Deliberately no SUPABASE_STAGING_SERVICE_ROLE_KEY here: the sweep runs as
+      # two authenticated users and reaches the database directly for the two
+      # admin actions it needs, so the widest key the project has stays out of CI.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install (the sweep imports supabase-js from the frontend)
+        run: pnpm install --prefer-offline
+
+      - name: Install the Postgres driver outside the app tree
+        # The sweep confirms and deletes its own throwaway accounts. Doing that
+        # through a direct connection keeps the service-role key out of CI
+        # entirely; `pg` is not a dependency of the app, so it goes in a scratch
+        # directory that NODE_PATH points at.
+        run: |
+          mkdir -p "$RUNNER_TEMP/pg-driver"
+          npm install --prefix "$RUNNER_TEMP/pg-driver" pg --no-audit --no-fund
+
+      - name: Contract sweep against the live staging database
+        # The staging pooler is reachable by hostname on a GitHub runner; if a
+        # project needs the region-specific host, set this in `vars` instead.
+        env:
+          SUPABASE_DB_URL: ${{ vars.SUPABASE_STAGING_DB_URL != '' && vars.SUPABASE_STAGING_DB_URL || format('postgres://postgres.{0}:{1}@db.{0}.supabase.co:5432/postgres', vars.SUPABASE_STAGING_PROJECT_REF, secrets.SUPABASE_STAGING_DB_PASSWORD) }}
+        run: |
+          export NODE_PATH="$RUNNER_TEMP/pg-driver/node_modules"
+          node supabase/e2e/replay-sweep.mjs

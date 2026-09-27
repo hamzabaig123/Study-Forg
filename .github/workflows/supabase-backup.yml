@@ -1,0 +1,72 @@
+name: supabase-backup
+
+# Nightly logical backup of the production database.
+
+# The artifact is a plain `pg_dump` custom-format file, which is what
+# `pg_restore` reads during the drill in supabase/OPERATIONS.md. It is kept for
+# 14 days: longer than the Free plan's PITR window (7 days) so a manual dump
+# survives an automated rollback, and shorter than a month so the artifact
+# storage never becomes a second un-rotated copy of every account's data.
+
+on:
+  schedule:
+    # 03:17 UTC — deliberately not on the hour, when runners and the platform's
+    # own backup jobs are both busiest.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: supabase-backup
+  cancel-in-progress: false
+
+jobs:
+  pg-dump:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+      DB_HOST: ${{ vars.SUPABASE_DB_HOST }}
+      DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgres client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      # Never echo this URL: it carries the password.
+      - name: Build the connection string
+        run: |
+          echo "PGURL=postgresql://postgres.${PROJECT_REF}:${DB_PASSWORD}@${DB_HOST:-db.${PROJECT_REF}.supabase.co}:5432/postgres" >> "$GITHUB_ENV"
+
+      - name: Dump
+        run: |
+          stamp="$(date -u +%Y-%m-%dT%H%M%SZ)"
+          echo "STAMP=${stamp}" >> "$GITHUB_ENV"
+          pg_dump --format=custom --file="backup-${stamp}.dump" --no-owner --no-privileges "$PGURL"
+
+      - name: Verify the dump is readable
+        run: pg_restore --list "backup-${STAMP}.dump" > /dev/null
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: supabase-backup-${{ env.STAMP }}
+          path: backup-${{ env.STAMP }}.dump
+          retention-days: 14
+
+      # A run that silently fails is worse than no schedule at all: the operator
+      # believes there are dumps. The notification only exists when the secret
+      # is set, so a fork without one still gets a working schedule.
+      - name: Report a failure
+        if: failure() && env.SLACK_WEBHOOK != ''
+        env:
+          SLACK_WEBHOOK: ${{ secrets.SLACK_WEBHOOK }}
+        run: |
+          curl -fsS -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\"supabase-backup failed for run ${GITHUB_RUN_ID}. See https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}\"}" \
+            "$SLACK_WEBHOOK"
+
+      - name: Report a missing configuration
+        if: failure() && env.SLACK_WEBHOOK == ''
+        run: |
+          echo "::error::Nightly backup failed and SLACK_WEBHOOK is not set, so nobody was told. Check SUPABASE_PROJECT_REF, SUPABASE_DB_HOST and SUPABASE_DB_PASSWORD."

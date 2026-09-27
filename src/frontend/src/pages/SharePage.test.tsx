@@ -28,7 +28,7 @@ describe("SharePage", () => {
 
     expect(await screen.findByText(/no share links yet/i)).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /create share link/i }),
+      screen.getByRole("button", { name: /create private link/i }),
     ).toBeDisabled();
   });
 

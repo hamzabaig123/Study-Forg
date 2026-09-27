@@ -303,7 +303,7 @@ interface ModeCardProps {
   marker: string;
 }
 
-function ModeCard({
+export function ModeCard({
   selected,
   onSelect,
   icon,

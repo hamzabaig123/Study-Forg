@@ -6,6 +6,7 @@ import {
   selectDataBackend,
 } from "@/lib/supabase/env";
 import {
+  SHORT_CODE_LENGTH,
   newEditToken,
   newShareToken,
   newShortCode,
@@ -33,7 +34,9 @@ describe("share token hashing", () => {
 
 describe("token generators", () => {
   it("keeps the shapes the routes and the canister contract expect", () => {
-    expect(newShortCode()).toMatch(/^[2-9a-hjkmnp-z]{7}$/);
+    expect(newShortCode()).toMatch(
+      new RegExp(`^[2-9a-hjkmnp-z]{${SHORT_CODE_LENGTH}}$`),
+    );
     expect(newEditToken()).toMatch(/^[A-HJ-NP-Za-km-z2-9]{32}$/);
     expect(newShareToken("note")).toMatch(/^note_[a-z0-9]{24}$/);
   });

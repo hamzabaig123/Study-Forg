@@ -199,7 +199,7 @@ describe("TopicDetail", () => {
     expect(answer.shortAnswer.expected).toBe("Mitochondria");
   });
 
-  it("disables the practice and timed-test actions when the topic has no questions", async () => {
+  it("routes the practice and timed-test actions into the builder, inert without questions", async () => {
     const actor = createMockActor({
       getTopic: vi.fn().mockResolvedValue({
         topic: makeTopic({ id: 4n, name: "Mitochondria" }),
@@ -212,9 +212,19 @@ describe("TopicDetail", () => {
 
     await renderTopicDetail("4");
 
-    expect(
-      await screen.findByRole("button", { name: /^practice$/i }),
-    ).toBeDisabled();
-    expect(screen.getByRole("button", { name: /timed test/i })).toBeDisabled();
+    // The actions are links into /test-builder (preselected and mode-set);
+    // with an empty topic they carry aria-disabled rather than a disabled
+    // button, so the anchor is rendered but styled and marked inert.
+    const practice = await screen.findByRole("link", {
+      name: /^practice$/i,
+    });
+    expect(practice).toHaveAttribute("aria-disabled", "true");
+    expect(practice).toHaveAttribute(
+      "href",
+      expect.stringContaining("/test-builder"),
+    );
+    const timed = screen.getByRole("link", { name: /timed test/i });
+    expect(timed).toHaveAttribute("aria-disabled", "true");
+    expect(timed.getAttribute("href")).toContain("mode=timed");
   });
 });

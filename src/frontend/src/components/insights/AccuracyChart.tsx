@@ -86,7 +86,7 @@ export function AccuracyChart({
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={data}
-                margin={{ top: 8, right: 8, bottom: 4, left: -18 }}
+                margin={{ top: 8, right: 8, bottom: 4, left: 0 }}
               >
                 <CartesianGrid
                   vertical={false}
@@ -110,7 +110,7 @@ export function AccuracyChart({
                   domain={[0, 100]}
                   tickLine={false}
                   axisLine={false}
-                  width={44}
+                  width={40}
                   tick={{
                     fill: "oklch(var(--muted-foreground))",
                     fontSize: 11,

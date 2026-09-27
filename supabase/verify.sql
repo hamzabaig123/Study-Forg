@@ -5,7 +5,9 @@
 -- e2e/apply-migration.mjs asserts numbers 1–7 over the Management API, so this
 -- file is what a human runs when the script cannot (or when a printed count needs
 -- to be read rather than compared). Number 8 is not a query: it points at
--- tests/rls_cross_tenant.sql, which the script also runs.
+-- tests/rls_cross_tenant.sql, which the script also runs. Numbers 9 and 10 are
+-- about migrations 0003 and 0004, so read them as "0 rows / matches" only once
+-- those files have been applied — 10 is meant to be run BEFORE 0004 as well.
 
 -- 1. Every table the app needs exists. Expected: 20 rows
 --    (17 owner tables + abuse_report + rate_limit + custom_session)
@@ -113,3 +115,28 @@ select pg_get_constraintdef(con.oid)                                      as col
    and cls.relname = 'link'
    and con.contype = 'c'
    and pg_get_constraintdef(con.oid) like '%code ~%';
+
+-- 10. The data invariants 0004_correctness.sql promises, stated over the live
+--     rows. Expected: 0 rows, and the `invariant` column names what each count
+--     means. These are the shapes the schema before 0004 could reach and the
+--     error pages cannot render — two results for one session, an answer that
+--     was submitted but never graded, a duration no timer can display, a
+--     "country" that is a language tag. Run this BEFORE 0004: a nonzero row
+--     makes the migration raise on purpose instead of applying a unique index
+--     over data that already breaks it, and this query names those rows.
+select 'session with more than one result' as invariant, count(*) as violations
+  from (select session_id from result group by session_id having count(*) > 1) d
+union all
+select 'submitted answer left ungraded', count(*)
+  from session_item
+ where submitted is not null and correct is null
+union all
+select 'session duration out of range', count(*)
+  from session
+ where duration_seconds is not null
+   and duration_seconds not between 1 and 86400
+union all
+select 'link_scan country is not a country', count(*)
+  from link_scan
+ where country is not null
+   and country !~ '^[A-Z][A-Z]$';

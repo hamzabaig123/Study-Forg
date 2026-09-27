@@ -230,7 +230,10 @@ export default function AiStudio() {
   };
 
   const saveOne = async (draft: StudioDraft) => {
-    if (!target.topicId) return;
+    if (!target.topicId) {
+      toast.error("Choose the topic to save into first.");
+      return;
+    }
     try {
       const result = await importDraft(draft, BigInt(target.topicId));
       if (result.saved === 1) {
@@ -256,7 +259,12 @@ export default function AiStudio() {
     }
     try {
       const result = await importApproved(drafts, BigInt(target.topicId));
-      if (result.skipped > 0) {
+      if (result.failures.length > 0) {
+        toast.warning(
+          `${result.saved} saved, ${result.skipped} skipped. First problem: ${result.failures[0]}`,
+          { duration: 8000 },
+        );
+      } else if (result.skipped > 0) {
         toast.warning(
           `${result.saved} saved, ${result.skipped} skipped — those drafts need a fix.`,
         );

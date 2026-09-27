@@ -32,7 +32,10 @@ export function ThemeSwitcher({ className }: { className?: string }) {
           type="button"
           variant="outline"
           size="sm"
-          className={cn("gap-2 rounded-full", className)}
+          className={cn(
+            "h-9 gap-2 rounded-full px-2.5 sm:h-8 sm:px-3",
+            className,
+          )}
           aria-label={`Theme: ${THEME_META[theme].label}. Change theme`}
           data-ocid="theme.toggle"
         >

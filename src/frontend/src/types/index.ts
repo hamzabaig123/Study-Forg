@@ -37,7 +37,6 @@ export type {
   NoteError,
   NoteShareLink,
   NoteView,
-  Option,
   PublicQuestion,
   Question,
   QuestionResult,

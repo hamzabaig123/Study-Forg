@@ -35,13 +35,24 @@ export default defineConfig({
      * `.env.local` says.
      *
      * Vite loads `.env.local` into `import.meta.env` for every mode, including
-     * `test`, and both flags decide which backend `useBackend` builds. Left to the
-     * file, a `VITE_DATA_BACKEND=mock` written for the dev server would silently
-     * swap the localStorage object in front of every page test — the injected fake
-     * actor never called, every list rendered empty, and the failures looking like
-     * broken pages rather than a mis-set flag.
+     * `test`, and all four variables decide which backend `useBackend` builds —
+     * the two flags directly, and the Supabase pair as the third branch of
+     * `selectDataBackend()`. Left to the file, either half of it moves the whole
+     * suite: a `VITE_DATA_BACKEND=mock` written for the dev server swaps the
+     * localStorage object in front of every page test, and a *complete* project
+     * URL and publishable key (which is what a real integration ends up with)
+     * select the Supabase adapter instead, so every page test then dies on
+     * "There is no Supabase session". Both look like broken pages, not a
+     * mis-set file. Pinning all four keeps the seam the tests inject actors into
+     * the one thing the suite ever runs against; the modes are covered by tests
+     * that pin `@/lib/authMode` themselves.
      */
-    env: { VITE_DATA_BACKEND: "", VITE_USE_MOCK: "" },
+    env: {
+      VITE_DATA_BACKEND: "",
+      VITE_USE_MOCK: "",
+      VITE_SUPABASE_URL: "",
+      VITE_SUPABASE_ANON_KEY: "",
+    },
     // Mounting a page costs several seconds on a slow disk (Radix portals,
     // react-query, the router), which pushes interaction-heavy tests past
     // Vitest's 5s default without anything actually being wrong.

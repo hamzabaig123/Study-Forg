@@ -359,7 +359,7 @@ export default function PracticeSession() {
             </div>
           ) : null}
 
-          <div className="mt-6 flex items-center justify-end gap-3">
+          <div className="mt-6 flex flex-wrap items-center justify-end gap-3">
             {!answered ? (
               <Button
                 type="button"

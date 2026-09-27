@@ -1,0 +1,4 @@
+@echo off
+cd /d "D:\class 11 app\study fork\src\frontend"
+start http://localhost:5173
+pnpm dev

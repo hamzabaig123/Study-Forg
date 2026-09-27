@@ -2,6 +2,7 @@ import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { StorageHealthBanner } from "@/components/layout/StorageHealthBanner";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useReminderScheduler } from "@/hooks/useReminders";
 import { Outlet } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 
@@ -12,9 +13,11 @@ import { type ReactNode, useState } from "react";
 export function AppLayout() {
   const isMobile = useIsMobile();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Daily email/notification digest, checked once a minute while signed in.
+  useReminderScheduler();
 
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-dvh flex-col bg-background">
       <Header
         showSidebarToggle={isMobile}
         onToggleSidebar={() => setSidebarOpen((open) => !open)}
@@ -31,17 +34,9 @@ export function AppLayout() {
           </div>
         </main>
       </div>
-      <footer className="border-t border-border bg-card px-4 py-5 sm:px-6">
+      <footer className="pb-safe border-t border-border bg-card px-4 py-5 sm:px-6">
         <p className="text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()}. Built with love using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-accent underline-offset-4 hover:underline"
-          >
-            caffeine.ai
-          </a>
+          © {new Date().getFullYear()} StudyForge
         </p>
       </footer>
     </div>
@@ -59,7 +54,7 @@ export function AppLayout() {
  */
 export function PublicLayout({ children }: { children?: ReactNode }) {
   return (
-    <div className="flex min-h-screen flex-col bg-background">
+    <div className="flex min-h-dvh flex-col bg-background">
       <Header />
       <main
         className="min-w-0 flex-1 px-4 py-8 sm:px-6 lg:px-8 lg:py-12"
@@ -67,17 +62,9 @@ export function PublicLayout({ children }: { children?: ReactNode }) {
       >
         <div className="mx-auto w-full max-w-6xl">{children ?? <Outlet />}</div>
       </main>
-      <footer className="border-t border-border bg-card px-4 py-5 sm:px-6">
+      <footer className="pb-safe border-t border-border bg-card px-4 py-5 sm:px-6">
         <p className="text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()}. Built with love using{" "}
-          <a
-            href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
-            target="_blank"
-            rel="noreferrer"
-            className="font-medium text-accent underline-offset-4 hover:underline"
-          >
-            caffeine.ai
-          </a>
+          © {new Date().getFullYear()} StudyForge
         </p>
       </footer>
     </div>

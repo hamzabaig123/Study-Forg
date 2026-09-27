@@ -58,7 +58,11 @@ function Level({
         {label}
       </p>
       <Select
-        value={value ?? undefined}
+        // `undefined` puts Radix's Select in uncontrolled mode, so the first
+        // pick switches it to controlled and React warns about the change. An
+        // empty string is the same "nothing chosen" state, and still renders the
+        // placeholder because no option carries that value.
+        value={value ?? ""}
         disabled={disabled || loading}
         onValueChange={onChange}
       >

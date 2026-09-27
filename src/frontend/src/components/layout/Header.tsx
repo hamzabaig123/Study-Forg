@@ -82,11 +82,14 @@ export function Header({
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="gap-2 rounded-full"
+                  className="h-9 gap-2 rounded-full px-2.5 sm:h-8 sm:px-3"
                   data-ocid="auth.user_menu"
                 >
                   <UserRound className="h-4 w-4" aria-hidden="true" />
-                  <span className="max-w-[9rem] truncate font-mono text-xs">
+                  {/* Below sm the pill is icon-only so the wordmark keeps its
+                      room; the sr-only label is what names the control there. */}
+                  <span className="sr-only sm:hidden">Account menu</span>
+                  <span className="hidden max-w-[9rem] truncate font-mono text-xs sm:inline">
                     {handle ?? "Signed in"}
                   </span>
                 </Button>

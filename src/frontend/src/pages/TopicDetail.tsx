@@ -19,17 +19,14 @@ import {
   useTopicPath,
   useUpdateQuestion,
 } from "@/hooks/useContent";
-import { useStartSession } from "@/hooks/useSessions";
-import { SessionMode } from "@/types";
 import type { Question } from "@/types";
-import { Link, useNavigate, useParams } from "@tanstack/react-router";
+import { Link, useParams } from "@tanstack/react-router";
 import { HelpCircle, Pencil, Plus, Share2, Timer, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 export default function TopicDetail() {
   const { topicId } = useParams({ from: "/app/topics/$topicId" });
-  const navigate = useNavigate();
   const id = BigInt(topicId);
 
   const topicQuery = useTopic(id);
@@ -38,7 +35,6 @@ export default function TopicDetail() {
   const createQuestion = useCreateQuestion();
   const updateQuestion = useUpdateQuestion();
   const deleteQuestion = useDeleteQuestion();
-  const startSession = useStartSession();
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Question | null>(null);
@@ -112,57 +108,6 @@ export default function TopicDetail() {
     });
   }
 
-  function startPractice() {
-    startSession.mutate(
-      { mode: SessionMode.practice, scope: { __kind__: "topic", topic: id } },
-      {
-        onSuccess: (result) => {
-          if (result.__kind__ === "err") {
-            toast.error(
-              result.err.__kind__ === "noQuestions"
-                ? "Add at least one question before starting a session."
-                : "Couldn't start the session.",
-            );
-            return;
-          }
-          void navigate({
-            to: "/practice/$sessionId",
-            params: { sessionId: result.ok.id.toString() },
-          });
-        },
-        onError: () => toast.error("Couldn't start the session."),
-      },
-    );
-  }
-
-  function startTimedTest() {
-    startSession.mutate(
-      {
-        mode: SessionMode.timedTest,
-        scope: { __kind__: "topic", topic: id },
-        durationSeconds: 600n,
-        questionCount: BigInt(Math.min(questions.length, 20)),
-      },
-      {
-        onSuccess: (result) => {
-          if (result.__kind__ === "err") {
-            toast.error(
-              result.err.__kind__ === "noQuestions"
-                ? "Add at least one question before starting a test."
-                : "Couldn't start the test.",
-            );
-            return;
-          }
-          void navigate({
-            to: "/test/$sessionId",
-            params: { sessionId: result.ok.id.toString() },
-          });
-        },
-        onError: () => toast.error("Couldn't start the test."),
-      },
-    );
-  }
-
   if (topicQuery.isLoading) {
     return <LoadingState label="Loading topic…" />;
   }
@@ -211,31 +156,53 @@ export default function TopicDetail() {
         actions={
           <>
             <Button asChild variant="outline" className="rounded-full">
-              <Link to="/share" data-ocid="topic_detail.share_link">
+              <Link
+                to="/share"
+                search={{ topic: topicId }}
+                data-ocid="topic_detail.share_link"
+              >
                 <Share2 className="size-4" aria-hidden="true" />
                 Share
               </Link>
             </Button>
             <Button
-              type="button"
+              asChild
               variant="outline"
               className="rounded-full"
-              onClick={startPractice}
-              disabled={startSession.isPending || questions.length === 0}
-              data-ocid="topic_detail.practice_button"
+              aria-disabled={questions.length === 0}
             >
-              <Timer className="size-4" aria-hidden="true" />
-              Practice
+              <Link
+                to="/test-builder"
+                search={{ topic: topicId, mode: "practice" }}
+                data-ocid="topic_detail.practice_button"
+                className={
+                  questions.length === 0
+                    ? "pointer-events-none opacity-50"
+                    : undefined
+                }
+              >
+                <Timer className="size-4" aria-hidden="true" />
+                Practice
+              </Link>
             </Button>
             <Button
-              type="button"
+              asChild
               className="rounded-full bg-gradient-primary text-primary-foreground"
-              onClick={startTimedTest}
-              disabled={startSession.isPending || questions.length === 0}
-              data-ocid="topic_detail.timed_test_button"
+              aria-disabled={questions.length === 0}
             >
-              <Timer className="size-4" aria-hidden="true" />
-              Timed test
+              <Link
+                to="/test-builder"
+                search={{ topic: topicId, mode: "timed" }}
+                data-ocid="topic_detail.timed_test_button"
+                className={
+                  questions.length === 0
+                    ? "pointer-events-none opacity-50"
+                    : undefined
+                }
+              >
+                <Timer className="size-4" aria-hidden="true" />
+                Timed test
+              </Link>
             </Button>
           </>
         }

@@ -119,24 +119,32 @@ export function useAiImport() {
   const importApproved = async (
     drafts: StudioDraft[],
     topicId: Id,
-  ): Promise<ImportResult> => {
+  ): Promise<ImportResult & { failures: string[] }> => {
     const approved = drafts.filter((draft) => draft.status === "approved");
     setIsImportingAll(true);
     let saved = 0;
     let skipped = 0;
+    const failures: string[] = [];
 
     for (const draft of approved) {
       try {
         const result = await importOne(draft, topicId);
         saved += result.saved;
         skipped += result.skipped;
-      } catch {
+      } catch (cause) {
         skipped += 1;
+        // Keep the reason — a batch that lost rows should be able to say why
+        // instead of a bare "skipped" count.
+        failures.push(
+          `${draft.question.trim().slice(0, 60) || "Untitled draft"}: ${
+            cause instanceof Error ? cause.message : "unknown error"
+          }`,
+        );
       }
     }
 
     setIsImportingAll(false);
-    return { saved, skipped };
+    return { saved, skipped, failures };
   };
 
   return { importDraft, importApproved, importingId, isImportingAll };

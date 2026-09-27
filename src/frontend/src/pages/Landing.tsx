@@ -180,14 +180,36 @@ export default function Landing() {
 
           <div className="animate-fade-up [animation-delay:120ms]">
             <div className="surface-glass overflow-hidden rounded-2xl p-2">
-              <img
-                src="/assets/generated/hero-studyforge.dim_1536x1024.jpg"
-                alt="An open book, fountain pen, and handwritten index cards on a warm parchment desk"
-                className="h-full w-full rounded-xl object-cover"
-                width={1536}
-                height={1024}
-                loading="eager"
-              />
+              {/*
+                The JPEG is 656 KB and is the largest thing on this page; the
+                same frame as AVIF is 18 KB and as WebP 40 KB. `sizes` matches
+                the column the image actually occupies (half the container above
+                `lg`, full width below), and the intrinsic ratio is the file's
+                real 1376×768 rather than the 1536×1024 its name claims — the
+                wrong ratio reserved vertical space that never filled.
+              */}
+              <picture>
+                <source
+                  type="image/avif"
+                  srcSet="/assets/generated/hero-studyforge.avif"
+                  sizes="(min-width: 1024px) 50vw, 92vw"
+                />
+                <source
+                  type="image/webp"
+                  srcSet="/assets/generated/hero-studyforge.webp"
+                  sizes="(min-width: 1024px) 50vw, 92vw"
+                />
+                <img
+                  src="/assets/generated/hero-studyforge.dim_1536x1024.jpg"
+                  alt="An open book, fountain pen, and handwritten index cards on a warm parchment desk"
+                  className="h-full w-full rounded-xl object-cover"
+                  width={1376}
+                  height={768}
+                  loading="eager"
+                  decoding="async"
+                  fetchPriority="high"
+                />
+              </picture>
             </div>
           </div>
         </div>
@@ -250,7 +272,7 @@ export default function Landing() {
             </h2>
           </div>
 
-          <div className="mt-12 grid gap-4 md:grid-cols-3">
+          <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
             {QUESTION_TYPES.map((type, index) => (
               <Card
                 key={type.name}
@@ -327,7 +349,7 @@ export default function Landing() {
             </h2>
           </div>
 
-          <ol className="mt-12 grid gap-6 md:grid-cols-3">
+          <ol className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
             {STEPS.map((item, index) => (
               <li
                 key={item.step}

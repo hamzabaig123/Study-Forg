@@ -13,6 +13,7 @@
  * `useSyncExternalStore`, and turns a failed call into an `Error` whose message is
  * worth showing. `client.auth` is not called anywhere else.
  */
+import { SUPABASE_URL } from "@/lib/supabase/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** What the app is allowed to know about the signed-in user. */
@@ -59,6 +60,13 @@ export interface SessionStore {
   subscribe(listener: () => void): () => void;
   /** Read the persisted session once, then follow every change to it. */
   restore(): Promise<void>;
+  /**
+   * Read the persisted session again.
+   *
+   * `onAuthStateChange` reports what happens in this tab; a link opened in
+   * another one writes a token into storage that only a pull will notice.
+   */
+  refresh(): Promise<void>;
   /** Resolves with the account, or throws the project's own reason for refusing. */
   signIn(email: string, password: string): Promise<SupabaseAccount>;
   register(input: {
@@ -69,6 +77,33 @@ export interface SessionStore {
   }): Promise<SupabaseAccount | null>;
   /** Re-send the confirmation link to an address. */
   resendConfirmation(email: string): Promise<void>;
+  /**
+   * Email a "choose a new password" link.
+   *
+   * Supabase answers a request for an address that does not exist with the same
+   * success it gives a real one, so this cannot be used to learn whether an
+   * account exists — which is why the screen that calls it can say "if that
+   * address is ours, a link is on its way" without lying.
+   */
+  requestPasswordReset(email: string): Promise<void>;
+  /**
+   * Set the new password for the session the reset link opened.
+   *
+   * The link is what authorises this: following it produced a session whose only
+   * purpose is this call, and `updateUser` refuses any other token.
+   */
+  updatePassword(
+    password: string,
+    confirmation: string,
+  ): Promise<SupabaseAccount>;
+  /**
+   * True from the moment a reset link is opened until a new password is chosen.
+   *
+   * A recovery session reads to the app exactly like a signed-in account, so
+   * without this the visitor would land on the dashboard and never be asked to
+   * pick the password the link was sent for.
+   */
+  awaitsNewPassword(): boolean;
   signOut(): Promise<void>;
 }
 
@@ -84,6 +119,22 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
   let current: SupabaseAccount | null = null;
   let snapshot = "null";
   let restoring: Promise<void> | null = null;
+  let recovering = false;
+
+  /**
+   * Where a reset link brings the visitor back to.
+   *
+   * The project's Site URL is a dashboard setting that a local dev server is
+   * never part of, so the redirect is sent per request from the origin the page
+   * is actually on. That makes the link work on `localhost`, on a preview and on
+   * the deployed app without a setting being changed three times — at the cost of
+   * one rule: every origin that may sign a user in has to be listed in the
+   * project's auth allow-list, or Supabase refuses the redirect.
+   */
+  function redirectTo(path: string) {
+    const origin = globalThis.location?.origin ?? "";
+    return origin ? `${origin}${path}` : undefined;
+  }
 
   function apply(next: SupabaseAccount | null) {
     const nextSnapshot = next ? JSON.stringify(next) : "null";
@@ -92,8 +143,28 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
     }
     current = next;
     snapshot = nextSnapshot;
+    notify();
+  }
+
+  /**
+   * Tell every subscriber to read again.
+   *
+   * The account snapshot is what usually changes, but the recovery flag is a
+   * second thing a page subscribes to, and a reset link opened by an account that
+   * is already signed in changes only that — so the flag has its own path to the
+   * listeners rather than riding on the snapshot.
+   */
+  function notify() {
     for (const listener of listeners) {
       listener();
+    }
+  }
+
+  /** Record what the last auth event meant, and wake anyone who needs to know. */
+  function setRecovery(next: boolean) {
+    if (next !== recovering) {
+      recovering = next;
+      notify();
     }
   }
 
@@ -107,12 +178,33 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
    */
   function unwrap(user: AuthUser | null, error: { message: string } | null) {
     if (error) {
-      throw new Error(error.message);
+      throw new Error(authMessage(error.message));
     }
     if (!user) {
       throw new Error("The sign-in request was refused.");
     }
     return accountOf(user);
+  }
+
+  /**
+   * Turn a refusal into a sentence worth showing.
+   *
+   * A bare "Failed to fetch" is what three different problems look like — a
+   * mistyped `VITE_SUPABASE_URL`, a project that is paused, and a laptop with no
+   * network — and none of them is the project saying no. Naming the URL the
+   * browser tried to reach is the difference between a fix and a debugging
+   * session, and it is the reason this module reads the config at all.
+   */
+  function authMessage(raw: string | null | undefined) {
+    const message = raw?.trim() ?? "";
+    if (
+      /^(failed to fetch|fetch failed|networkerror|network error|load failed|ERR_(?:NETWORK|CONNECTION)|signal is aborted|timeout)/i.test(
+        message,
+      )
+    ) {
+      return `Could not reach the Supabase project${SUPABASE_URL ? ` at ${SUPABASE_URL}` : ""} (${message}). Check VITE_SUPABASE_URL, and that this device is online.`;
+    }
+    return message || "The sign-in request was refused.";
   }
 
   return {
@@ -132,7 +224,11 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
           throw new Error(error.message);
         }
         apply(data.session ? accountOf(data.session.user) : null);
-        client.auth.onAuthStateChange((_event, session) => {
+        client.auth.onAuthStateChange((event, session) => {
+          // The link was opened, so a new password is owed before this session
+          // is treated as an ordinary sign-in. Every other event means that
+          // password has been chosen, or the session is gone.
+          setRecovery(event === "PASSWORD_RECOVERY");
           apply(session ? accountOf(session.user) : null);
         });
       })().catch(() => {
@@ -142,6 +238,17 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
         restoring = null;
       });
       return restoring;
+    },
+
+    async refresh() {
+      // A read that fails has the same answer as a read that finds nothing new:
+      // the session is still what it was a moment ago. The caller asks again.
+      try {
+        const { data } = await client.auth.getSession();
+        apply(data.session ? accountOf(data.session.user) : null);
+      } catch {
+        /* swallowed on purpose — this runs on a timer */
+      }
     },
 
     async signIn(email, password) {
@@ -164,7 +271,7 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
         options: { data: { full_name: name } },
       });
       if (error) {
-        throw new Error(error.message);
+        throw new Error(authMessage(error.message));
       }
       // With confirmation required Supabase creates the user and returns no
       // session: the visitor stays one until the link is followed, which is the
@@ -178,15 +285,44 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
     async resendConfirmation(email) {
       const { error } = await client.auth.resend({ type: "signup", email });
       if (error) {
-        throw new Error(error.message);
+        throw new Error(authMessage(error.message));
       }
     },
+
+    async requestPasswordReset(email) {
+      const { error } = await client.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectTo("/reset-password"),
+      });
+      if (error) {
+        throw new Error(authMessage(error.message));
+      }
+    },
+
+    async updatePassword(password, confirmation) {
+      if (password !== confirmation) {
+        throw new Error("The two passwords do not match.");
+      }
+      // Refused before the request rather than after it: an empty password would
+      // be accepted by `updateUser` if the project's policy allowed it, and the
+      // visitor would find out only when the next sign-in fails.
+      if (password.length < 8) {
+        throw new Error("Use at least eight characters.");
+      }
+      const { data, error } = await client.auth.updateUser({ password });
+      const account = unwrap(data.user, error);
+      setRecovery(false);
+      apply(account);
+      return account;
+    },
+
+    awaitsNewPassword: () => recovering,
 
     async signOut() {
       const { error } = await client.auth.signOut();
       if (error) {
-        throw new Error(error.message);
+        throw new Error(authMessage(error.message));
       }
+      setRecovery(false);
       apply(null);
     },
   };

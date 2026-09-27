@@ -2,11 +2,13 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { ErrorState } from "@/components/common/ErrorState";
 import { LoadingState } from "@/components/common/LoadingState";
 import { PageHeader } from "@/components/common/PageHeader";
+import { ProgressHero } from "@/components/insights/ProgressHero";
 import { StatCard } from "@/components/insights/StatCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDashboardStats, useRecentActivity } from "@/hooks/useAnalytics";
 import { useAuth } from "@/hooks/useAuth";
+import { useStudyProgress } from "@/hooks/useStudyProgress";
 import {
   formatCompactCount,
   formatCount,
@@ -27,6 +29,13 @@ import {
 } from "lucide-react";
 
 const QUICK_ACTIONS = [
+  {
+    to: "/test-builder",
+    label: "Build a test",
+    detail: "Mix subjects, set time, count, and shuffle",
+    icon: ListChecks,
+    ocid: "dashboard.build_test_button",
+  },
   {
     to: "/classes",
     label: "Create content",
@@ -54,6 +63,7 @@ export default function Dashboard() {
   const { displayName } = useAuth();
   const statsQuery = useDashboardStats();
   const activityQuery = useRecentActivity(8);
+  const progress = useStudyProgress();
 
   const stats = statsQuery.data;
   const activity = activityQuery.data ?? [];
@@ -128,6 +138,16 @@ export default function Dashboard() {
         }
       />
 
+      <ProgressHero
+        accuracyPercent={progress.accuracy.percent}
+        answeredTotal={progress.accuracy.total}
+        streakDays={progress.streak.current}
+        bestStreakDays={progress.streak.best}
+        attemptsToday={progress.attemptsToday}
+        attemptCount={progress.attempts.length}
+        loading={false}
+      />
+
       {statsQuery.isError ? (
         <ErrorState
           title="Couldn't load your stats"
@@ -155,7 +175,7 @@ export default function Dashboard() {
         </section>
       )}
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <Card
           data-ocid="dashboard.activity_card"
           className="gap-0 rounded-lg border-border/70 py-0 shadow-none lg:col-span-2"
@@ -310,8 +330,15 @@ export default function Dashboard() {
         <p className="text-xs text-muted-foreground">
           {formatCount(stats.questionCount)} questions across{" "}
           {formatCount(stats.topicCount)}{" "}
-          {stats.topicCount === 1n ? "topic" : "topics"} — open a topic to start
-          a session.
+          {stats.topicCount === 1n ? "topic" : "topics"} —{" "}
+          <Link
+            to="/test-builder"
+            className="font-medium text-accent underline-offset-4 hover:underline"
+            data-ocid="dashboard.footer_builder_link"
+          >
+            build a test
+          </Link>{" "}
+          from any mix of them.
         </p>
       ) : null}
     </div>

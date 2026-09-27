@@ -14,8 +14,14 @@
 
 import type { DocumentImage } from "@/lib/ai/document";
 import { safeGetItem, safeRemoveItem, safeSetItem } from "@/lib/localStore";
+import {
+  SUPABASE_ANON_KEY,
+  SUPABASE_CONFIGURED,
+  SUPABASE_URL,
+  selectDataBackend,
+} from "@/lib/supabase/env";
 
-export type ProviderId = "gemini" | "openRouter" | "ollama";
+export type ProviderId = "gemini" | "openRouter" | "ollama" | "serverProxy";
 
 export interface ModelOption {
   /** The id sent in the request. */
@@ -133,6 +139,32 @@ export const PROVIDERS: Provider[] = [
 
 const PREFERENCE_KEY = "studyforge.ai.provider";
 
+/**
+ * The Supabase Edge Function `supabase/functions/ai-proxy` reads pages with
+ * the project's own stored keys, so a reviewer needs no key of their own. It
+ * only exists when a configured Supabase project actually serves the app —
+ * on the mock or the canister there is no function to call.
+ */
+export const SERVER_PROXY_AVAILABLE =
+  SUPABASE_CONFIGURED && selectDataBackend() === "supabase";
+
+const SERVER_PROXY: Provider = {
+  id: "serverProxy",
+  name: "Server proxy",
+  defaultModel: "gemini-3.7-flash",
+  models: [...GEMINI_MODELS, ...OPENROUTER_MODELS],
+  liveModels: false,
+  requiresKey: false,
+  keyPlaceholder: "",
+  keyPage: "",
+  storageKey: null,
+};
+
+/** The providers the engine dialog offers: the three local ones, plus the proxy when the project has one. */
+export function visibleProviders(): Provider[] {
+  return SERVER_PROXY_AVAILABLE ? [...PROVIDERS, SERVER_PROXY] : PROVIDERS;
+}
+
 /** Per-provider model choice, stored as one JSON record. */
 const MODEL_KEY = "studyforge.ai.model";
 
@@ -145,15 +177,62 @@ export function findProvider(
   id: ProviderId | null | undefined,
 ): Provider | null {
   if (!id) return null;
+  if (id === "serverProxy") return SERVER_PROXY_AVAILABLE ? SERVER_PROXY : null;
   return PROVIDERS.find((provider) => provider.id === id) ?? null;
+}
+
+/**
+ * Where a provider key is allowed to live, and why the default is the tab.
+ *
+ * A key in `localStorage` is plaintext, readable by every script on this
+ * origin, and it survives the tab, the browser session and — on a shared or
+ * borrowed machine — the person who typed it. Encrypting it fixes nothing: the
+ * page has to be able to decrypt it without asking anybody, so any injected
+ * script can too. The only control that is real is how long the value lives.
+ *
+ * So a key is kept in `sessionStorage` — dropped when the tab closes — unless
+ * the reviewer ticks "keep on this device" per provider, which is the honest
+ * name for accepting the trade. `readKey` checks the session store first, so a
+ * session key always wins over an older device copy of the same provider.
+ */
+type KeyStore = "session" | "device";
+
+/** Where a saved key actually ended up. `none` means it was cleared. */
+export type KeyPersistence = "session" | "device" | "none";
+
+/** False on an insecure origin, where a persisted key crosses a network too. */
+function deviceStorageAllowed(): boolean {
+  return globalThis.isSecureContext !== false;
+}
+
+function sessionRead(storageKey: string): string {
+  try {
+    return globalThis.sessionStorage?.getItem(storageKey)?.trim() ?? "";
+  } catch {
+    // A blocked or unavailable session store is not a reason to lose the write
+    // to the device store the reviewer explicitly asked for.
+    return "";
+  }
+}
+
+function sessionWrite(storageKey: string, value: string): void {
+  try {
+    if (value) globalThis.sessionStorage?.setItem(storageKey, value);
+    else globalThis.sessionStorage?.removeItem(storageKey);
+  } catch {
+    // Private-browsing Safari throws on setItem; the key stays in memory for
+    // this run through the caller's own state.
+  }
+}
+
+function readKey(storageKey: string): string {
+  return sessionRead(storageKey) || (safeGetItem(storageKey)?.trim() ?? "");
 }
 
 export function storedKeys(): Record<ProviderId, string> {
   const keys = {} as Record<ProviderId, string>;
   for (const provider of PROVIDERS) {
-    keys[provider.id] = provider.storageKey
-      ? (safeGetItem(provider.storageKey)?.trim() ?? "")
-      : "";
+    keys[provider.id] = provider.storageKey ? readKey(provider.storageKey) : "";
   }
   return keys;
 }
@@ -161,6 +240,8 @@ export function storedKeys(): Record<ProviderId, string> {
 export function preferredChoice(): ProviderChoice | null {
   const raw = safeGetItem(PREFERENCE_KEY);
   if (raw === OFFLINE_CHOICE) return OFFLINE_CHOICE;
+  if (raw === "serverProxy")
+    return SERVER_PROXY_AVAILABLE ? "serverProxy" : null;
   return PROVIDERS.some((provider) => provider.id === raw)
     ? (raw as ProviderId)
     : null;
@@ -199,12 +280,46 @@ export function setSavedModel(id: ProviderId, model: string): void {
   safeSetItem(MODEL_KEY, JSON.stringify(choices));
 }
 
-export function saveKey(id: ProviderId, key: string): void {
+/**
+ * Store a provider key, or clear it when `key` is empty.
+ *
+ * `persist` asks for the device store; the return value is where the value
+ * actually landed, so the dialog can report that instead of assuming an
+ * insecure origin honoured the tick. Whichever store takes the key, the other
+ * is cleared: one provider has one key, and a stale second copy reading as the
+ * live one is how a "removed" key comes back.
+ */
+export function saveKey(
+  id: ProviderId,
+  key: string,
+  persist = false,
+): KeyPersistence {
   const provider = findProvider(id);
-  if (!provider?.storageKey) return;
+  if (!provider?.storageKey) return "none";
   const trimmed = key.trim();
-  if (trimmed) safeSetItem(provider.storageKey, trimmed);
-  else safeRemoveItem(provider.storageKey);
+  if (!trimmed) {
+    sessionWrite(provider.storageKey, "");
+    safeRemoveItem(provider.storageKey);
+    return "none";
+  }
+  const store: KeyStore =
+    persist && deviceStorageAllowed() ? "device" : "session";
+  if (store === "device") {
+    safeSetItem(provider.storageKey, trimmed);
+    sessionWrite(provider.storageKey, "");
+  } else {
+    sessionWrite(provider.storageKey, trimmed);
+    safeRemoveItem(provider.storageKey);
+  }
+  return store;
+}
+
+/** Where the key this provider will actually use is being kept right now. */
+export function keyPersistence(id: ProviderId): KeyPersistence {
+  const provider = findProvider(id);
+  if (!provider?.storageKey) return "none";
+  if (sessionRead(provider.storageKey)) return "session";
+  return safeGetItem(provider.storageKey)?.trim() ? "device" : "none";
 }
 
 export function removeKey(id: ProviderId): void {
@@ -649,6 +764,59 @@ async function callChatCompletions(
   return reply;
 }
 
+/**
+ * Ask the project's own Edge Function to make the call.
+ *
+ * Only the session's access token is sent — never a provider key, because the
+ * browser never holds one on this path. A failure replies with the upstream's
+ * status and body, so `errorFor` classifies a busy model or a dead key exactly
+ * as it does when the browser called the provider itself.
+ *
+ * `client.ts` is imported lazily: this module is loaded by the AI Studio in
+ * every mode, and `@supabase/supabase-js` must stay out of the bundle the
+ * mock and the canister ship.
+ */
+async function callServerProxy(
+  model: string,
+  text: string,
+  images: DocumentImage[],
+): Promise<string> {
+  const { getSupabase } = await import("@/lib/supabase/client");
+  const client = getSupabase();
+  const { data } = await client.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error(
+      "The server proxy reads pages as your signed-in account. Sign in and try again.",
+    );
+  }
+
+  let response: Response;
+  try {
+    response = await fetch(`${SUPABASE_URL}/functions/v1/ai-proxy`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: SUPABASE_ANON_KEY,
+        Authorization: `Bearer ${token}`,
+      },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT),
+      body: JSON.stringify({ model, text, images }),
+    });
+  } catch (cause) {
+    throw networkError(cause, SERVER_PROXY);
+  }
+  if (!response.ok) throw await errorFor(response, SERVER_PROXY);
+
+  const payload = (await readJson(response, SERVER_PROXY)) as {
+    text?: unknown;
+  };
+  const reply = typeof payload.text === "string" ? payload.text.trim() : "";
+  if (!reply)
+    throw new TransientProviderError("The server proxy returned no text.");
+  return reply;
+}
+
 function requestModel(
   active: ActiveProvider,
   model: string,
@@ -656,6 +824,9 @@ function requestModel(
   images: DocumentImage[],
 ): Promise<string> {
   const { provider, key } = active;
+  if (provider.id === "serverProxy") {
+    return callServerProxy(model, text, images);
+  }
   if (provider.id === "gemini") {
     return callGemini(key, model, text, images, provider);
   }

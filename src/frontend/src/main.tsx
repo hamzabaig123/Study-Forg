@@ -2,13 +2,18 @@ import { InternetIdentityProvider } from "@caffeineai/core-infrastructure";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { BackendNotConfigured } from "./components/common/BackendNotConfigured";
 import { resolveBackendActor } from "./hooks/useBackend";
-import { SHARED_BACKEND } from "./lib/authMode";
+import { DATA_BACKEND, SHARED_BACKEND } from "./lib/authMode";
+import { registerPwa } from "./lib/pwa";
+import { SUPABASE_CONFIGURED } from "./lib/supabase/env";
 import "./index.css";
 
 BigInt.prototype.toJSON = function () {
   return this.toString();
 };
+
+registerPwa();
 
 declare global {
   interface BigInt {
@@ -54,7 +59,16 @@ function mount() {
   );
 }
 
-if (SHARED_BACKEND) {
+/**
+ * A selected-but-unconfigured Supabase project is a setup state, not a runtime
+ * error. Mounting the app anyway leaves every request answering 401 and the
+ * screen blank, so the shell is replaced with the one instruction that fixes it.
+ */
+const supabaseRequested = DATA_BACKEND === "supabase" && !SUPABASE_CONFIGURED;
+
+if (supabaseRequested) {
+  root.render(<BackendNotConfigured />);
+} else if (SHARED_BACKEND) {
   // Mount even if the backend module fails to load: the pages report that better
   // than a permanently blank screen.
   void resolveBackendActor(queryClient).then(mount, mount);

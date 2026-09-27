@@ -5,7 +5,8 @@ import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { ShareLink } from "@/types";
 import { Check, Copy, Link2, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
 interface ShareLinkPanelProps {
   shares: ShareLink[];
@@ -14,7 +15,36 @@ interface ShareLinkPanelProps {
   onRevoke: (token: string) => void;
   isRevoking: boolean;
   revokingToken: string | null;
+  /** A freshly created token: auto-copied and highlighted for a beat. */
+  highlightToken?: string | null;
   className?: string;
+}
+
+/** Copy that survives browsers without the async clipboard API. */
+async function copyText(text: string): Promise<boolean> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall through to the legacy path — a rejected permission is common in
+      // non-focused iframes and older Safari.
+    }
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -27,22 +57,39 @@ export function ShareLinkPanel({
   onRevoke,
   isRevoking,
   revokingToken,
+  highlightToken = null,
   className,
 }: ShareLinkPanelProps) {
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
+  const highlightAppliedRef = useRef<string | null>(null);
 
-  async function copyLink(token: string) {
-    const url = buildUrl(token);
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopiedToken(token);
-      window.setTimeout(() => {
-        setCopiedToken((current) => (current === token ? null : current));
-      }, 2000);
-    } catch {
-      setCopiedToken(null);
+  const copyLink = useCallback(
+    async (token: string): Promise<boolean> => {
+      const ok = await copyText(buildUrl(token));
+      if (ok) {
+        setCopiedToken(token);
+        window.setTimeout(() => {
+          setCopiedToken((current) => (current === token ? null : current));
+        }, 2000);
+      } else {
+        toast.error(
+          "Couldn't copy automatically — select the link text instead.",
+        );
+      }
+      return ok;
+    },
+    [buildUrl],
+  );
+
+  // A link created a moment ago is copied for the user and ringed so it's
+  // findable in a long list. Once per token, and never on mount for old lists.
+  useEffect(() => {
+    if (!highlightToken || highlightAppliedRef.current === highlightToken) {
+      return;
     }
-  }
+    highlightAppliedRef.current = highlightToken;
+    void copyLink(highlightToken);
+  }, [highlightToken, copyLink]);
 
   return (
     <Card
@@ -76,13 +123,17 @@ export function ShareLinkPanel({
             {shares.map((share, index) => {
               const url = buildUrl(share.token);
               const isCopied = copiedToken === share.token;
+              const isFresh = share.token === highlightToken;
               const isRevokingThis =
                 isRevoking && revokingToken === share.token;
               return (
                 <li
                   key={share.token}
                   data-ocid={`share.link.${index}`}
-                  className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
+                  className={cn(
+                    "flex flex-col gap-3 px-5 py-4 transition-smooth sm:flex-row sm:items-center",
+                    isFresh && "bg-primary/5 ring-1 ring-inset ring-primary/30",
+                  )}
                 >
                   <div className="min-w-0 flex-1">
                     <p className="truncate font-mono text-xs text-foreground">
@@ -90,6 +141,9 @@ export function ShareLinkPanel({
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
                       Created {formatDateTime(share.createdAt)}
+                      {share.target.__kind__ === "topic"
+                        ? " · single topic"
+                        : " · whole chapter"}
                     </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">

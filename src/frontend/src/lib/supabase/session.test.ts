@@ -62,6 +62,11 @@ interface FakeAuth {
     options?: { data?: Record<string, unknown> };
   }): Promise<FakeReply>;
   resend(input: { type: string; email: string }): Promise<{ error: null }>;
+  resetPasswordForEmail(
+    email: string,
+    options?: { redirectTo?: string },
+  ): Promise<{ error: { message: string } | null }>;
+  updateUser(input: { password: string }): Promise<FakeReply>;
   signOut(): Promise<{ error: null }>;
 }
 
@@ -73,9 +78,16 @@ interface FakeAuth {
 function fakeClient(options: { session?: unknown } = {}) {
   const calls: { name: string; args: unknown }[] = [];
   const listeners = new Set<(event: string, session: unknown) => void>();
-  const reply: { signIn: FakeReply; signUp: FakeReply } = {
+  const reply: {
+    signIn: FakeReply;
+    signUp: FakeReply;
+    update: FakeReply;
+    reset: { error: { message: string } | null };
+  } = {
     signIn: ok(user()),
     signUp: ok(user()),
+    update: ok(user()),
+    reset: { error: null },
   };
   let session: unknown = options.session ?? null;
 
@@ -106,6 +118,17 @@ function fakeClient(options: { session?: unknown } = {}) {
       calls.push({ name: "resend", args: input });
       return { error: null };
     },
+    async resetPasswordForEmail(email, options) {
+      calls.push({ name: "resetPasswordForEmail", args: { email, options } });
+      return { error: reply.reset.error };
+    },
+    async updateUser(input) {
+      calls.push({ name: "updateUser", args: input });
+      if (reply.update.data.user) {
+        session = reply.update.data.session;
+      }
+      return reply.update;
+    },
     async signOut() {
       calls.push({ name: "signOut", args: null });
       session = null;
@@ -122,6 +145,16 @@ function fakeClient(options: { session?: unknown } = {}) {
       for (const listener of listeners) {
         listener("SIGNED_IN", next);
       }
+    },
+    /** A named event, because the recovery flow is told about by name only. */
+    emitAs(event: string, next: unknown) {
+      for (const listener of listeners) {
+        listener(event, next);
+      }
+    },
+    /** Stand-in for another tab persisting a session this one never saw. */
+    put(next: unknown) {
+      session = next;
     },
   };
 }
@@ -199,6 +232,56 @@ describe("restoring the stored session", () => {
   });
 });
 
+/**
+ * `refresh` exists for the one change `onAuthStateChange` cannot report: a
+ * confirmation link opened in another tab, which writes a session this browser
+ * was never told about.
+ */
+describe("re-reading the stored session", () => {
+  it("adopts a session another tab persisted and tells its listeners", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.restore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    fake.put({ user: user({ email_confirmed_at: "2026-09-20T10:00:00Z" }) });
+    await store.refresh();
+
+    expect(store.account()).toMatchObject({
+      email: "ada@example.com",
+      emailVerified: true,
+    });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the account it has when the read finds nothing new", async () => {
+    const fake = fakeClient({ session: { user: user() } });
+    const store = createSessionStore(fake.client);
+    await store.restore();
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    await store.refresh();
+
+    expect(store.account()?.email).toBe("ada@example.com");
+    expect(listener).not.toHaveBeenCalled();
+  });
+
+  it("treats a read that failed as no new session", async () => {
+    const store = createSessionStore({
+      auth: {
+        getSession: async () => {
+          throw new Error("token refresh offline");
+        },
+      },
+    } as unknown as SupabaseClient);
+
+    await expect(store.refresh()).resolves.toBeUndefined();
+    expect(store.account()).toBe(null);
+  });
+});
+
 describe("signing in", () => {
   it("sends the address and password it was given and returns the account", async () => {
     const fake = fakeClient();
@@ -219,6 +302,19 @@ describe("signing in", () => {
     const store = createSessionStore(fake.client);
     await expect(store.signIn("ada@example.com", "wrong")).rejects.toThrow(
       "Invalid login credentials",
+    );
+    expect(store.account()).toBe(null);
+  });
+
+  it("does not pass a transport failure off as the project saying no", async () => {
+    const fake = fakeClient();
+    // The literal string a browser shows for a wrong VITE_SUPABASE_URL, a paused
+    // project and an offline device alike.
+    fake.reply.signIn = refused("Failed to fetch");
+    const store = createSessionStore(fake.client);
+
+    await expect(store.signIn("ada@example.com", "hunter2")).rejects.toThrow(
+      /Could not reach the Supabase project[\s\S]*Check VITE_SUPABASE_URL/,
     );
     expect(store.account()).toBe(null);
   });
@@ -285,6 +381,124 @@ describe("registering", () => {
         passwordConfirmation: "aaaaaaaa",
       }),
     ).rejects.toThrow("User already registered");
+  });
+
+  it("explains an unreachable project on the sign-up screen too", async () => {
+    const fake = fakeClient();
+    fake.reply.signUp = refused("Failed to fetch");
+    const store = createSessionStore(fake.client);
+    await expect(
+      store.register({
+        name: "Ada",
+        email: "ada@example.com",
+        password: "aaaaaaaa",
+        passwordConfirmation: "aaaaaaaa",
+      }),
+    ).rejects.toThrow(/Could not reach the Supabase project/);
+  });
+});
+
+describe("resetting a password", () => {
+  it("sends the address and the page the link has to come back to", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+
+    await store.requestPasswordReset("ada@example.com");
+
+    expect(fake.calls).toContainEqual({
+      name: "resetPasswordForEmail",
+      args: {
+        email: "ada@example.com",
+        options: { redirectTo: `${window.location.origin}/reset-password` },
+      },
+    });
+  });
+
+  it("says which redirect the project refused", async () => {
+    // A link that is never sent looks identical to one that is still in transit,
+    // so the project's own reason is the only thing that makes this debuggable.
+    const fake = fakeClient();
+    fake.reply.reset = { error: { message: "Redirect not allowed" } };
+    const store = createSessionStore(fake.client);
+
+    await expect(store.requestPasswordReset("ada@example.com")).rejects.toThrow(
+      "Redirect not allowed",
+    );
+  });
+
+  it("refuses two different passwords before asking the project", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+
+    await expect(
+      store.updatePassword("one secret", "another secret"),
+    ).rejects.toThrow(/do not match/i);
+    expect(fake.calls.map((call) => call.name)).not.toContain("updateUser");
+  });
+
+  it("refuses a password too short to be worth storing", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+
+    await expect(store.updatePassword("abc", "abc")).rejects.toThrow(
+      /at least eight/i,
+    );
+    expect(fake.calls.map((call) => call.name)).not.toContain("updateUser");
+  });
+
+  it("sends the new password and keeps the session it belongs to", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+
+    const account = await store.updatePassword(
+      "brand new secret",
+      "brand new secret",
+    );
+
+    expect(fake.calls).toContainEqual({
+      name: "updateUser",
+      args: { password: "brand new secret" },
+    });
+    expect(account.email).toBe("ada@example.com");
+  });
+
+  it("holds the session as awaiting a password from the moment the link is opened", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.restore();
+    expect(store.awaitsNewPassword()).toBe(false);
+
+    fake.emitAs("PASSWORD_RECOVERY", { user: user() });
+
+    expect(store.awaitsNewPassword()).toBe(true);
+  });
+
+  it("releases the gate once the new password is saved", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.restore();
+    fake.emitAs("PASSWORD_RECOVERY", { user: user() });
+    const listener = vi.fn();
+    store.subscribe(listener);
+
+    await store.updatePassword("brand new secret", "brand new secret");
+
+    expect(store.awaitsNewPassword()).toBe(false);
+    // The account itself never changed, so the only reason to hear from the store
+    // is the flag — which is the whole point of notifying for it separately.
+    expect(listener).toHaveBeenCalled();
+  });
+
+  it("clears the gate when the visitor signs out instead", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.restore();
+    fake.emitAs("PASSWORD_RECOVERY", { user: user() });
+
+    await store.signOut();
+
+    expect(store.awaitsNewPassword()).toBe(false);
+    expect(store.account()).toBe(null);
   });
 });
 

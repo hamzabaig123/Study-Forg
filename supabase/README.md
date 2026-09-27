@@ -6,21 +6,92 @@ the localStorage archive the app used when there was no server.
 | Path | What it is |
 | --- | --- |
 `migrations/0001_init.sql` | 18 tables, FK cascades, checks, RLS, the token-addressed public functions, and the atomic `start_session` / `submit_answer` / `complete_session` / `dashboard_stats` functions
-`verify.sql` | Seven read-only checks that prove the security claims instead of asserting them
+
+`migrations/0002_rate_limits.sql` | Per-IP minute windows in front of the ten anonymous token functions, and the `custom_session` table. **Written, not applied.**
+
+`migrations/0003_short_code_entropy.sql` | Widens `link.code` from exactly 7 characters to 7–12 and re-declares `create_link` with the same range, so the client can mint ~50-bit codes. **Must be applied after 0002**, whose own copy of `create_link` still validates exactly 7 characters — whichever of the two runs last owns that function. **Written, not applied.**
+`migrations/0004_correctness.sql` | Nine failure modes the first three files allowed: one result per session (unique index plus a row lock in `complete_session`), a revision check in `update_note` that actually holds, `resolve_link` clamping a browser locale that is not a country code, cast-free `trueFalse` grading, the duration bound `start_session` was missing, `create_link` and `resolve_link` answering a throttle with the reason the UI already has copy for, `enforce_rate_limit` taken back off `authenticated`, and the indexes the list pages needed. **Written, not applied. Safe before or after 0002/0003** — every 0002-only step checks whether that file has run.
+`verify.sql` | Ten read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise
+`tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
+`e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the other three files are pasted by hand until a runner that knows about all of them exists
+`e2e/replay-sweep.mjs` | The 77-method contract driven against a live database through the real client. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and **either** `SUPABASE_DB_URL` **or** `SUPABASE_SERVICE_ROLE_KEY`; creates three throwaway accounts (two confirmed, one deliberately left unconfirmed) and deletes all three. No service key required — see the header of the script
+`functions/ai-proxy/` | The Edge Function that calls Gemini or OpenRouter with keys held on the server, so the browser never stores one. Deploy command in its header
+`OPERATIONS.md` | Backups, PITR, the restore drill, key rotation and the staging → production path
 `.env.example` | Copy to `.env` and fill in. **`.env` is git-ignored and must stay that way**
+
+The CI side lives outside this folder: `.github/workflows/supabase-ci.yml`
+(frontend gates, then staging migration + `verify.sql` + the RLS file + the
+replay sweep when a staging project is wired up) and
+`.github/workflows/supabase-backup.yml` (nightly `pg_dump`).
 
 ## Apply the migration
 
-The development machine for this project has no `psql`, `dfx`, Docker or WSL2, so
-the SQL cannot be applied from here. Run it once in the dashboard:
+Two routes, and they are alternatives rather than steps: the script, or the
+dashboard by hand. The script refuses to re-apply over a schema that already
+exists (it checks for `public.question` first), so the second run is a report
+rather than a second migration; if a hand-run aborts partway, the recovery is the
+`drop schema public cascade` step below rather than a partial re-run.
+
+### With the script (no psql, no Docker)
+
+```
+SUPABASE_ACCESS_TOKEN=<personal access token> \
+SUPABASE_PROJECT_REF=<ref> \
+node supabase/e2e/apply-migration.mjs
+```
+
+Add `--dry-run` to check the project and print what it would do without writing,
+or `--project <ref>` to point the same file at staging and then production. The
+token comes from dashboard → Account → **Advanced → API tokens**; it is the only
+secret the script reads, it belongs in the environment and never in a committed
+file, and it is far broader than the app needs (it can administer every project
+on the account), so keep it out of CI secrets and paste it only for the run.
+
+The script applies the migration, then asserts the same seven things `verify.sql`
+asks a human to read — 18 tables, 18 with RLS on and forced, no table missing an
+owner policy, zero `anon` table grants, exactly the ten token-addressed functions
+`anon` can execute, no `SECURITY DEFINER` function without a pinned `search_path`,
+no policy admitting `anon` — and finally runs `tests/rls_cross_tenant.sql`. A
+failed count prints the rows behind it, so a leaked grant is named rather than
+merely counted. Exit 0 = everything holds; 1 = a check failed; 2 = the token or
+the ref is unusable.
+
+The last step — `tests/rls_cross_tenant.sql` through the same endpoint — is the
+one that depends on the Management API accepting a multi-statement script with
+`set local role` in it. That endpoint has never answered this account: the one
+access token tried on 2026-09-27 returned 401 on both `/v1/projects` and
+`/v1/projects/<ref>/database/query`, so nothing below has been run *through the
+script*. The schema and every check in it were reached instead over a direct
+Postgres session — see "Status" below — which proves the SQL, not the transport.
+If the API is refused again, the migration and the seven checks the script
+have a live equivalent already; finish with the RLS file in the dashboard editor.
+
+### By hand, in the dashboard
 
 1. Supabase → your project → **SQL Editor** → New query.
 2. Paste all of `migrations/0001_init.sql`, then **Run**. It is one script; if it
    aborts, fix the reported line and re-run from the top after
    `drop schema public cascade; create schema public; grant usage on schema public to anon, authenticated;`.
+   Then paste `migrations/0002_rate_limits.sql` and
+   `migrations/0003_short_code_entropy.sql`, **in that order**. 0002 carries its
+   own copy of `create_link` with the old 7-character validator, so running it
+   after 0003 would silently put the narrow rule back. If you skip 0002, 0003
+   still works — it calls the throttle only when that function exists.
+   Then paste `migrations/0004_correctness.sql` last. Unlike those two it is
+   order-independent: each step that depends on 0002 (`enforce_rate_limit`,
+   `rate_limit`, `custom_session`) or on 0003 (the widened `link.code`) first asks
+   the catalog whether that object exists, so it is correct run before, between or
+   after them. It also refuses rather than repairing: if any session already has
+   two result rows, or a stored `custom_session` breaks a check 0004 adds, the
+   script raises and names the count, leaving every row intact.
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
+4. Then run `tests/rls_cross_tenant.sql` in the same editor, and once the
+   publishable key and either a direct database URL or a service role key are
+   available on a machine that has Node,
+   `node supabase/e2e/replay-sweep.mjs`. The CI workflow runs all three
+   against staging, so a project wired up there needs none of this by hand.
 
 ## Running the app against it
 
@@ -45,25 +116,86 @@ policy. Set the project's **Site URL** to the deployed origin if you want the
 confirmation link to land back on the app, and note that with "Confirm email" on,
 sign-up returns no session until the link is clicked.
 
+### Auth settings a deployed project needs
+
+Three dashboard settings, and each one is the reason a flow works here and fails
+there:
+
+- **Site URL** — the origin links return the visitor to by default.
+- **Redirect URLs (allow-list)** — must contain every origin the app is served
+  from, including `http://localhost:<port>` for development. `requestPasswordReset`
+  sends `redirectTo` as the current origin plus `/reset-password`, and GoTrue
+  answers a request whose redirect is not listed with `Redirect not allowed`,
+  which the screen shows verbatim rather than swallowing. An email confirmation
+  link sent from an unlisted origin fails the same way.
+- **Password recovery** uses the same allow-list; the app listens for the
+  `PASSWORD_RECOVERY` auth event and holds that session at `/reset-password`
+  until a new password is saved, so a link opened by a stranger who guessed the
+  address cannot read the account's rows on the way past it.
+
+## Status of `qjoijoxmnliarlyaqmoz`
+
+Applied on 2026-09-27 and verified against the live database, through a direct
+Postgres session (`aws-0-<region>.pooler.supabase.com:5432`, user
+`postgres.<ref>`, the database password) because `db.<ref>.supabase.co` does not
+resolve from this machine and the Management API refused its token:
+
+- `migrations/0001_init.sql` ran in one implicit transaction: 18 tables, RLS on
+  and forced for all 18, 33 public functions.
+- All seven `verify.sql` assertions pass as counts — including zero `anon` grants
+  in `public`, exactly the ten token-addressed functions `anon` can execute, and
+  no `SECURITY DEFINER` function with an unpinned `search_path`.
+- `tests/rls_cross_tenant.sql` prints `PASS` and leaves nothing behind: A reads
+  only its own rows, B cannot read/update/delete/insert across the boundary, an
+  unconfirmed account cannot write at all, `anon` is refused both tables while
+  `resolve_link` still answers and records its scan for the owner, and
+  `report_link_abuse` rejects a code the service never issued.
+- The app writes real rows: `POST /rest/v1/class` and `/rest/v1/activity` both
+  return 201 with `owner_id` set to the signed-in `auth.uid()`, and
+  `dashboard_stats`, `class_rows` and `attempt_history` answer 200, so the
+  dashboard's error cards are gone.
+
+Four spots in the checks needed correcting before they could pass, and every one
+of them was wrong in the check rather than in the database: `verify.sql` #3
+looked at `qual` where INSERT policies keep their expression in `with_check`, #4
+counted `role_table_grants` across every schema while Supabase grants anon on its
+own `storage.*` tables, #7 compared `pg_policies.roles` (`name[]`) against a
+`text[]` literal, and `tests/rls_cross_tenant.sql` had a `RAISE` with a `%` and no
+argument — which plpgsql rejects at block-compile time. See "What is not done
+yet" for what the run did *not* cover.
+
 ## What is not done yet
 
-Stated plainly because each item needs the project itself, not this machine:
+Still true, and each item needs either the project itself or a different
+credential:
 
-- The migration has never been applied. Until step 2 above happens on
-  `qjoijoxmnliarlyaqmoz`, `VITE_DATA_BACKEND=supabase` reaches an empty database
-  and every call fails with a missing-table error.
-- No query has run against real Postgres. The adapter is proven against a fake
-  transport that answers in PostgREST's shapes (`lib/supabase/adapter.test.ts`,
-  41 cases) and against `backendInterface`'s 77 methods through `tsc`; the SQL
-  functions beside it are reviewed, not executed.
-- Nothing moves the existing localStorage archive into the new schema, so an
-  account with data in it today cannot switch over yet. The importer that will
-  (`lib/archiveImport.ts`, offered from Settings) is written and tested against
-  the mock backend, but it has not run against this database either — and it
-  restores the library, not the practice history, because the server dates an
-  attempt when it is recorded.
-- Backups, PITR and the restore drill are written down below but unpractised, and
-  the Free plan caps the database at a seven-day PITR window.
+- `e2e/apply-migration.mjs` has never completed a run: its Management API
+  endpoint is behind a personal access token this account has not supplied
+  (the one token tried returned 401). The SQL it asserts has all been executed
+  by hand over Postgres, so the script's value now is the report it prints —
+  treat its first run as a re-verification rather than a migration; it will
+  detect `public.question` and skip the apply step.
+- The adapter has not been driven method by method against the live database.
+  `lib/supabase/adapter.test.ts` (41 cases) proves the shapes against a fake
+  transport, `tsc` proves all 77 methods against `backendInterface`, and the
+  dashboard/analytics/notes reads answer 200 for real — but
+  `e2e/replay-sweep.mjs`, which exercises every method as two signed-in users
+  plus one deliberately unconfirmed account, has never run. It no longer needs a
+  service role key to do so.
+- The archive importer (`lib/archiveImport.ts`, offered from Settings) is written
+  and tested against the mock backend, but it has not run against this database.
+  It restores the library, not the practice history, because `start_session`
+  dates an attempt server-side — an export of past attempts would move every one
+  to today.
+- `functions/ai-proxy` has never been deployed, so the fourth extraction provider
+  the dialog offers only appears once Supabase is both configured and selected,
+  and has never answered a real request.
+- Backups, PITR and the restore drill are written down in `OPERATIONS.md`, and
+  the nightly workflow exists, but neither has run: the Free plan caps the
+  database at a seven-day PITR window, and no dump has ever been restored.
+- `studyforge.custom-sessions.v1` (Test Builder runs and their results) is
+  device-local in every mode: it is not in the archive the exporter writes, not
+  erased by "Clear local data", and has no table in this schema.
 
 ## Which URL goes where
 

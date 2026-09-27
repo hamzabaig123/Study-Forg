@@ -128,5 +128,12 @@ describe("AuthPage with local accounts", () => {
     await user.click(screen.getByRole("button", { name: /create account/i }));
 
     expect(await screen.findByText(/confirm this email/i)).toBeInTheDocument();
+
+    // The dev mock has no mail server, so this button is the confirmation; the
+    // screen it sits on must stop gating once it has been pressed.
+    await user.click(
+      screen.getByRole("button", { name: /confirm this email/i }),
+    );
+    expect(await screen.findByText("Dashboard body")).toBeInTheDocument();
   });
 });

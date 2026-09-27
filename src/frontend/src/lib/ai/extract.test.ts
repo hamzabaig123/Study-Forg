@@ -336,6 +336,54 @@ describe("running the requests", () => {
     ]);
   });
 
+  it("drops a page number a model invented for text that has no pages", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      text: async () =>
+        JSON.stringify({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      items: [
+                        {
+                          type: "mcq",
+                          question: "Which gas do plants absorb?",
+                          options: ["Oxygen", "Carbon dioxide"],
+                          correctAnswer: "B",
+                          sourcePage: 99,
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+    });
+
+    const outcome = await extractQuestions({
+      fileName: "Pasted text",
+      fileSize: 60,
+      kind: "text",
+      text: "1. Which gas do plants absorb?\nA) Oxygen\nB) Carbon dioxide\nAnswer: B",
+      images: [],
+      pageCount: 0,
+      needsVision: false,
+      truncated: false,
+      pagesSkipped: 0,
+    });
+
+    expect(outcome.drafts).toHaveLength(1);
+    // Pasted text is sent as one unit with no page markers in it, so 99 is not
+    // a label to correct — the document has no pages, and the queue would
+    // print "Page 99" as a fact about 60 characters of text.
+    expect(outcome.drafts[0]?.page).toBeNull();
+  });
+
   it("reports progress as sections finish, not as they start", async () => {
     fetchMock.mockResolvedValue({ ok: true, text: async () => REPLY });
     const filler = "w".repeat(9000);

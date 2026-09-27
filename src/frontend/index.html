@@ -2,37 +2,54 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      `viewport-fit=cover` is what makes `env(safe-area-inset-bottom)` mean
+      anything: without it the browser letterboxes the layout and every
+      `pb-safe` in the app resolves to zero, so the bottom bar sits under the
+      iOS home indicator.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+    />
     <title>StudyForge</title>
-    <meta name="description" content="Built with caffeine.ai" />
+    <meta
+      name="description"
+      content="StudyForge turns your classes, chapters and notes into practice questions, timed tests and analytics that show where the gaps are."
+    />
     <meta property="og:title" content="StudyForge" />
-    <meta property="og:description" content="Built with caffeine.ai" />
+    <meta
+      property="og:description"
+      content="StudyForge turns your classes, chapters and notes into practice questions, timed tests and analytics that show where the gaps are."
+    />
     <meta property="og:type" content="website" />
-    <meta property="og:image" content="https://caffeine.ai/imgs/share-logo.jpeg" />
-    <meta property="og:image:alt" content="Built with caffeine.ai" />
+    <meta
+      property="og:image"
+      content="https://caffeine.ai/imgs/share-logo.jpeg"
+    />
+    <meta property="og:image:alt" content="StudyForge" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:image" content="https://caffeine.ai/imgs/share-logo.jpeg" />
+    <meta
+      name="twitter:image"
+      content="https://caffeine.ai/imgs/share-logo.jpeg"
+    />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <script>
-      // Restore the saved theme before first paint so there is no flash.
-      (function () {
-        try {
-          var theme = localStorage.getItem("studyforge-theme");
-          var root = document.documentElement;
-          if (theme === "dark") {
-            root.classList.add("dark");
-            root.style.colorScheme = "dark";
-          } else if (theme === "frosted") {
-            root.classList.add("frosted");
-            root.style.colorScheme = "light";
-          } else {
-            root.style.colorScheme = "light";
-          }
-        } catch (e) {
-          /* localStorage unavailable — fall back to the light theme */
-        }
-      })();
-    </script>
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#ac4500" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="StudyForge" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <!--
+      Restore the saved theme before first paint so there is no flash. A file
+      rather than an inline block: the production Content-Security-Policy grants
+      no `'unsafe-inline'` to scripts, so an inline block here would be blocked
+      and the app would flash the wrong theme on every dark-mode visit.
+    -->
+    <script src="/theme-bootstrap.js"></script>
   </head>
   <body>
     <div id="root"></div>

@@ -259,9 +259,55 @@
     @apply border-border;
   }
 
+  html {
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   body {
     @apply bg-background text-foreground font-body antialiased;
-    min-height: 100vh;
+    /* `dvh`, not `vh`: on a phone the address bar is part of `vh`, so the body
+       is taller than the space actually visible and the page scrolls a few
+       pixels of nothing after every keyboard open. */
+    min-height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Ember selection across the warm themes; frosted overrides below. */
+  ::selection {
+    background-color: oklch(0.52 0.16 52 / 0.24);
+  }
+
+  .dark ::selection {
+    background-color: oklch(0.76 0.16 62 / 0.32);
+  }
+
+  /* Slim, theme-aware scrollbars — a small thing that reads as craft. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: oklch(var(--border)) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: oklch(var(--border));
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: oklch(var(--muted-foreground) / 0.55);
   }
 
   /* Frosted paints a dark cinematic atmosphere behind the glass panels:
@@ -567,7 +613,8 @@
   /* --- Settings ------------------------------------------------------- */
 
   /* Sticky save bar: pinned to the bottom of the settings scroll area,
-     raised above content with a hairline top border. */
+     raised above content with a hairline top border. On notched phones the
+     gesture bar sits inside the padding instead of over the buttons. */
   .save-bar {
     position: sticky;
     bottom: 0;
@@ -576,6 +623,12 @@
     border-top: 1px solid oklch(var(--border));
     backdrop-filter: blur(12px) saturate(150%);
     -webkit-backdrop-filter: blur(12px) saturate(150%);
+    padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+  }
+
+  /* Same treatment for the app footer on edge-to-edge devices. */
+  .pb-safe {
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
   }
 
   /* Modal / confirmation-dialog backdrop. */

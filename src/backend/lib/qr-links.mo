@@ -15,8 +15,12 @@ module {
     '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
   ];
 
-  /// Length of a generated short code.
-  let codeLength : Nat = 7;
+  /// Length of a generated short code. Ten characters of this alphabet is
+  /// ~50 bits, matching `lib/supabase/tokens.ts` and the widened `link.code`
+  /// CHECK in `supabase/migrations/0003_short_code_entropy.sql`: the public
+  /// resolve path has no session in front of it, so the code is the only thing
+  /// standing between an anonymous caller and another user's target URL.
+  let codeLength : Nat = 10;
 
   /// Length of a generated secret edit token.
   let tokenLength : Nat = 32;

@@ -432,7 +432,10 @@ function randomAlphabet(alphabet: string, length: number): string {
 }
 
 function shortCode(): string {
-  return randomAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 7);
+  // Deliberately the same alphabet and length as `lib/supabase/tokens.ts`: a
+  // link created against the mock and later moved to Postgres must satisfy the
+  // `link.code` CHECK. The contract test reads both literals.
+  return randomAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 10);
 }
 
 function editToken(): string {
