@@ -5,9 +5,17 @@
 -- imported answer shape turns into either a wrong number on the user's own
 -- analytics page or a page that says something untrue.
 --
--- Apply after 0001. It is written to be correct with or without 0002/0003:
--- the throttle branches all check that enforce_rate_limit exists first, the
--- same way 0003's create_link does, so this file may be applied before them.
+-- Apply after 0001. Every step that needs 0002 or 0003 asks the catalog first,
+-- so nothing here errors because an earlier file has not run yet, and the
+-- throttle branches check that enforce_rate_limit exists the same way 0003's
+-- create_link does.
+--
+-- One step is genuinely order-sensitive: step 8 takes enforce_rate_limit back
+-- off `authenticated`, which 0002's blanket `grant execute on all functions`
+-- gives away again. So 0002 must be applied before this file, not after it —
+-- the documented hand order 0001 → 0002 → 0003 → 0004. This file is a
+-- single-run migration; step 1's unique index has no `if not exists`, so a
+-- second run stops there on purpose rather than half-applying twice.
 
 -- ---------------------------------------------------------------------------
 -- 1. One result per session, in the schema rather than in the code.
@@ -254,7 +262,7 @@ create or replace function create_link(p_target_url text, p_code text, p_edit_to
  returns jsonb
  language plpgsql
  security definer
- set search_path = public, 'extensions', pg_temp
+ set search_path = public, extensions, pg_temp
 as $$
 declare
   v_url text := btrim(coalesce(p_target_url, ''));

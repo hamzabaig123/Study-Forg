@@ -10,7 +10,7 @@ the localStorage archive the app used when there was no server.
 `migrations/0002_rate_limits.sql` | Per-IP minute windows in front of the ten anonymous token functions, and the `custom_session` table. **Written, not applied.**
 
 `migrations/0003_short_code_entropy.sql` | Widens `link.code` from exactly 7 characters to 7–12 and re-declares `create_link` with the same range, so the client can mint ~50-bit codes. **Must be applied after 0002**, whose own copy of `create_link` still validates exactly 7 characters — whichever of the two runs last owns that function. **Written, not applied.**
-`migrations/0004_correctness.sql` | Nine failure modes the first three files allowed: one result per session (unique index plus a row lock in `complete_session`), a revision check in `update_note` that actually holds, `resolve_link` clamping a browser locale that is not a country code, cast-free `trueFalse` grading, the duration bound `start_session` was missing, `create_link` and `resolve_link` answering a throttle with the reason the UI already has copy for, `enforce_rate_limit` taken back off `authenticated`, and the indexes the list pages needed. **Written, not applied. Safe before or after 0002/0003** — every 0002-only step checks whether that file has run.
+`migrations/0004_correctness.sql` | Nine failure modes the first three files allowed: one result per session (unique index plus a row lock in `complete_session`), a revision check in `update_note` that actually holds, `resolve_link` clamping a browser locale that is not a country code, cast-free `trueFalse` grading, the duration bound `start_session` was missing, `create_link` and `resolve_link` answering a throttle with the reason the UI already has copy for, `enforce_rate_limit` taken back off `authenticated`, and the indexes the list pages needed. **Written, not applied.** It runs before, between or after 0002/0003 without error — every step that needs them asks the catalog first — but its `enforce_rate_limit` revoke only *holds* if 0002 went first, so the documented order is 0001 → 0002 → 0003 → 0004.
 `verify.sql` | Ten read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise
 `tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the other three files are pasted by hand until a runner that knows about all of them exists
@@ -77,13 +77,16 @@ have a live equivalent already; finish with the RLS file in the dashboard editor
    own copy of `create_link` with the old 7-character validator, so running it
    after 0003 would silently put the narrow rule back. If you skip 0002, 0003
    still works — it calls the throttle only when that function exists.
-   Then paste `migrations/0004_correctness.sql` last. Unlike those two it is
-   order-independent: each step that depends on 0002 (`enforce_rate_limit`,
+   Then paste `migrations/0004_correctness.sql` last. It will not error if an
+   earlier file is missing — each step that depends on 0002 (`enforce_rate_limit`,
    `rate_limit`, `custom_session`) or on 0003 (the widened `link.code`) first asks
-   the catalog whether that object exists, so it is correct run before, between or
-   after them. It also refuses rather than repairing: if any session already has
-   two result rows, or a stored `custom_session` breaks a check 0004 adds, the
-   script raises and names the count, leaving every row intact.
+   the catalog whether that object exists — but run it **after** 0002 all the
+   same, because 0002's closing `grant execute on all functions … to
+   authenticated` hands `enforce_rate_limit` back to every signed-in user, and
+   0004 step 8 is what takes it away. It also refuses rather than repairing: if
+   any session already has two result rows, or a stored `custom_session` breaks a
+   check 0004 adds, the script raises and names the count, leaving every row
+   intact. `verify.sql` check 10 is the dry run of exactly that question.
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
