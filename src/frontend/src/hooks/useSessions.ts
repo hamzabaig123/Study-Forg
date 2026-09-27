@@ -96,7 +96,7 @@ export function useAttemptHistory() {
     queryKey: queryKeys.sessions.history,
     queryFn: async () => {
       if (!actor) return [];
-      return actor.getAttemptHistory();
+      return (await actor.getAttemptHistory()) ?? [];
     },
     enabled: !!actor && !isFetching,
   });

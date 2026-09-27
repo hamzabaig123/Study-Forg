@@ -22,7 +22,7 @@ export function useClasses() {
     queryKey: queryKeys.classes.all,
     queryFn: async (): Promise<ClassSummary[]> => {
       if (!actor) return [];
-      return actor.listClasses();
+      return (await actor.listClasses()) ?? [];
     },
     enabled: !!actor && !isFetching,
   });

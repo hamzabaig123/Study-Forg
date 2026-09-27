@@ -7,6 +7,7 @@
  * provider key kept "for this tab only" lives in `sessionStorage`, so the
  * promise needs proving against both.
  */
+import { keyPersistence, saveKey } from "@/lib/ai/providers";
 import { clearDeviceCache } from "@/lib/deviceCache";
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -62,5 +63,57 @@ describe("clearDeviceCache", () => {
     expect(
       window.sessionStorage.getItem("studyforge.session-something-else"),
     ).toBe("keep");
+  });
+});
+
+/**
+ * Which store a provider key is allowed to sit in.
+ *
+ * "Clear local data" and the key dialog's "Keep on this device" tick are promises
+ * about the same value, and the default is the tab: a key nobody opted in has to
+ * be gone when the tab closes, and it still has to be gone when they press
+ * clear. So the store is checked where the clearing is checked.
+ */
+describe("provider key stores", () => {
+  it("keeps a key in sessionStorage while the device store was refused", () => {
+    expect(saveKey("gemini", "session-only-key", false)).toBe("session");
+    expect(window.sessionStorage.getItem("studyforge.ai.gemini_key")).toBe(
+      "session-only-key",
+    );
+    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBeNull();
+    expect(keyPersistence("gemini")).toBe("session");
+  });
+
+  it("writes to localStorage only when the reviewer asked it to stay", () => {
+    expect(saveKey("gemini", "kept-on-device", true)).toBe("device");
+    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBe(
+      "kept-on-device",
+    );
+    // The tab copy goes with it, or a replaced key would still answer from the
+    // other store — `readKey` prefers the session one.
+    expect(
+      window.sessionStorage.getItem("studyforge.ai.gemini_key"),
+    ).toBeNull();
+    expect(keyPersistence("gemini")).toBe("device");
+  });
+
+  it("erases either kind from the store that holds it", () => {
+    saveKey("gemini", "session-only-key", false);
+    saveKey("openRouter", "kept-on-device", true);
+
+    clearDeviceCache();
+
+    expect(
+      window.sessionStorage.getItem("studyforge.ai.gemini_key"),
+    ).toBeNull();
+    expect(window.localStorage.getItem("studyforge.ai.gemini_key")).toBeNull();
+    expect(
+      window.sessionStorage.getItem("studyforge.ai.openrouter_key"),
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem("studyforge.ai.openrouter_key"),
+    ).toBeNull();
+    expect(keyPersistence("gemini")).toBe("none");
+    expect(keyPersistence("openRouter")).toBe("none");
   });
 });

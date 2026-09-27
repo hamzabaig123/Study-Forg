@@ -24,7 +24,7 @@ export function useDashboardStats() {
     queryKey: queryKeys.dashboard.stats,
     queryFn: async (): Promise<DashboardStats> => {
       if (!actor) return EMPTY_STATS;
-      return actor.getDashboardStats();
+      return (await actor.getDashboardStats()) ?? EMPTY_STATS;
     },
     enabled: !!actor && !isFetching,
   });

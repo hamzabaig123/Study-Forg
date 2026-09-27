@@ -35,8 +35,9 @@ export function getSupabase(): SupabaseClient {
       detectSessionInUrl: true,
       storageKey: "studyforge.auth",
     },
-    // PostgREST responses are plain JSON; without this a long dashboard query
-    // has no ceiling at all.
+    // Which app is knocking; PostgREST logs it and it costs nothing. The wall
+    // clock on a request lives in `transport.ts`, which aborts each builder with
+    // `AbortSignal.timeout` — headers cannot bound anything.
     global: { headers: { "x-client-info": "studyforge-web" } },
   });
   return client;

@@ -111,15 +111,62 @@ type AnyBuilder = PromiseLike<QueryEnvelope> & {
   update: (values: unknown) => AnyBuilder;
   upsert: (values: unknown, options?: { onConflict?: string }) => AnyBuilder;
   delete: () => AnyBuilder;
+  abortSignal: (signal: AbortSignal) => AnyBuilder;
 };
 
-function createTransport(client: SupabaseClient): SupabaseTransport {
+/**
+ * How long one round trip is allowed to take before the adapter gives up.
+ *
+ * PostgREST holds a request open for as long as the query runs, so a call that
+ * hangs — a row locked under the migration's `for update`, a cold connection, a
+ * network that stopped answering — would leave the caller's spinner turning
+ * forever. Twenty seconds is longer than the slowest real read here (the archive
+ * export, which pages) and shorter than any patient guess at "soon".
+ */
+export const REQUEST_CEILING_MS = 20_000;
+
+/**
+ * Await a builder under `REQUEST_CEILING_MS`, and say so when it expires.
+ *
+ * An aborted fetch rejects with a bare `AbortError`, which the query layer
+ * renders as that word; the ceiling is the app's own doing, so it gets the
+ * message the reader can act on.
+ */
+async function withCeiling(
+  query: AnyBuilder,
+  ceilingMs: number,
+): Promise<QueryEnvelope> {
+  const signal = AbortSignal.timeout(ceilingMs);
+  try {
+    return await query.abortSignal(signal);
+  } catch (cause) {
+    if (signal.aborted) {
+      throw new Error(
+        `The server did not answer within ${ceilingMs / 1000} seconds.`,
+      );
+    }
+    throw cause;
+  }
+}
+
+/**
+ * The transport over a given client.
+ *
+ * Exported for the ceiling test, which needs a client that never answers —
+ * something no real Supabase project is willing to be.
+ */
+export function createTransport(
+  client: SupabaseClient,
+  ceilingMs: number = REQUEST_CEILING_MS,
+): SupabaseTransport {
   const table = (name: string): AnyBuilder =>
     client.from(name) as unknown as AnyBuilder;
 
   return {
     async read(name, options = {}) {
-      const data = unwrap(await applyRead(table(name), options));
+      const data = unwrap(
+        await withCeiling(applyRead(table(name), options), ceilingMs),
+      );
       return (data ?? []) as Row[];
     },
 
@@ -141,12 +188,13 @@ function createTransport(client: SupabaseClient): SupabaseTransport {
       for (const [column, value] of Object.entries(options.eq ?? {})) {
         query = query.eq(column, value);
       }
-      const data = unwrap(await query.select());
+      const data = unwrap(await withCeiling(query.select(), ceilingMs));
       return (data ?? []) as Row[];
     },
 
     async rpc(name, args) {
-      return unwrap(await client.rpc(name, args));
+      const builder = client.rpc(name, args) as unknown as AnyBuilder;
+      return unwrap(await withCeiling(builder, ceilingMs));
     },
 
     async userId() {
