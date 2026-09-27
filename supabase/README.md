@@ -237,6 +237,68 @@ there:
   until a new password is saved, so a link opened by a stranger who guessed the
   address cannot read the account's rows on the way past it.
 
+### Sending auth mail through an SMTP relay (Brevo)
+
+Verification and password-reset mail are sent by **GoTrue**, not by this app and
+not by `functions/reminder-sender`. That single fact decides the provider:
+GoTrue speaks **SMTP only**, and providers that expose only a REST API (Resend
+does) can therefore never send these two emails — which is why the digest has
+its own mail path and the auth flows need this one.
+
+Brevo works because it has both halves: an SMTP relay for GoTrue, and a REST
+API for the digest. Until it is switched on, both emails leave through
+Supabase's built-in sender — **60 messages a day, a shared `*.supabase.co`
+domain, and Gmail treats it as junk** — and the confirmation mail that "was
+sent" but never appears is that sender, not a bug in the app.
+
+Dashboard → Authentication → **SMTP settings**:
+
+| Field | Value |
+| --- | --- |
+| Host | `smtp-relay.brevo.com` |
+| Port | `587` with STARTTLS, **or** `2465` with SSL — they are not interchangeable |
+| Username | the email address you log into Brevo with |
+| Password | the **SMTP key**, generated on Brevo's SMTP & relay page |
+| Sender email | an address on a domain you verified at Brevo |
+| Sender name | `StudyForge` |
+
+Two things trip almost everybody:
+
+- **The SMTP key and the API key are different strings.** The relay wants the
+  SMTP key; the API key (which is what `functions/reminder-sender` will use in
+  step B) authenticates against `api.brevo.com` and answers
+  `535 Authentication failed` on port 587.
+- **The sender must be verified first.** Brevo → Settings → Senders → Domain,
+  with the SPF/DKIM/DMARC records it shows you added at your registrar. An
+  unverified `From` is refused before anything is queued, so the failure looks
+  like an auth problem rather than a reputation problem.
+
+Rollback is one click: clear the SMTP fields and GoTrue goes straight back to
+the built-in sender. Nothing in the app changes either way, and no template is
+touched — `email-templates/` stays the version of record for the HTML.
+
+Prove it with `supabase/e2e/auth-mail-check.mjs`, which asks GoTrue for a
+recovery mail and reads the response: **GoTrue reports an SMTP failure on the
+request itself**, so wrong credentials surface as HTTP 500 with the provider's
+own words instead of a silent green light.
+
+```bash
+SUPABASE_URL=https://qjoijoxmnliarlyaqmoz.supabase.co \
+SUPABASE_ANON_KEY=<publishable key> \
+AUTH_TEST_EMAIL=<an address that already has an account> \
+node supabase/e2e/auth-mail-check.mjs
+```
+
+`AUTH_TEST_EMAIL` must name an account that exists, because GoTrue answers a
+recovery request for an unknown address with the same 200 it gives for a known
+one (account enumeration protection) and sends nothing — a made-up address
+would turn a broken relay into a passing test. The script creates no account
+and sends mail to exactly one address; the link it generates expires unused.
+Exit 0 = the mailer took the job (then read the four inbox checks it prints —
+arrived, `via <your domain>`, link host, and the reason Gmail's *Show original
+→ Encryption and delivery* gives if it went to Spam). Exit 1 = it refused, with
+the cause named. Exit 2 = missing input.
+
 ## Status of `qjoijoxmnliarlyaqmoz`
 
 Applied on 2026-09-27 and verified against the live database, through a direct
