@@ -2,7 +2,6 @@ import { LoadingState } from "@/components/common/LoadingState";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { useBackend } from "@/hooks/useBackend";
 import AiStudio from "@/pages/AiStudio";
-import Analytics from "@/pages/Analytics";
 import AuthPage from "@/pages/AuthPage";
 import ChapterDetail from "@/pages/ChapterDetail";
 import ClassDetail from "@/pages/ClassDetail";
@@ -12,7 +11,6 @@ import CustomTest from "@/pages/CustomTest";
 import Dashboard from "@/pages/Dashboard";
 import ExportPage from "@/pages/ExportPage";
 import Landing from "@/pages/Landing";
-import ManageLink from "@/pages/ManageLink";
 import NoteDetail from "@/pages/NoteDetail";
 import Notes from "@/pages/Notes";
 import PracticeSession from "@/pages/PracticeSession";
@@ -29,15 +27,52 @@ import TimedTest from "@/pages/TimedTest";
 import TopicDetail from "@/pages/TopicDetail";
 import {
   Outlet,
+  type RouteComponent,
   createRootRoute,
   createRoute,
   createRouter,
   useRouterState,
 } from "@tanstack/react-router";
+import { type ComponentType, Suspense, lazy } from "react";
 
 /* -------------------------------------------------------------------------- */
 /* Route tree                                                                  */
 /* -------------------------------------------------------------------------- */
+
+/**
+ * A page that is fetched the first time its route is entered.
+ *
+ * Analytics and the link manager are the only screens that draw charts, and
+ * `recharts` plus its scale helpers are the single largest thing in the entry
+ * chunk — a visitor who never opens either page was downloading them on every
+ * cold load. The fallback is the same `LoadingState` the rest of the app uses,
+ * so a slow chunk reads as the app's own spinner rather than a blank route.
+ */
+function lazyPage(
+  loader: () => Promise<{ default: ComponentType }>,
+  label: string,
+): RouteComponent {
+  // RouteComponent, not React's ComponentType: the router's `component` slot
+  // accepts a bare function signature only, and the union's class half fails
+  // it. The returned page is a function, so the annotation just names it.
+  const Page = lazy(loader);
+  return function LazyPage() {
+    return (
+      <Suspense fallback={<LoadingState label={label} />}>
+        <Page />
+      </Suspense>
+    );
+  };
+}
+
+const Analytics = lazyPage(
+  () => import("@/pages/Analytics"),
+  "Loading your analytics…",
+);
+const ManageLink = lazyPage(
+  () => import("@/pages/ManageLink"),
+  "Loading the link…",
+);
 
 const rootRoute = createRootRoute({ component: RootRoute });
 
