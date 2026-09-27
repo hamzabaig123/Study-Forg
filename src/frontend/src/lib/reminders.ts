@@ -39,6 +39,12 @@ export interface ReminderSettings {
   /**
    * fields above mirror to the account's database row.
    */
+  /**
+   * When this device last asked for a test digest. Deliberately not mirrored:
+   * it bounds how often one browser can knock on the mail runner, which is a
+   * property of the browser, not of the account.
+   */
+  lastTestAtMs: number | null;
 }
 
 const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
@@ -48,6 +54,7 @@ const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   sendTaskReminder: true,
   sendDailyReport: true,
   lastSentDate: null,
+  lastTestAtMs: null,
 };
 
 function isSettings(value: unknown): value is ReminderSettings {
@@ -401,7 +408,10 @@ Change the time or turn it off in Settings &rarr; Reminders.
 
 export type SendOutcome =
   | { kind: "sent"; via: "email" | "notification" }
-  | { kind: "skipped"; reason: "disabled" | "already-sent" | "not-due" }
+  | {
+      kind: "skipped";
+      reason: "disabled" | "already-sent" | "not-due" | "cooling-down";
+    }
   | { kind: "failed"; reason: string };
 
 async function sendViaNotification(copy: DigestCopy): Promise<void> {
@@ -419,8 +429,8 @@ async function sendViaNotification(copy: DigestCopy): Promise<void> {
 }
 
 /**
- * Fire the digest now — the "send test" button and the scheduler both come
- * through here.
+ * Fire the digest now — the scheduler's daily run, and the delivery a test
+ * request makes once `sendTestDigestNow` has cleared this device's cooldown.
  *
  * On the Supabase backend the scheduled reminder-sender Edge Function does
  * the delivering — server-side numbers, the sign-in address it reads from the
@@ -459,6 +469,47 @@ export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
     );
   }
   return { kind: "sent", via: USE_SUPABASE ? "email" : "notification" };
+}
+
+/**
+ * How long a device waits between test digests. The mail runner posts one
+ * email to the caller's own sign-in address per request, so an unbounded button
+ * is a way to fill your own inbox and the `reminder_log` table at ten requests
+ * a minute — a probe pressed twice in one breath, or pressed in three open
+ * tabs. A minute is long enough for both and short enough that nobody has to
+ * wait it out to know the setting works.
+ */
+export const TEST_COOLDOWN_MS = 60_000;
+
+/** Milliseconds until the next test digest is allowed on this device. */
+export function testCooldownRemainingMs(
+  settings: ReminderSettings,
+  nowMs: number,
+): number {
+  const last = settings.lastTestAtMs;
+  if (last === null) return 0;
+  return Math.max(0, TEST_COOLDOWN_MS - (nowMs - last));
+}
+
+/**
+ * The "send a test now" entry point: the same delivery as the scheduler's,
+ * gated by this device's cooldown.
+ *
+ * The stamp is written before the request is awaited, for the same reason the
+ * day stamp is — the flight takes up to thirty seconds, and a caller that
+ * only learns to wait after it returns has thirty seconds of presses left.
+ * A refused send is not rolled back: the retry is a minute away either way,
+ * and a rollback would turn a broken endpoint into an unlimited retry loop.
+ */
+export async function sendTestDigestNow(
+  input: DigestInput,
+): Promise<SendOutcome> {
+  const nowMs = Date.now();
+  if (testCooldownRemainingMs(getReminderSettings(), nowMs) > 0) {
+    return { kind: "skipped", reason: "cooling-down" };
+  }
+  saveReminderSettings({ lastTestAtMs: nowMs });
+  return sendDigestNow(input);
 }
 
 /* -------------------------------------------------------------------------- */

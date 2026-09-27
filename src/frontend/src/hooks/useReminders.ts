@@ -13,8 +13,9 @@ import {
   type SendOutcome,
   buildDigest,
   getReminderSettings,
-  sendDigestNow,
+  sendTestDigestNow,
   startReminderScheduler,
+  testCooldownRemainingMs,
 } from "@/lib/reminders";
 import { subscribeReminderSettings } from "@/lib/reminders";
 import { useQuery } from "@tanstack/react-query";
@@ -118,23 +119,45 @@ export function useReminderScheduler(): void {
   }, []);
 }
 
-/** Send the digest immediately — the settings page's "send a test" action. */
+/**
+ * Send the digest immediately — the settings page's "send a test" action.
+ *
+ * `cooldownMs` mirrors `sendTestDigestNow`'s gate so the button says what the
+ * press would answer. The remaining time is read at render rather than stored,
+ * so a page that mounted an hour ago still counts the minute from the press
+ * and not from its own mount; the interval exists only to make the countdown
+ * re-render, and only while a minute is still owed.
+ */
 export function useSendTestDigest(): {
   send: () => Promise<SendOutcome | null>;
   sending: boolean;
+  cooldownMs: number;
 } {
   const digestInput = useDigestInput();
+  const settings = useReminderSettings();
   const [sending, setSending] = useState(false);
+  const [, recountCooldown] = useState(0);
+  const cooldownMs = testCooldownRemainingMs(settings, Date.now());
+  const coolingDown = cooldownMs > 0;
+
+  useEffect(() => {
+    if (!coolingDown) return;
+    const timer = window.setInterval(
+      () => recountCooldown((count) => count + 1),
+      1_000,
+    );
+    return () => window.clearInterval(timer);
+  }, [coolingDown]);
 
   const send = async (): Promise<SendOutcome | null> => {
     if (!digestInput) return null;
     setSending(true);
     try {
-      return await sendDigestNow(digestInput);
+      return await sendTestDigestNow(digestInput);
     } finally {
       setSending(false);
     }
   };
 
-  return { send, sending };
+  return { send, sending, cooldownMs };
 }

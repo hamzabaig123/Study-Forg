@@ -11,10 +11,13 @@
  */
 import {
   type DigestInput,
+  TEST_COOLDOWN_MS,
   buildDigest,
   getReminderSettings,
   saveReminderSettings,
   sendDigestNow,
+  sendTestDigestNow,
+  testCooldownRemainingMs,
 } from "@/lib/reminders";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -44,6 +47,9 @@ beforeEach(() => {
     sendTaskReminder: true,
     sendDailyReport: true,
     lastSentDate: null,
+    // `cached` outlives a localStorage clear, so every field a test can move
+    // has to be pinned here or the previous test's stamp leaks into this one.
+    lastTestAtMs: null,
   });
 });
 
@@ -102,6 +108,86 @@ describe("sendDigestNow", () => {
     // A failed send is not a day's delivery: keeping the optimistic stamp would
     // cost the learner every retry for the rest of the day.
     expect(getReminderSettings().lastSentDate).toBe("2026-09-01");
+  });
+});
+
+describe("sendTestDigestNow", () => {
+  function stubNotifications(permission: NotificationPermission) {
+    function NotificationStub() {}
+    vi.stubGlobal(
+      "Notification",
+      Object.assign(NotificationStub, { permission }),
+    );
+  }
+
+  it("refuses the second request while this device's minute is still owed", async () => {
+    stubNotifications("granted");
+
+    await expect(sendTestDigestNow(input())).resolves.toEqual({
+      kind: "sent",
+      via: "notification",
+    });
+    await expect(sendTestDigestNow(input())).resolves.toEqual({
+      kind: "skipped",
+      reason: "cooling-down",
+    });
+  });
+
+  it("stamps the minute before the digest is awaited", async () => {
+    // The request can take thirty seconds, and a press in a second tab does not
+    // see this tab's `sending` flag. Only a stamp written on the way in makes
+    // the pair of them one digest instead of two.
+    let cooldownDuringSend = 0;
+    function NotificationStub() {
+      cooldownDuringSend = testCooldownRemainingMs(
+        getReminderSettings(),
+        Date.now(),
+      );
+    }
+    vi.stubGlobal(
+      "Notification",
+      Object.assign(NotificationStub, { permission: "granted" }),
+    );
+
+    await sendTestDigestNow(input());
+
+    expect(cooldownDuringSend).toBeGreaterThan(0);
+  });
+
+  it("lets the next request through once the minute has passed", async () => {
+    stubNotifications("granted");
+    saveReminderSettings({
+      lastTestAtMs: Date.now() - TEST_COOLDOWN_MS - 1,
+    });
+
+    await expect(sendTestDigestNow(input())).resolves.toEqual({
+      kind: "sent",
+      via: "notification",
+    });
+  });
+
+  it("keeps the cooldown even when the digest failed", async () => {
+    stubNotifications("denied");
+
+    await expect(sendTestDigestNow(input())).resolves.toMatchObject({
+      kind: "failed",
+    });
+    // A rolled-back stamp would turn a broken mail service into an unlimited
+    // retry loop; a minute costs nobody anything.
+    await expect(sendTestDigestNow(input())).resolves.toEqual({
+      kind: "skipped",
+      reason: "cooling-down",
+    });
+  });
+
+  it("does not gate the scheduler's own daily digest", async () => {
+    stubNotifications("granted");
+    saveReminderSettings({ lastTestAtMs: Date.now(), lastSentDate: null });
+
+    await expect(sendDigestNow(input())).resolves.toEqual({
+      kind: "sent",
+      via: "notification",
+    });
   });
 });
 

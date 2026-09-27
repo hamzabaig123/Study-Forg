@@ -37,7 +37,7 @@ export function RemindersSection() {
   const settings = useReminderSettings();
   const digestInput = useDigestInput();
   const { account } = useAuth();
-  const { send, sending } = useSendTestDigest();
+  const { send, sending, cooldownMs } = useSendTestDigest();
   const log = useReminderLog();
   const [email, setEmail] = useState(settings.email);
   const accountEmail = account?.email ?? null;
@@ -105,9 +105,15 @@ export function RemindersSection() {
             }.`
           : "Test digest shown as a notification.",
       );
-    } else if (outcome.kind === "failed") {
-      toast.error(`Couldn't send: ${outcome.reason}`);
+      return;
     }
+    if (outcome.kind === "skipped") {
+      // Reachable only as a race: the countdown disables the button, and a
+      // second tab on this device can still spend the minute first.
+      toast.message("One test digest a minute — this device just sent one.");
+      return;
+    }
+    toast.error(`Couldn't send: ${outcome.reason}`);
   }
 
   return (
@@ -306,31 +312,13 @@ export function RemindersSection() {
             </p>
           )}
 
-          <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 rounded-full"
-              onClick={handleSaveDetails}
-              data-ocid={`${OCID}.save_button`}
-            >
-              Save details
-            </Button>
-            <Button
-              type="button"
-              className="gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
-              onClick={() => void handleSendTest()}
-              disabled={sending || !digestInput}
-              data-ocid={`${OCID}.test_button`}
-            >
-              {sending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Send className="size-4" aria-hidden="true" />
-              )}
-              Send a test now
-            </Button>
-          </div>
+          <DigestActions
+            onSaveDetails={handleSaveDetails}
+            onSendTest={() => void handleSendTest()}
+            sending={sending}
+            cooldownMs={cooldownMs}
+            sendDisabled={!digestInput}
+          />
         </div>
       ) : (
         <div
@@ -349,33 +337,67 @@ export function RemindersSection() {
               address.
             </p>
           </div>
-          <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-4">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 rounded-full"
-              onClick={handleSaveDetails}
-              data-ocid={`${OCID}.save_button`}
-            >
-              Save details
-            </Button>
-            <Button
-              type="button"
-              className="gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
-              onClick={() => void handleSendTest()}
-              disabled={sending || !digestInput}
-              data-ocid={`${OCID}.test_button`}
-            >
-              {sending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Send className="size-4" aria-hidden="true" />
-              )}
-              Send a test now
-            </Button>
-          </div>
+          <DigestActions
+            onSaveDetails={handleSaveDetails}
+            onSendTest={() => void handleSendTest()}
+            sending={sending}
+            cooldownMs={cooldownMs}
+            sendDisabled={!digestInput}
+          />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * The two action rows used to be copy-pasted per delivery mode; the cooldown
+ * state belongs to the action, not the transport, so both branches render
+ * this one.
+ */
+function DigestActions({
+  onSaveDetails,
+  onSendTest,
+  sending,
+  cooldownMs,
+  sendDisabled,
+}: {
+  onSaveDetails: () => void;
+  onSendTest: () => void;
+  sending: boolean;
+  cooldownMs: number;
+  sendDisabled: boolean;
+}) {
+  const cooldownSeconds = Math.ceil(cooldownMs / 1000);
+  return (
+    <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-4">
+      <Button
+        type="button"
+        variant="outline"
+        className="gap-2 rounded-full"
+        onClick={onSaveDetails}
+        data-ocid={`${OCID}.save_button`}
+      >
+        Save details
+      </Button>
+      <Button
+        type="button"
+        className="gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
+        onClick={onSendTest}
+        disabled={sending || sendDisabled || cooldownSeconds > 0}
+        data-ocid={`${OCID}.test_button`}
+      >
+        {sending ? (
+          <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+        ) : cooldownSeconds > 0 ? (
+          <Clock className="size-4" aria-hidden="true" />
+        ) : (
+          <Send className="size-4" aria-hidden="true" />
+        )}
+        {cooldownSeconds > 0
+          ? `Try again in ${cooldownSeconds}s`
+          : "Send a test now"}
+      </Button>
     </div>
   );
 }
