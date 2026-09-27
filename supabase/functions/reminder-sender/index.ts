@@ -328,7 +328,8 @@ Deno.serve(async (request) => {
   // A cron tick carries the service key; a user carries their own session.
   // `bearer` above has already had its "Bearer " scheme stripped, so this is a
   // bare-token comparison — against the prefixed form no tick would ever match.
-  const isCron = serviceKey !== "" && bearer === serviceKey;
+  const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
+  const isCron = cronSecret !== "" && bearer === cronSecret;
   let user: { id: string; email: string } | null = null;
   if (!isCron) {
     user = bearer ? await getAuthUser(bearer) : null;
