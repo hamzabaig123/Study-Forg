@@ -27,11 +27,11 @@ import { toast } from "sonner";
 const OCID = "settings.reminders";
 
 /**
- * Daily reminder + analytics-report settings. Delivery rides on the sender's
- * own EmailJS account, which a browser can call directly; with none configured
- * the Supabase mode hands the send to the scheduled mail runner (whose
- * attempts are listed below) and everything else falls back to a browser
- * notification, so the nudge always arrives somehow.
+ * Daily reminder + analytics-report settings. On the Supabase backend the
+ * digest is delivered by StudyForge's mail runner to the sign-in address —
+ * at the account's own local time, whether or not the app is open — and every
+ * attempt is recorded in `reminder_log`. On the mock backend the same digest
+ * arrives as a browser notification while the app is open.
  */
 export function RemindersSection() {
   const settings = useReminderSettings();
@@ -43,13 +43,6 @@ export function RemindersSection() {
   const accountEmail = account?.email ?? null;
   const resolvedRecipient = accountEmail ?? settings.email.trim();
   const [time, setTime] = useState(settings.time);
-  const [serviceId, setServiceId] = useState(settings.emailjsServiceId);
-  const [templateId, setTemplateId] = useState(settings.emailjsTemplateId);
-  const [publicKey, setPublicKey] = useState(settings.emailjsPublicKey);
-
-  const emailConfigured = Boolean(
-    serviceId.trim() && templateId.trim() && publicKey.trim(),
-  );
 
   function commit(update: Parameters<typeof saveReminderSettings>[0]) {
     saveReminderSettings(update);
@@ -71,18 +64,16 @@ export function RemindersSection() {
 
   async function handleToggleEnabled() {
     const next = !settings.enabled;
-    if (next && !emailConfigured && !USE_SUPABASE) {
+    if (next && !USE_SUPABASE) {
       const granted = await requestNotifications();
       if (!granted) return;
     }
     commit({ enabled: next });
     toast.success(
       next
-        ? emailConfigured
-          ? `Daily email reminder is on — the digest goes to ${
-              resolvedRecipient || "the address you saved"
-            }.`
-          : "Daily reminder is on — with no EmailJS account the digest arrives as a notification."
+        ? USE_SUPABASE
+          ? "Daily email reminder is on — it arrives at your sign-in address."
+          : "Daily reminder is on — you'll get a browser notification."
         : "Daily reminder is off.",
     );
   }
@@ -94,11 +85,8 @@ export function RemindersSection() {
     commit({
       email: email.trim(),
       time: trimmedTime,
-      emailjsServiceId: serviceId.trim(),
-      emailjsTemplateId: templateId.trim(),
-      emailjsPublicKey: publicKey.trim(),
     });
-    toast.success("Reminder details saved on this device.");
+    toast.success("Reminder details saved.");
   }
 
   async function handleSendTest() {
@@ -142,11 +130,9 @@ export function RemindersSection() {
               One message a day at {settings.time}
               {accountEmail ? ` to ${accountEmail}` : ""}: your task nudge,
               accuracy, and streak.
-              {emailConfigured
-                ? " Sent from your own EmailJS account while the app is open."
-                : USE_SUPABASE
-                  ? " No EmailJS account yet — the scheduled mail runner sends it where it is deployed, otherwise it appears as a notification."
-                  : " Fires while the app is open on this device."}
+              {USE_SUPABASE
+                ? " Delivered by StudyForge's mail runner — the app does not need to be open."
+                : " Fires while the app is open on this device."}
             </p>
           </div>
         </div>
@@ -183,8 +169,8 @@ export function RemindersSection() {
             className="rounded-lg border-input bg-background"
           />
           <p className="text-xs text-muted-foreground">
-            Your local time — saving also records this device's UTC offset, so a
-            scheduled send fires at this hour where you are.
+            Your local time — the mail runner reads this device's zone from the
+            browser when settings are saved.
           </p>
         </div>
         <div className="space-y-1.5">
@@ -249,133 +235,6 @@ export function RemindersSection() {
         />
       </div>
 
-      <div
-        className="rounded-lg border border-border bg-background p-4"
-        data-ocid={`${OCID}.emailjs`}
-      >
-        <div className="flex items-start gap-3">
-          <ShieldCheck
-            className="mt-0.5 size-4 shrink-0 text-success"
-            aria-hidden="true"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium text-foreground">
-              Email delivery via your own EmailJS account
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              A browser app cannot send mail by itself. Create a free account at
-              emailjs.com, add a service and a template whose To Email field
-              reads{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.7rem]">
-                {"{{to_email}}"}
-              </code>
-              , then paste the three IDs below — they are stored only on this
-              device and erased by “Clear local data”. Render{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.7rem]">
-                {"{{{message_html}}}"}
-              </code>{" "}
-              to get the designed digest card, or{" "}
-              <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.7rem]">
-                {"{{message}}"}
-              </code>{" "}
-              for the plain-text version. Either way the digest goes to the
-              address you sign in with.
-            </p>
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <div className="space-y-1.5">
-            <Label
-              htmlFor={`${OCID}-service`}
-              className="text-xs text-muted-foreground"
-            >
-              Service ID
-            </Label>
-            <Input
-              id={`${OCID}-service`}
-              data-ocid={`${OCID}.service_input`}
-              value={serviceId}
-              onChange={(event) => setServiceId(event.target.value)}
-              placeholder="service_xxxxxxx"
-              className="rounded-lg border-input bg-background font-mono text-xs"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label
-              htmlFor={`${OCID}-template`}
-              className="text-xs text-muted-foreground"
-            >
-              Template ID
-            </Label>
-            <Input
-              id={`${OCID}-template`}
-              data-ocid={`${OCID}.template_input`}
-              value={templateId}
-              onChange={(event) => setTemplateId(event.target.value)}
-              placeholder="template_xxxxxxx"
-              className="rounded-lg border-input bg-background font-mono text-xs"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label
-              htmlFor={`${OCID}-key`}
-              className="text-xs text-muted-foreground"
-            >
-              Public key
-            </Label>
-            <Input
-              id={`${OCID}-key`}
-              data-ocid={`${OCID}.key_input`}
-              value={publicKey}
-              onChange={(event) => setPublicKey(event.target.value)}
-              placeholder="xxxxxxxxxxxxxxx"
-              className="rounded-lg border-input bg-background font-mono text-xs"
-            />
-          </div>
-        </div>
-
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border/60 pt-4">
-          <p
-            className="text-xs text-muted-foreground"
-            data-ocid={`${OCID}.emailjs_state`}
-          >
-            {emailConfigured
-              ? `Email delivery is configured — digests go to ${
-                  resolvedRecipient || "the address you saved"
-                }.`
-              : USE_SUPABASE
-                ? "No EmailJS account connected — the scheduled mail runner sends the digest where it is deployed, otherwise it arrives as a notification."
-                : "No EmailJS account connected — the digest arrives as a notification."}
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              className="gap-2 rounded-full"
-              onClick={handleSaveDetails}
-              data-ocid={`${OCID}.save_button`}
-            >
-              Save details
-            </Button>
-            <Button
-              type="button"
-              className="gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
-              onClick={() => void handleSendTest()}
-              disabled={sending || !digestInput}
-              data-ocid={`${OCID}.test_button`}
-            >
-              {sending ? (
-                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              ) : (
-                <Send className="size-4" aria-hidden="true" />
-              )}
-              Send a test now
-            </Button>
-          </div>
-        </div>
-      </div>
-
       {USE_SUPABASE ? (
         <div
           className="rounded-lg border border-border bg-background p-4"
@@ -388,13 +247,13 @@ export function RemindersSection() {
             />
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium text-foreground">
-                Scheduled delivery for this account
+                Email delivery through StudyForge's mail service
               </p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Your settings are mirrored to your account, so the scheduled
-                runner can send this digest at the time above even when the app
-                is closed — it reads the numbers from the database and mails the
-                sign-in address. Every attempt it records shows up below.
+                The mail runner checks every ten minutes and sends each
+                account's digest at its own local time — the app does not need
+                to be open. The numbers in the email are read from your
+                account, and every attempt is recorded below.
               </p>
             </div>
           </div>
@@ -446,8 +305,77 @@ export function RemindersSection() {
               No delivery attempts yet — the first one lands here.
             </p>
           )}
+
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2 rounded-full"
+              onClick={handleSaveDetails}
+              data-ocid={`${OCID}.save_button`}
+            >
+              Save details
+            </Button>
+            <Button
+              type="button"
+              className="gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
+              onClick={() => void handleSendTest()}
+              disabled={sending || !digestInput}
+              data-ocid={`${OCID}.test_button`}
+            >
+              {sending ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="size-4" aria-hidden="true" />
+              )}
+              Send a test now
+            </Button>
+          </div>
         </div>
-      ) : null}
+      ) : (
+        <div
+          className="rounded-lg border border-border bg-background p-4"
+          data-ocid={`${OCID}.notification_fallback`}
+        >
+          <div className="flex items-start gap-3">
+            <ShieldCheck
+              className="mt-0.5 size-4 shrink-0 text-success"
+              aria-hidden="true"
+            />
+            <p className="text-sm text-muted-foreground">
+              This workspace runs without an email service, so the daily digest
+              arrives as a browser notification while the app is open. Connect
+              the Supabase backend to get real email delivery to your sign-in
+              address.
+            </p>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-border/60 pt-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="gap-2 rounded-full"
+              onClick={handleSaveDetails}
+              data-ocid={`${OCID}.save_button`}
+            >
+              Save details
+            </Button>
+            <Button
+              type="button"
+              className="gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
+              onClick={() => void handleSendTest()}
+              disabled={sending || !digestInput}
+              data-ocid={`${OCID}.test_button`}
+            >
+              {sending ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+              ) : (
+                <Send className="size-4" aria-hidden="true" />
+              )}
+              Send a test now
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

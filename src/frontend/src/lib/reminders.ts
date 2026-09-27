@@ -40,9 +40,6 @@ export interface ReminderSettings {
    * The reviewer's own EmailJS account. Device-local by design — only the
    * fields above mirror to the account's database row.
    */
-  emailjsServiceId: string;
-  emailjsTemplateId: string;
-  emailjsPublicKey: string;
 }
 
 const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
@@ -52,9 +49,6 @@ const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   sendTaskReminder: true,
   sendDailyReport: true,
   lastSentDate: null,
-  emailjsServiceId: "",
-  emailjsTemplateId: "",
-  emailjsPublicKey: "",
 };
 
 function isSettings(value: unknown): value is ReminderSettings {
@@ -410,42 +404,6 @@ function isEmailjsConfigured(settings: ReminderSettings): boolean {
   );
 }
 
-/**
- * POST the digest through the caller's EmailJS account. The template's "To
- * Email" must be `{{to_email}}`; `message_html` arrives raw, so a template
- * that renders it (triple braces in the EmailJS editor) shows the designed
- * card, while one that renders only `{{message}}` still reads fine as text.
- */
-async function sendViaEmailjs(
-  settings: ReminderSettings,
-  copy: DigestCopy,
-  recipient: string,
-): Promise<void> {
-  const response = await fetch("https://api.emailjs.com/api/v1.0/email/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(20_000),
-    body: stringifyWithBigints({
-      service_id: settings.emailjsServiceId.trim(),
-      template_id: settings.emailjsTemplateId.trim(),
-      user_id: settings.emailjsPublicKey.trim(),
-      template_params: {
-        to_email: recipient,
-        subject: copy.subject,
-        message: copy.message,
-        message_html: copy.messageHtml,
-      },
-    }),
-  });
-  if (!response.ok) {
-    const text = (await response.text().catch(() => "")) || "";
-    throw new Error(
-      text.trim().slice(0, 200) ||
-        `EmailJS answered HTTP ${String(response.status)}`,
-    );
-  }
-}
-
 async function sendViaNotification(copy: DigestCopy): Promise<void> {
   if (typeof Notification === "undefined") {
     throw new Error("This browser has no notification support");
@@ -496,10 +454,7 @@ export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
     };
   }
   saveReminderSettings({ lastSentDate: dayKey(Date.now()) });
-  return {
-    kind: "sent",
-    via: viaEmailjs || USE_SUPABASE ? "email" : "notification",
-  };
+  return { kind: "sent", via: USE_SUPABASE ? "email" : "notification" };
 }
 
 /* -------------------------------------------------------------------------- */
