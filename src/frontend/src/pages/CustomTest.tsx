@@ -44,17 +44,16 @@ export default function CustomTest() {
   );
 
   const [index, setIndex] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, SubmittedAnswer>>({});
+  // The store is read synchronously, so a rejoin starts from the answers this
+  // session already saved. Doing it in an effect instead costs a run its whole
+  // score: rejoining an expired timed test calls `finish` in the same commit
+  // that queued the rehydration, so `finish` grades the empty first-render
+  // closure and records 0 over the saved answers.
+  const [answers, setAnswers] = useState<Record<string, SubmittedAnswer>>(
+    () => getLocalSession(sessionId)?.answers ?? {},
+  );
   const [finishing, setFinishing] = useState(false);
-  const hydratedRef = useRef(false);
   const finishedRef = useRef(false);
-
-  // Rehydrate saved answers once the session is available (refresh-safe).
-  useEffect(() => {
-    if (!session || hydratedRef.current) return;
-    hydratedRef.current = true;
-    setAnswers(session.answers);
-  }, [session]);
 
   const questions = session?.questions ?? [];
   const current = questions[index] ?? null;

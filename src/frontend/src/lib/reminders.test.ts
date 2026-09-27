@@ -72,6 +72,37 @@ describe("sendDigestNow", () => {
     const outcome = await sendDigestNow(input());
     expect(outcome.kind).toBe("failed");
   });
+
+  it("has already stamped the day while the digest is still going out", async () => {
+    // Both the next tick and the same account in a second tab read this module
+    // synchronously. A stamp that lands only after delivery resolves leaves
+    // that whole window believing today is still owed — which is how one day
+    // gets mailed twice.
+    let stampedDuringSend: string | null | undefined = "never constructed";
+    function NotificationStub() {
+      stampedDuringSend = getReminderSettings().lastSentDate;
+    }
+    vi.stubGlobal(
+      "Notification",
+      Object.assign(NotificationStub, { permission: "granted" }),
+    );
+
+    await sendDigestNow(input());
+
+    expect(stampedDuringSend).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("puts the stamp back when the digest did not go out", async () => {
+    saveReminderSettings({ lastSentDate: "2026-09-01" });
+    stubNotifications("denied");
+
+    const outcome = await sendDigestNow(input());
+
+    expect(outcome.kind).toBe("failed");
+    // A failed send is not a day's delivery: keeping the optimistic stamp would
+    // cost the learner every retry for the rest of the day.
+    expect(getReminderSettings().lastSentDate).toBe("2026-09-01");
+  });
 });
 
 describe("buildDigest", () => {

@@ -186,6 +186,125 @@ const codeRules = (() => {
   return [...latest.values()];
 })();
 
+/**
+ * The replay below only models a function's privileges as they are *granted*,
+ * so it has to know nothing re-grants a function behind its back. Supabase's
+ * template does not; `alter default privileges … on functions` would.
+ */
+const DEFAULT_FUNCTION_GRANTS = migrations
+  .map((file) => ({
+    file: file.name,
+    hits: code(file.text).match(
+      /alter default privileges[^;]*\bfunctions\b[^;]*;/i,
+    ),
+  }))
+  .filter((entry) => entry.hits);
+
+/**
+ * Effective `execute` per function, as the sequence of migrations leaves it.
+ *
+ * `grant execute on all functions in schema public to authenticated` is a
+ * template convenience that appears at the bottom of more than one file, and it
+ * reaches every function declared *up to that statement* — including the two
+ * cross-account reminder views and the rate limiter, which no client may call.
+ * The only thing standing between that line and a signed-in user reading every
+ * account's address is the order the revokes run in, and order is exactly what
+ * a hand-edited migration changes. Measured live on 2026-09-28: `authenticated`
+ * could execute `due_reminders()`.
+ *
+ * So the privilege set is replayed here, in file order and statement order,
+ * rather than asserted from whichever file happens to mention the function.
+ */
+const EXECUTE_EVENT =
+  /create (?:or replace )?function (?:public\.)?([a-z_]+)|grant execute on all functions in schema public to ([a-z_]+)|revoke all on all functions in schema public from ([a-z_]+)|grant execute on function (?:public\.)?([a-z_]+)\([^)]*\) to ([a-z_,\s]+)|revoke all on function (?:public\.)?([a-z_]+)\([^)]*\) from ([a-z_,\s]+)/g;
+
+function replayExecute(text: string): Map<string, Set<string>> {
+  const effective = new Map<string, Set<string>>();
+  const add = (name: string, role: string) => {
+    if (!effective.has(name)) effective.set(name, new Set());
+    effective.get(name)?.add(role);
+  };
+  const drop = (name: string, role: string) => {
+    effective.get(name)?.delete(role);
+  };
+  for (const match of text.matchAll(EXECUTE_EVENT)) {
+    const roles = (value: string) =>
+      value
+        .split(",")
+        .map((role) => role.trim())
+        .filter(Boolean);
+    if (match[1]) add(match[1], "owner");
+    else if (match[2]) for (const name of effective.keys()) add(name, match[2]);
+    else if (match[3])
+      for (const name of effective.keys()) drop(name, match[3]);
+    else if (match[4])
+      for (const role of roles(match[5] ?? "")) add(match[4], role);
+    else if (match[6])
+      for (const role of roles(match[7] ?? "")) drop(match[6], role);
+  }
+  return effective;
+}
+
+/** The roles a request can arrive as — `service_role` and the owner are not clients. */
+const CLIENT_ROLES = ["anon", "authenticated", "public"];
+
+/** Client roles only — `service_role` and the owner are allowed everywhere here. */
+function clientRolesFor(name: string, text: string): string[] {
+  const roles = replayExecute(text).get(name) ?? new Set<string>();
+  return [...roles].filter((role) => CLIENT_ROLES.includes(role)).sort();
+}
+
+const migratedSql = code(migrations.map((file) => file.text).join("\n"));
+
+/**
+ * The helpers the delivery function owns: they answer across accounts, so the
+ * only role allowed to call them is the one holding the service key.
+ */
+const SERVICE_ONLY = ["due_reminders", "reminder_digest"];
+
+describe("function grant replay", () => {
+  it("holds no default function grants that could re-appear on a new function", () => {
+    expect(DEFAULT_FUNCTION_GRANTS).toEqual([]);
+  });
+
+  it("leaves no client role able to execute the cross-account helpers", () => {
+    for (const name of SERVICE_ONLY) {
+      expect(clientRolesFor(name, migratedSql), name).toEqual([]);
+    }
+    // The limiter is called by security-definer functions, never by a client.
+    expect(clientRolesFor("enforce_rate_limit", migratedSql)).toEqual([]);
+  });
+
+  it("keeps the two reminder helpers executable by the delivery function", () => {
+    for (const name of SERVICE_ONLY) {
+      const roles = replayExecute(migratedSql).get(name) ?? new Set<string>();
+      expect(roles.has("service_role"), name).toBe(true);
+    }
+  });
+
+  it("still gives every signed-in RPC its grant after the replay", () => {
+    // The blanket grant is the house style; a walk-back that overshoots would
+    // leave the adapter's own RPCs unexecutable, which is a 401-free 42501.
+    for (const name of usedRpc) {
+      const roles = replayExecute(migratedSql).get(name) ?? new Set<string>();
+      expect(
+        CLIENT_ROLES.some((role) => roles.has(role)),
+        name,
+      ).toBe(true);
+    }
+  });
+
+  it("notices a walk-back that a later blanket grant undoes", () => {
+    // The guard has to be able to fail, or reordering a migration stays silent:
+    // same revokes, then the template grant after them.
+    const outOfOrder = `${migratedSql}
+grant execute on all functions in schema public to authenticated;`;
+    expect(clientRolesFor("due_reminders", outOfOrder)).toEqual([
+      "authenticated",
+    ]);
+  });
+});
+
 describe("short-code entropy contract", () => {
   it("finds both code rules and makes them state the same range", () => {
     // The table constraint and create_link's own validator. Fewer than two

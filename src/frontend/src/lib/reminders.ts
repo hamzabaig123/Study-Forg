@@ -63,6 +63,15 @@ let cached: ReminderSettings | null = null;
 let localWriteSeq = 0;
 const listeners = new Set<() => void>();
 
+// `storage` fires in every *other* tab on this device, which is the only way a
+// sibling learns that today's digest has been stamped. Without it the second
+// tab keeps its own `cached`, passes `dueToday`, and mails the day again.
+globalThis.addEventListener?.("storage", (event: StorageEvent) => {
+  if (event.key !== STORAGE_KEY) return;
+  cached = null;
+  for (const listener of listeners) listener();
+});
+
 function load(): ReminderSettings {
   if (cached) return cached;
   const raw = safeGetItem(STORAGE_KEY);
@@ -422,23 +431,33 @@ async function sendViaNotification(copy: DigestCopy): Promise<void> {
  */
 export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
   const copy = buildDigest(input);
+  const before = getReminderSettings().lastSentDate;
+  // The day is stamped *before* the delivery is awaited. A stamp that only
+  // lands after a 30-second request leaves that whole window in which the next
+  // tick here, or the same account open in a second tab, still believes
+  // today's digest is owed and sends a duplicate. It also mirrors the stamp to
+  // the account's row at once, which is what keeps the server-side tick from
+  // mailing the same day again.
+  saveReminderSettings({ lastSentDate: dayKey(Date.now()) });
+  const undelivered = (reason: string): SendOutcome => {
+    // A send that did not happen is not a day's delivery: put the stamp back so
+    // the next tick retries rather than losing today.
+    saveReminderSettings({ lastSentDate: before });
+    return { kind: "failed", reason };
+  };
   try {
     if (USE_SUPABASE) {
       const server = await import("@/lib/supabase/reminders");
       const { failures } = await server.sendTestViaServer();
-      if (failures.length > 0) {
-        return { kind: "failed", reason: failures[0] };
-      }
+      if (failures.length > 0) return undelivered(failures[0]);
     } else {
       await sendViaNotification(copy);
     }
   } catch (cause) {
-    return {
-      kind: "failed",
-      reason: cause instanceof Error ? cause.message : "Unknown error",
-    };
+    return undelivered(
+      cause instanceof Error ? cause.message : "Unknown error",
+    );
   }
-  saveReminderSettings({ lastSentDate: dayKey(Date.now()) });
   return { kind: "sent", via: USE_SUPABASE ? "email" : "notification" };
 }
 
