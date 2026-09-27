@@ -98,12 +98,16 @@ Auth emails point back at the app, so the confirmation link must land on your
 Vercel domain:
 
 1. Supabase → Authentication → **URL Configuration**.
-2. **Site URL**: `https://<your-project>.vercel.app` (your final domain when
-   you add one later — update this then).
+2. **Site URL**: `https://study-forg-frontend-gk2p-rose.vercel.app` (update this
+   when the production domain changes — the Site URL has to match wherever the
+   app actually lives).
 3. **Redirect URLs**: add the same URL.
 
 Without this, sign-up on the deployed app still works but the confirmation
-email sends the user to localhost.
+email sends the user to localhost, because Supabase builds that link from the
+Site URL, not from the page that asked for it. (The app's own share links and
+password-reset redirects already use the origin the page is actually on, so
+those follow the deployment without any dashboard change.)
 
 ## 4. How updates work (the part you asked about)
 
