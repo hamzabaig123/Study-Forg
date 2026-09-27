@@ -137,6 +137,7 @@ git push
 | Database, auth, RPCs, rate limits | Supabase | row level security protects everything |
 | `ai-proxy` (server-side AI) | Supabase Edge Functions | deploy separately; needs `GEMINI_API_KEY`/`OPENROUTER_API_KEY` in Edge Function secrets |
 | Daily email/report + E2E checks | your machine while the app is open | see Settings → Reminders, `e2e/` |
+| Speed Insights (real-user performance) | Vercel | Enable **Speed Insights** for the project in the dashboard; the app loads `/_vercel/speed-insights/script.js` itself, so no key or env var is needed |
 
 ## Gotchas already handled
 
@@ -145,6 +146,19 @@ git push
   `src/frontend/vercel.json` holds the same rewrite and is simply not read while
   the Root Directory is the repo root; it only matters if someone moves the Root
   Directory, which is the layout that fails at install (see above).
+- That catch-all is **not** a bare `/(.*)`. It excludes `_vercel/` on purpose:
+  Speed Insights loads `/_vercel/speed-insights/script.js` and posts vitals to
+  `/_vercel/speed-insights/vitals`, and neither is a file in `dist/` — they are
+  platform routes. A catch-all that matches them answers with `index.html`, and
+  the browser then parses HTML as JavaScript (`SyntaxError: Unexpected token
+  '<'`) while the dashboard reads "no data". The other exclusions (`assets/`,
+  `icons/`, `favicon.ico`, `manifest.webmanifest`, `sw.js`, `theme-bootstrap.js`,
+  `env.json`) keep the PWA, the theme bootstrap and the canister config out of
+  the rewrite's reach too. Add a path here rather than widening the pattern.
+- `src/frontend/dist` is gitignored, so Vercel always rebuilds it. A local
+  `dist/` can therefore be stale: check that the CSP in `dist/index.html` names
+  `https://va.vercel-scripts.com` before trusting a local preview to match the
+  deploy.
 - `dist/_headers` is a build artifact the CSP plugin writes next to the bundle,
   and Vercel *does* read it, so the directives a `<meta>` cannot carry —
   `frame-ancestors`, `Strict-Transport-Security`, `X-Content-Type-Options` — are

@@ -4,5 +4,10 @@
   "installCommand": "pnpm install --no-frozen-lockfile",
   "buildCommand": "pnpm --dir src/frontend build",
   "outputDirectory": "src/frontend/dist",
-  "rewrites": [{ "source": "/((?!assets/).*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/((?!_vercel/|assets/|icons/|favicon\\.ico|manifest\\.webmanifest|sw\\.js|theme-bootstrap\\.js|env\\.json|robots\\.txt|sitemap\\.xml).*)",
+      "destination": "/index.html"
+    }
+  ]
 }
