@@ -180,6 +180,22 @@ describe("sendTestDigestNow", () => {
     });
   });
 
+  it("leaves today's digest owed, since a test is not the day's delivery", async () => {
+    // The bug this pins: a test press stamped `lastSentDate`, so the scheduler
+    // and the server-side tick both believed the day was done — a learner who
+    // checked the button at breakfast never got the evening digest, and
+    // "delivered, but only ever one email" was the only symptom.
+    stubNotifications("granted");
+    saveReminderSettings({ lastSentDate: "2026-09-01" });
+
+    await expect(sendTestDigestNow(input())).resolves.toEqual({
+      kind: "sent",
+      via: "notification",
+    });
+
+    expect(getReminderSettings().lastSentDate).toBe("2026-09-01");
+  });
+
   it("does not gate the scheduler's own daily digest", async () => {
     stubNotifications("granted");
     saveReminderSettings({ lastTestAtMs: Date.now(), lastSentDate: null });

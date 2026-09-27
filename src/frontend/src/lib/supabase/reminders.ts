@@ -88,8 +88,15 @@ export async function saveRemoteReminderSettings(
  * Ask the reminder-sender Edge Function to deliver this account's digest now.
  * The server computes the numbers from the database itself, sends the email to
  * the sign-in address, and records the attempt in reminder_log.
+ *
+ * `daily` says which of the two reasons this is: the scheduler's own run at the
+ * account's chosen time, or a press of the test button. The runner stamps the
+ * account's `last_sent_on` only for the first, so a test send cannot eat the
+ * day's digest.
  */
-export async function sendTestViaServer(): Promise<{ failures: string[] }> {
+export async function requestDigest(
+  daily: boolean,
+): Promise<{ failures: string[] }> {
   const account = sessionStore().account();
   if (!account) throw new Error("Sign in first.");
   const { data } = await getSupabase().auth.getSession();
@@ -103,7 +110,7 @@ export async function sendTestViaServer(): Promise<{ failures: string[] }> {
       Authorization: `Bearer ${token}`,
     },
     signal: AbortSignal.timeout(30_000),
-    body: JSON.stringify({ test: true }),
+    body: JSON.stringify({ daily }),
   });
   const payload = (await res.json().catch(() => null)) as {
     error?: { message?: string };

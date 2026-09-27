@@ -130,8 +130,8 @@ have a live equivalent already; finish with the RLS file in the dashboard editor
 
 ## The reminder pipeline
 
-The daily digest is assembled in the browser but delivered by
-`functions/reminder-sender`: the in-app scheduler (`startReminderScheduler`,
+The daily digest is **built and sent by** `functions/reminder-sender`: the
+in-app scheduler (`startReminderScheduler`,
 one tick a minute while the app is open) waits for the account's local send
 time, then POSTs the user's own access token to the function, which reads the
 numbers from `reminder_digest`, mails them through [Resend](https://resend.com)
@@ -139,6 +139,15 @@ to the sign-in address, and writes the attempt to `reminder_log` — visible in
 Settings → Reminders, failed attempts included. Because the recipient is always
 the account's sign-in email, nothing in the pipeline sends to an address a user
 typed.
+
+The request body carries one flag: `{ "daily": true }` from the scheduler (the
+run may consume the day, by stamping `reminder_settings.last_sent_on`) and
+`{ "daily": false }` from the settings page's test button (same pipeline, never
+stamps — a test press used to eat that evening's digest). The greeting name is
+`user_settings.display_name`, falling back to the address's local part, exactly
+as `due_reminders()` resolves it for the cron tick. The browser's own
+`buildDigest` copy — including its HTML rendering — is what the mock backend
+surfaces as a notification, not what this function mails.
 
 The function reads four secrets (Edge Functions → Secrets in the dashboard, or
 `supabase secrets set` with the CLI):

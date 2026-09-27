@@ -429,17 +429,19 @@ async function sendViaNotification(copy: DigestCopy): Promise<void> {
 }
 
 /**
- * Fire the digest now — the scheduler's daily run, and the delivery a test
- * request makes once `sendTestDigestNow` has cleared this device's cooldown.
+ * Deliver the digest, and — only for the day's own run — take the day.
  *
- * On the Supabase backend the scheduled reminder-sender Edge Function does
- * the delivering — server-side numbers, the sign-in address it reads from the
- * caller's own session, and the reminder_log row — so no recipient is chosen
- * on this device. On the mock the same copy surfaces as a browser
- * notification. Whichever one runs, the day is stamped so the scheduler stays
- * quiet, and in the Supabase mode that stamp mirrors to the account's row.
+ * `daily` is the whole difference between the scheduler's digest and a press of
+ * the test button. Both used to stamp, which meant a test press at breakfast
+ * quietly cancelled that evening's real digest: the account had its one email,
+ * `dueToday` saw today's stamp, and the run went silent until tomorrow. The
+ * server half of the pipeline already refused to stamp for a test (see the
+ * header of `functions/reminder-sender`); this is the client agreeing with it.
  */
-export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
+async function deliver(
+  input: DigestInput,
+  daily: boolean,
+): Promise<SendOutcome> {
   const copy = buildDigest(input);
   const before = getReminderSettings().lastSentDate;
   // The day is stamped *before* the delivery is awaited. A stamp that only
@@ -448,17 +450,17 @@ export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
   // today's digest is owed and sends a duplicate. It also mirrors the stamp to
   // the account's row at once, which is what keeps the server-side tick from
   // mailing the same day again.
-  saveReminderSettings({ lastSentDate: dayKey(Date.now()) });
+  if (daily) saveReminderSettings({ lastSentDate: dayKey(Date.now()) });
   const undelivered = (reason: string): SendOutcome => {
     // A send that did not happen is not a day's delivery: put the stamp back so
     // the next tick retries rather than losing today.
-    saveReminderSettings({ lastSentDate: before });
+    if (daily) saveReminderSettings({ lastSentDate: before });
     return { kind: "failed", reason };
   };
   try {
     if (USE_SUPABASE) {
       const server = await import("@/lib/supabase/reminders");
-      const { failures } = await server.sendTestViaServer();
+      const { failures } = await server.requestDigest(daily);
       if (failures.length > 0) return undelivered(failures[0]);
     } else {
       await sendViaNotification(copy);
@@ -469,6 +471,18 @@ export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
     );
   }
   return { kind: "sent", via: USE_SUPABASE ? "email" : "notification" };
+}
+
+/**
+ * The scheduler's delivery: the day's digest, stamped as such.
+ *
+ * On the Supabase backend the reminder-sender Edge Function does the
+ * delivering — server-side numbers, the sign-in address it reads from the
+ * caller's own session, and the reminder_log row — so no recipient is chosen on
+ * this device. On the mock the same copy surfaces as a browser notification.
+ */
+export async function sendDigestNow(input: DigestInput): Promise<SendOutcome> {
+  return deliver(input, true);
 }
 
 /**
@@ -492,14 +506,14 @@ export function testCooldownRemainingMs(
 }
 
 /**
- * The "send a test now" entry point: the same delivery as the scheduler's,
- * gated by this device's cooldown.
+ * The "send a test now" entry point: a delivery of the same copy, gated by this
+ * device's cooldown and leaving the day's digest owed.
  *
- * The stamp is written before the request is awaited, for the same reason the
- * day stamp is — the flight takes up to thirty seconds, and a caller that
- * only learns to wait after it returns has thirty seconds of presses left.
- * A refused send is not rolled back: the retry is a minute away either way,
- * and a rollback would turn a broken endpoint into an unlimited retry loop.
+ * The cooldown stamp is written before the request is awaited, for the same
+ * reason the day stamp is — the flight takes up to thirty seconds, and a caller
+ * that only learns to wait after it returns has thirty seconds of presses left.
+ * A refused send is not rolled back: the retry is a minute away either way, and
+ * a rollback would turn a broken endpoint into an unlimited retry loop.
  */
 export async function sendTestDigestNow(
   input: DigestInput,
@@ -509,7 +523,7 @@ export async function sendTestDigestNow(
     return { kind: "skipped", reason: "cooling-down" };
   }
   saveReminderSettings({ lastTestAtMs: nowMs });
-  return sendDigestNow(input);
+  return deliver(input, false);
 }
 
 /* -------------------------------------------------------------------------- */

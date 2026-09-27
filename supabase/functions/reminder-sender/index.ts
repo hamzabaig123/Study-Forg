@@ -4,8 +4,10 @@
 //   • a pg_cron tick (every 10 minutes, bearer = CRON_SECRET): finds every
 //     account whose local time has reached its configured send time today and
 //     whose digest has not gone out yet, then builds and sends each one.
-//   • a signed-in user pressing "Send a test now": same pipeline, addressed to
-//     the caller, without touching last_sent_on.
+//   • the signed-in user's own browser, which POSTs its session token with
+//     either { "daily": true } — the in-app scheduler at the chosen time, which
+//     may consume the day — or { "daily": false } — the settings page's test
+//     button, which never stamps last_sent_on.
 //
 // Email goes out through Resend (https://resend.com, free tier); the key is a
 // deploy-time secret. Recipient = the account's sign-in email — nobody pastes
@@ -247,6 +249,43 @@ interface DueSetting {
   display_name: string;
 }
 
+/** What `reminder_settings` actually stores: the preference, and nothing that
+ * identifies a person. Reading it as a `DueSetting` produced a digest with no
+ * name and no address. */
+interface StoredSettings {
+  user_id: string;
+  enabled: boolean;
+  time_of_day: string;
+  utc_offset_minutes: number;
+  send_task_reminder: boolean;
+  send_daily_report: boolean;
+}
+
+/** The greeting name, resolved the same way `due_reminders()` does it: the
+ * account's display name, else the local part of its address. `user_settings`
+ * is optional, so a missing row or a failed read falls through to the email. */
+async function displayNameFor(userId: string, email: string): Promise<string> {
+  const baseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  try {
+    const res = await fetch(
+      `${baseUrl}/rest/v1/user_settings?select=display_name&owner_id=eq.${userId}`,
+      {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    const rows = res.ok
+      ? ((await res.json()) as Array<{ display_name?: string | null }>)
+      : [];
+    const name = rows[0]?.display_name?.trim();
+    if (name) return name;
+  } catch {
+    // Fall through: the address is a perfectly good greeting.
+  }
+  return email.split("@")[0] ?? "";
+}
+
 async function logAttempt(
   owner: string,
   kind: "daily" | "test",
@@ -323,12 +362,15 @@ Deno.serve(async (request) => {
   const bearer =
     request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
 
-  let body: { test?: boolean } = {};
+  let body: { daily?: boolean } = {};
   try {
-    body = (await request.json()) as { test?: boolean };
+    body = (await request.json()) as { daily?: boolean };
   } catch {
     body = {};
   }
+  // The app's own scheduler asks for the day's digest; the settings page's test
+  // button asks for one right now. Only the first may consume the day.
+  const wantsDaily = body.daily === true;
 
   // A cron tick carries the service key; a user carries their own session.
   // `bearer` above has already had its "Bearer " scheme stripped, so this is a
@@ -366,16 +408,19 @@ Deno.serve(async (request) => {
     }
     due = (await res.json()) as DueSetting[];
   } else {
-    // A single account, for the settings page's test button.
+    // A single account: the app's own scheduler at the chosen time, or the
+    // settings page's test button. `reminder_settings` holds the preference, not
+    // the person, so the address and the greeting are filled in separately —
+    // reading them with a cast to DueSetting is what used to print "Hi," with no
+    // name on every digest that went out while the app happened to be open.
     const res = await fetch(
-      `${baseUrl}/rest/v1/reminder_settings?user_id=eq.${user!.id}`,
+      `${baseUrl}/rest/v1/reminder_settings?select=user_id,enabled,time_of_day,utc_offset_minutes,send_task_reminder,send_daily_report&user_id=eq.${user!.id}`,
       {
         headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+        signal: AbortSignal.timeout(20_000),
       },
     );
-    const rows = res.ok
-      ? ((await res.json()) as DueSetting[])
-      : [];
+    const rows = res.ok ? ((await res.json()) as StoredSettings[]) : [];
     if (rows.length === 0 || !rows[0].enabled) {
       return json(
         {
@@ -387,7 +432,13 @@ Deno.serve(async (request) => {
         400,
       );
     }
-    due = [{ ...rows[0], email: user!.email }];
+    due = [
+      {
+        ...rows[0],
+        email: user!.email,
+        display_name: await displayNameFor(user!.id, user!.email),
+      },
+    ];
   }
 
   const results: Array<{
@@ -396,17 +447,19 @@ Deno.serve(async (request) => {
     detail?: string;
   }> = [];
   for (const setting of due) {
-    const kind = isCron ? "daily" : "test";
+    const kind = isCron || wantsDaily ? "daily" : "test";
     const failure = await deliver(appUrl, setting, kind);
     results.push({
       email: setting.email.replace(/(.{2}).+(@.*)/, "$1***$2"),
       status: failure ? "failed" : "sent",
       detail: failure ?? undefined,
     });
-    // The daily run stamps the account's local day so the tick stays quiet
+    // The daily run — the cron tick's, or the app's own scheduler asking for
+    // the day's digest — stamps the account's local day so the tick stays quiet
     // until tomorrow even if it fires twice inside the window. A test send
-    // never touches the marker.
-    if (isCron && !failure) {
+    // never touches the marker, which is the whole point of `daily` in the body:
+    // a test press at breakfast used to eat that evening's real digest.
+    if ((isCron || wantsDaily) && !failure) {
       await fetch(
         `${baseUrl}/rest/v1/reminder_settings?user_id=eq.${setting.user_id}`,
         {
