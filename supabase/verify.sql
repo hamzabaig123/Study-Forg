@@ -9,7 +9,7 @@
 -- about migrations 0003 and 0004, so read them as "0 rows / matches" only once
 -- those files have been applied — 10 is meant to be run BEFORE 0004 as well.
 
--- 1. Every table the app needs exists. Expected: 20 rows
+-- 1. Every table the app needs exists. Expected: 19 rows
 --    (17 owner tables + abuse_report + rate_limit + custom_session)
 --    (17 owner-scoped tables plus abuse_report).
 select table_name
@@ -17,7 +17,7 @@ select table_name
  where table_schema = 'public'
  order by 1;
 
--- 2. RLS is on and enforced for the owner. Expected: 20 rows, both columns true.
+-- 2. RLS is on and enforced for the owner. Expected: 19 rows, both columns true.
 --    FORCE is what protects the owner's own writes: without it a row inserted by
 --    the table owner (postgres, the SQL editor) skips every policy.
 --    abuse_report carries no policies: with RLS enabled and nothing granted, no

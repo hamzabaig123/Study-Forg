@@ -33,7 +33,7 @@ export interface ReminderSettings {
   lastSentDate: string | null;
 }
 
-export const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
+const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
   enabled: false,
   email: "",
   time: "19:00",
@@ -195,7 +195,7 @@ function isEmailjsConfigured(settings: ReminderSettings): boolean {
 }
 
 /** POST the digest through the caller's EmailJS account. */
-export async function sendViaEmailjs(
+async function sendViaEmailjs(
   settings: ReminderSettings,
   copy: DigestCopy,
 ): Promise<void> {
@@ -302,14 +302,9 @@ export function startReminderScheduler(
   return stopReminderScheduler;
 }
 
-export function stopReminderScheduler(): void {
+function stopReminderScheduler(): void {
   if (schedulerTimer !== null) {
     window.clearInterval(schedulerTimer);
     schedulerTimer = null;
   }
-}
-
-/** Test helper: reset the module cache. */
-export function resetRemindersForTests(): void {
-  cached = null;
 }

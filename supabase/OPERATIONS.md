@@ -26,7 +26,7 @@ deploy, then re-run the restore drill below against the new value.
 
 ## Backups
 
-Two independent mechanisms, because they fail differently:
+Three mechanisms, because they fail differently:
 
 1. **PITR (point-in-time recovery)** — Supabase restores the whole database to
    any second inside the retention window. On the **Free plan that window is
@@ -37,6 +37,13 @@ Two independent mechanisms, because they fail differently:
    03:17 UTC, stores a custom-format dump as an artifact for 14 days, and then
    runs `pg_restore --list` on it so a truncated dump fails loudly instead of
    sitting there looking like a backup.
+3. **`node supabase/backup/backup.mjs`** — dumps every public table to one JSON
+   snapshot under `backup/snapshots/` (git-ignored). It is not a substitute for
+   either of the above: it carries rows, not the schema, and no sequences,
+   indexes or policies. What it is, is readable and diffable by a human, and
+   restorable by `backup/restore.mjs` on a machine that has neither `pg_dump`
+   nor `pg_restore` — which is the only reason the drill below is executable
+   here at all. Run it before and after any risky operation.
 
 Dumps go through the **session pooler** host (identical to the direct
 connection string). The transaction pooler cannot hold the advisory locks
@@ -57,48 +64,122 @@ pg_dump --format=custom --no-owner --no-privileges \
   > "manual-$(date -u +%Y%m%dT%H%M%SZ).dump"
 ```
 
+```bash
+# the readable JSON snapshot the drill below restores
+SUPABASE_ACCESS_TOKEN=<personal access token> SUPABASE_PROJECT_REF=<ref> \
+  node supabase/backup/backup.mjs
+```
+
 ## Restore drill
 
 **Run it before you need it.** A backup that has never been restored is a
-file, not a backup. Do this quarterly, and after any change to the schema:
+hypothesis, not a backup. Do this quarterly, and after any change to the schema.
 
-1. Create a fresh Supabase project (the staging project works; **never**
-   production).
-2. SQL Editor → run `migrations/0001_init.sql` into it, exactly as README.md
-   describes.
-3. Restore the newest dump into it:
-   `pg_restore --no-owner --no-privileges -d "postgresql://postgres.<staging-ref>:…@db.<staging-ref>.supabase.co:5432/postgres" backup-<stamp>.dump`
-   Expect FK-order noise if you restore into a schema that already has tables —
-   restore into an empty one instead.
-4. Prove the restored database, in this order:
-   - `node supabase/e2e/apply-migration.mjs --project <staging-ref>` covers the
-     next two bullets in one command (it skips the migration because the schema
-     is already there, asserts the first seven of `verify.sql`'s ten checks, then
-     runs the RLS file) and is
-     the only route that works on a machine without `psql`. The two files are
-     still worth running in the editor if that command reports something you have
-     to look at.
-   - `supabase/verify.sql` — ten read-only checks. Check 4 (`role_table_grants`
-     for `anon`) returning **zero rows** is the one that decides whether the
-     publishable key is safe to ship.
-   - `supabase/tests/rls_cross_tenant.sql` — two fake signed-in tenants in one
-     transaction, asserting that A cannot read, update or delete B's rows, that
-     an unconfirmed account cannot write, and that the anonymous link functions
-     still answer. Everything happens inside `BEGIN … ROLLBACK`, so a run leaves
-     no trace.
-   - `node supabase/e2e/replay-sweep.mjs` — the whole 77-method contract driven
-   - `node supabase/e2e/replay-sweep.mjs` — the whole 77-method contract driven
-     through the real client against a real Postgres: it creates three throwaway
-     accounts (two confirmed through GoTrue's public sign-up plus a direct
-     database session, one left unconfirmed on purpose), exercises sessions,
-     grading, notes, shares, links, settings and analytics, and deletes all three.
-     No service-role key is needed when `SUPABASE_DB_URL` is set; the service role
-     is the fallback. Exit 0 means every step matched the adapter's expectations.
-   - the app itself: point `src/frontend/.env.local` at staging
-     (`VITE_DATA_BACKEND=supabase`), sign in, and run Settings → *Import
-     archive* with a real exported file. This is the only check that exercises
-     `lib/archiveImport.ts` against Postgres rather than the mock.
-5. Record the date, the dump used, and any step that failed — then fix the step,
+There are two dump formats in this project and they restore differently:
+
+| Dump | Written by | Restored by |
+| --- | --- | --- |
+custom-format `pg_dump` | `.github/workflows/supabase-backup.yml`, or the `pg_dump` one-liner above | `pg_restore --no-owner --no-privileges` — needs `pg_dump`/`pg_restore` on the machine running it, which this one does not have |
+JSON snapshot under `backup/snapshots/` | `node supabase/backup/backup.mjs` | `node supabase/backup/restore.mjs` — needs `pg` **or** a Management API token, and nothing else |
+
+The JSON route exists because the drill was never executable on this machine: no
+`psql`, no Docker, no `pg_dump`. Run both if you can — the `pg_dump` is the
+complete artifact (schema, grants, sequences, everything) and the JSON snapshot
+is the one a human can open and diff.
+
+### The direct-Postgres route (one real transaction)
+
+```bash
+SUPABASE_DB_URL="postgresql://postgres.<staging-ref>:<password>@<session-pooler-host>:5432/postgres" \
+  NODE_PATH=<scratch folder that has pg installed> \
+  node supabase/backup/restore.mjs \
+    --snapshot supabase/backup/snapshots/<stamp>.json \
+    --into <staging-ref> --confirm <staging-ref>
+```
+
+`pg` is deliberately not a dependency of this project. Install it in a scratch
+folder outside the repo (`npm install pg`) and point `NODE_PATH` at it — the same
+dance `e2e/replay-sweep.mjs` documents, and the reason `AGENTS.md` says the
+pooler host is the one that resolves here. With `SUPABASE_DB_URL` set the whole
+restore runs inside one `begin … commit`, so a failure halfway leaves the target
+exactly as it was; the script prints which transport it used.
+
+### The HTTPS route (no driver at all)
+
+```bash
+SUPABASE_ACCESS_TOKEN=<personal access token> \
+  node supabase/backup/restore.mjs \
+    --snapshot supabase/backup/snapshots/<stamp>.json \
+    --into <staging-ref> --confirm <staging-ref>
+```
+
+The Management API hands **each request a fresh pooled connection**, so
+`begin`/`commit` cannot span requests and the restore is posted as one script
+instead. That is a weaker guarantee than the driver route: statements the API
+already ran are committed. Prefer `SUPABASE_DB_URL` when you have it, and treat
+an aborted HTTPS restore as a target to drop rather than resume.
+
+Both routes accept:
+
+- `--dry-run` — the full preflight (tables, columns, emptiness, account
+  coverage, FK order) plus the first lines of the SQL, and zero writes. Run this
+  first.
+- `--into <ref>` / `--confirm <ref>` — the target, twice, and they must agree.
+  Required even for a dry run: the script should never guess which project a
+  command line means, and the variable that selects one is the same one that
+  selected the project you were debugging ten minutes ago.
+- `--snapshot <file>` — a specific dump. Without it the newest file in
+  `supabase/backup/snapshots/` is used.
+- `--create-missing-users` — inserts a password-less, identity-less row in
+  `auth.users` for each owner the snapshot names but the target lacks, so the
+  rows have a home. **Nobody can sign in as those accounts**, so this proves the
+  data shape and nothing more; a real recovery needs the accounts.
+- `--allow-nonempty` — truncate the target anyway. For a throwaway project only.
+- `--force-into-source` — override the refusal to restore into the project the
+  snapshot came from. Read the refusal below twice before using it.
+
+What it refuses, all before writing anything: a target that is not empty
+(`--allow-nonempty` excepted), an `auth.users` row missing for an owner
+(`--create-missing-users` excepted), a snapshot whose `id` exceeds 2^53 (JSON
+numbers would already have lost precision, so it would restore a *different*
+row), circular foreign keys, and **its own source project** — restoring over the
+database a snapshot came from is not a drill, it is a rewrite of production, and
+because the TRUNCATE runs first a mistake there is not caught by a later
+failure.
+
+### Then prove the restored database
+
+`restore.mjs` verifies its own write — row count per table, tables without RLS,
+tables without FORCE, `anon` table grants — and prints `DRILL PASS` or
+`DRILL FAIL`. That is the dump landing, not the app working. Continue in order:
+
+1. `node supabase/e2e/apply-migration.mjs --project <staging-ref>` — asserts the
+   first seven of `verify.sql`'s ten checks plus the RLS file in one command, and
+   skips the migration because the schema is already there. The two files are
+   still worth running in the editor if that command reports something you have
+   to look at.
+2. `supabase/verify.sql` — ten read-only checks. Check 4 (`role_table_grants`
+   for `anon`) returning **zero rows** is the one that decides whether the
+   publishable key is safe to ship.
+3. `supabase/tests/rls_cross_tenant.sql` — two fake signed-in tenants in one
+   transaction, asserting that A cannot read, update or delete B's rows, that
+   an unconfirmed account cannot write, and that the anonymous link functions
+   still answer. Everything happens inside `BEGIN … ROLLBACK`, so a run leaves
+   no trace.
+4. `node supabase/e2e/replay-sweep.mjs` — the whole 77-method contract driven
+   through the real client against a real Postgres: it creates three throwaway
+   accounts (two confirmed through GoTrue's public sign-up plus a direct
+   database session, one left unconfirmed on purpose), exercises sessions,
+   grading, notes, shares, links, settings and analytics, and deletes all three.
+   No service-role key is needed when `SUPABASE_DB_URL` is set; the service role
+   is the fallback. Exit 0 means every step matched the adapter's expectations.
+5. the app itself: point `src/frontend/.env.local` at staging
+   (`VITE_DATA_BACKEND=supabase`), sign in **with an account that exists in the
+   snapshot**, and open the dashboard — a count that matches is not the same as
+   a page that renders. Then run Settings → *Import archive* with a real exported
+   file, the only check that exercises `lib/archiveImport.ts` against Postgres
+   rather than the mock.
+6. Record the date, the dump used, and any step that failed — then fix the step,
    not the record.
 
 ## Edge Function: `ai-proxy`
@@ -155,24 +236,32 @@ the four checks above, and only then apply.
 
 Stated plainly, because a runbook that hides its holes is worse than none:
 
-- **No restore has ever been performed.** The drill above has never been
-  executed end to end, and neither has any step of it — there is a database now,
-  but no `pg_dump` of it. See README.md → *What is not done yet*.
+- **No backup has been taken and no restore has been performed.** The drill
+  above is now a command rather than a procedure — `backup/restore.mjs` has been
+  exercised end to end against a simulated database (both transports, every
+  refusal path, a deliberately broken count) but never against a real project,
+  and there is no snapshot on disk yet because `backup.mjs` has never been run.
+  Until both happen the honest statement is "we can restore", not "we can
+  recover". See README.md → *What is not done yet*.
 - **`0001_init.sql` is live on production and has no CI history behind it.** It
   was applied by hand over a direct Postgres session on 2026-09-27, not by the
   migration job, so the pipeline has never had a schema revision to compare
   against and the first automated run will meet an existing schema.
-- **`0002_rate_limits.sql` and `0003_short_code_entropy.sql` are written and not
-  applied.** Until 0002 is, the ten token-addressed functions `anon` may execute
-  have no database-side throttle. Until 0003 is, the database still refuses
-  anything but a 7-character code (~35 bits) even though
-  `lib/supabase/tokens.ts` now mints 10 (~50 bits) — so creating a short link
-  against the live project fails as `badCode` until that migration lands, which
-  makes it a functional requirement and not only a hardening one. 0003
-  re-declares `create_link` and calls `enforce_rate_limit` only if it exists, so
-  0003 calls `enforce_rate_limit` only if it exists, but it must be applied
-  **after** 0002, whose own copy of `create_link` still validates exactly 7
-  characters — re-running 0002 later would put the narrow rule back.
+- **`0002_rate_limits.sql`, `0003_short_code_entropy.sql` and
+  `0004_correctness.sql` are written and not applied.** Until 0002 is, the ten
+  token-addressed functions `anon` may execute have no database-side throttle.
+  Until 0003 is, the database still refuses anything but a 7-character code
+  (~35 bits) even though `lib/supabase/tokens.ts` now mints 10 (~50 bits) — so
+  creating a short link against the live project fails as `badCode` until that
+  migration lands, which makes it a functional requirement and not only a
+  hardening one. Until 0004 is, two tabs finishing one test write two result
+  rows for it and the analytics accuracy buckets drift upward with no visible
+  cause. **Order: 0001 → 0002 → 0003 → 0004.** 0003 re-declares `create_link`,
+  so it must follow 0002, whose own copy still validates exactly 7 characters —
+  re-running 0002 later would put the narrow rule back. And 0004's revoke of
+  `enforce_rate_limit` from `authenticated` only holds if 0002 went first,
+  because the bottom of that file runs a blanket
+  `grant execute on all functions in schema public to authenticated`.
 - **The security headers this project can send are the ones a `<meta>` can
   carry — unless the host reads the file the build now emits.** The
   Content-Security-Policy is stamped into the built `index.html`

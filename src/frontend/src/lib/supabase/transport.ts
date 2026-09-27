@@ -113,7 +113,7 @@ type AnyBuilder = PromiseLike<QueryEnvelope> & {
   delete: () => AnyBuilder;
 };
 
-export function createTransport(client: SupabaseClient): SupabaseTransport {
+function createTransport(client: SupabaseClient): SupabaseTransport {
   const table = (name: string): AnyBuilder =>
     client.from(name) as unknown as AnyBuilder;
 

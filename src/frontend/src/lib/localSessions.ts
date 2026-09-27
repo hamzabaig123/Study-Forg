@@ -169,25 +169,9 @@ export function completeLocalSession(
   return completed;
 }
 
-export function deleteLocalSession(id: string): void {
-  persist({
-    version: 1,
-    sessions: load().sessions.filter((session) => session.id !== id),
-  });
-}
-
-// useSyncExternalStore compares snapshots with Object.is, so the list getters
-// must hand back the same array reference until the store actually changes.
-let allCache: { source: StoreShape; value: LocalSession[] } | null = null;
+// useSyncExternalStore compares snapshots with Object.is, so list getters must
+// hand back the same array reference until the store actually changes.
 let completedCache: { source: StoreShape; value: LocalSession[] } | null = null;
-
-export function listLocalSessions(): LocalSession[] {
-  const source = load();
-  if (!allCache || allCache.source !== source) {
-    allCache = { source, value: source.sessions };
-  }
-  return allCache.value;
-}
 
 export function listCompletedLocalSessions(): LocalSession[] {
   const source = load();
@@ -215,11 +199,4 @@ export function subscribeLocalSessions(listener: () => void): () => void {
     listeners.delete(listener);
     window.removeEventListener("storage", onStorage);
   };
-}
-
-/** Testing helper: drop the in-memory cache and the stored copy. */
-export function resetLocalSessionsForTests(): void {
-  cache = null;
-  safeSetItem(STORAGE_KEY, stringifyWithBigints({ version: 1, sessions: [] }));
-  for (const listener of listeners) listener();
 }

@@ -16,6 +16,8 @@ the localStorage archive the app used when there was no server.
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the other three files are pasted by hand until a runner that knows about all of them exists
 `e2e/replay-sweep.mjs` | The 77-method contract driven against a live database through the real client. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and **either** `SUPABASE_DB_URL` **or** `SUPABASE_SERVICE_ROLE_KEY`; creates three throwaway accounts (two confirmed, one deliberately left unconfirmed) and deletes all three. No service key required — see the header of the script
 `functions/ai-proxy/` | The Edge Function that calls Gemini or OpenRouter with keys held on the server, so the browser never stores one. Deploy command in its header
+`backup/backup.mjs` | Dumps every public table to one readable JSON snapshot under `backup/snapshots/` (git-ignored — that folder holds other people's homework). Needs `SUPABASE_ACCESS_TOKEN` + `SUPABASE_PROJECT_REF`
+`backup/restore.mjs` | The other half: restores a JSON snapshot into a **different** project and then proves it — row counts, RLS and `anon` grants re-read after the write, not assumed from the schema file. `--into <ref>` and `--confirm <ref>` are both required and must agree; `--dry-run` does the whole preflight and writes nothing; it refuses a non-empty target, an `auth.users` owner the snapshot needs, and its own source project. Both transports and every flag are in OPERATIONS.md → *Restore drill*
 `OPERATIONS.md` | Backups, PITR, the restore drill, key rotation and the staging → production path
 `.env.example` | Copy to `.env` and fill in. **`.env` is git-ignored and must stay that way**
 
@@ -196,6 +198,12 @@ credential:
 - Backups, PITR and the restore drill are written down in `OPERATIONS.md`, and
   the nightly workflow exists, but neither has run: the Free plan caps the
   database at a seven-day PITR window, and no dump has ever been restored.
+  `backup/restore.mjs` now makes the restore itself a command rather than a
+  procedure, but it has only ever been exercised against a simulated database —
+  both transports, every refusal path, a deliberately broken count — never
+  against a real project, and `backup.mjs` has never produced a snapshot. Until
+  those two things happen the honest statement is "we can restore", not "we can
+  recover".
 - `studyforge.custom-sessions.v1` (Test Builder runs and their results) is
   device-local in every mode: it is not in the archive the exporter writes, not
   erased by "Clear local data", and has no table in this schema.

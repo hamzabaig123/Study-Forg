@@ -98,9 +98,9 @@ export function useAiProviders() {
   return { providers, connect, choose, disconnect, chooseOffline, followKey };
 }
 
-export type ExtractionPhase = "idle" | "reading" | "extracting";
+type ExtractionPhase = "idle" | "reading" | "extracting";
 
-export interface RunResult {
+interface RunResult {
   drafts: QuestionDraft[];
   /** How many drafts the queue holds now — more than `drafts.length` after a retry merged in. */
   queued: number;

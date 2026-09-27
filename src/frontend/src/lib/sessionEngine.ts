@@ -31,7 +31,7 @@ export interface TopicLabels {
   topicName: string;
 }
 
-export interface PoolEntry {
+interface PoolEntry {
   question: Question;
   labels: TopicLabels;
 }
@@ -49,7 +49,7 @@ export interface TestSelection {
   questionCount?: number;
 }
 
-export interface TestConfig {
+interface TestConfig {
   mode: SessionMode;
   /** `null` means "all questions in the pool". */
   questionCount: number | null;
@@ -61,7 +61,7 @@ export interface TestConfig {
 }
 
 /** Fisher–Yates shuffle on a copy; the input array is never mutated. */
-export function shuffle<T>(items: readonly T[]): T[] {
+function shuffle<T>(items: readonly T[]): T[] {
   const out = [...items];
   for (let i = out.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -125,7 +125,7 @@ export function describeCorrectAnswer(answer: AnswerData): string {
 
 /** Display options for one question, optionally shuffled. Safe because answers
  * are graded by option id, not by position. */
-export function displayOptions(
+function displayOptions(
   question: Question,
   shuffleThem: boolean,
 ): QuestionOption[] {
@@ -192,7 +192,7 @@ export interface AssembledQuestion {
   labels: TopicLabels;
 }
 
-export interface AssembledTest {
+interface AssembledTest {
   questions: AssembledQuestion[];
   /** How many questions the pool held before the count was applied. */
   poolSize: number;

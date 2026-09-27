@@ -4,7 +4,6 @@
  */
 import { useDashboardStats } from "@/hooks/useAnalytics";
 import { useAuth } from "@/hooks/useAuth";
-import { useBackend } from "@/hooks/useBackend";
 import { useStudyProgress } from "@/hooks/useStudyProgress";
 import {
   type DigestInput,
@@ -12,7 +11,6 @@ import {
   type SendOutcome,
   buildDigest,
   getReminderSettings,
-  saveReminderSettings,
   sendDigestNow,
   startReminderScheduler,
 } from "@/lib/reminders";
@@ -26,10 +24,6 @@ export function useReminderSettings(): ReminderSettings {
     getReminderSettings,
     getReminderSettings,
   );
-}
-
-export function useSaveReminderSettings() {
-  return saveReminderSettings;
 }
 
 /** The digest StudyForge would send right now, from live progress data. */
@@ -108,9 +102,4 @@ export function useSendTestDigest(): {
   };
 
   return { send, sending };
-}
-
-export function useReminderBackendReady(): boolean {
-  const { actor } = useBackend();
-  return !!actor;
 }

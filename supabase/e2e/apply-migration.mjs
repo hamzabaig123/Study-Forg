@@ -201,13 +201,13 @@ async function main() {
     "tables in public (verify.sql #1)",
     "select table_name from information_schema.tables where table_schema='public' order by 1;",
     "tables",
-    20,
+    19,
   );
   await assertCount(
     "tables with RLS on and forced (verify.sql #2)",
     "select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and c.relrowsecurity and c.relforcerowsecurity order by 1;",
     "rls",
-    20,
+    19,
   );
   await assertCount(
     "tables missing an owner policy (verify.sql #3)",

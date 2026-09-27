@@ -13,7 +13,7 @@ import { type AnswerData, QuestionType } from "@/types";
 import type { Id } from "@/types";
 import { useState } from "react";
 
-export interface ImportProblem {
+interface ImportProblem {
   reason: string;
 }
 
@@ -72,7 +72,7 @@ function toAnswerData(draft: QuestionDraft): AnswerData {
   };
 }
 
-export interface ImportResult {
+interface ImportResult {
   saved: number;
   skipped: number;
 }

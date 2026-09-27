@@ -5,12 +5,23 @@ onlyBuiltDependencies:
   - esbuild
   - sharp
 # @dfinity/pic's postinstall downloads a PocketIC server binary from GitHub
-# releases (~50MB gzipped, larger on disk) and throws if the download fails.
+# releases (~50MB gzipped, larger on disk) and throws if the download fails. On
+# Windows it throws before downloading anything, with
+# "Unsupported platform: win32. Only linux and darwin are supported." — which is
+# why a plain `pnpm install` there exits 1, and why a build container that
+# reaches for GitHub can fail the same way for a network reason instead.
 # The backend test lane talks to the platform's PocketIC sidecar over
 # POCKETIC_SIDECAR_URL and never starts a server of its own, so the binary is
-# dead weight and fetching it would make every build container depend on GitHub
-# being reachable. pnpm already declines unlisted build scripts by default;
-# naming it here makes that explicit and keeps the warning out of build logs.
+# dead weight and the script must not run.
+#
+# Two keys, because the two pnpm generations mean "decline this script"
+# differently and neither one reads the other's: `ignoredBuiltDependencies` here
+# is honoured by pnpm 10+, which runs only allow-listed scripts; pnpm 9 runs
+# every script unless the package is named in `neverBuiltDependencies` in the
+# root package.json, and ignores this key entirely — so the same install that is
+# safe on one version crashes on the other. The pin in package.json's
+# `packageManager` is what makes "which generation runs" a decision rather than
+# an environment accident. `git grep -n neverBuiltDependencies` shows both sides.
 # The client library the lane imports is unaffected.
 ignoredBuiltDependencies:
   - '@dfinity/pic'

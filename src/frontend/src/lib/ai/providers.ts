@@ -198,7 +198,7 @@ export function findProvider(
 type KeyStore = "session" | "device";
 
 /** Where a saved key actually ended up. `none` means it was cleared. */
-export type KeyPersistence = "session" | "device" | "none";
+type KeyPersistence = "session" | "device" | "none";
 
 /** False on an insecure origin, where a persisted key crosses a network too. */
 function deviceStorageAllowed(): boolean {
@@ -482,7 +482,7 @@ export function withCurrent(
   return [{ id: current, label: current, vision: true }, ...models];
 }
 
-export const EXTRACTION_INSTRUCTIONS = `You are an exam-paper parser.
+const EXTRACTION_INSTRUCTIONS = `You are an exam-paper parser.
 
 From the supplied page, extract EVERY multiple-choice question and EVERY short/descriptive question-answer pair you can find. Do not summarise, do not skip, do not invent questions that are not on the page.
 
@@ -505,7 +505,7 @@ type ChatContent =
  * A failure worth repeating: a busy model or a rate limit, not a bad key.
  * `retryAfterMs` is what the provider asked for, when it said anything at all.
  */
-export class TransientProviderError extends Error {
+class TransientProviderError extends Error {
   readonly retryAfterMs: number | null;
 
   constructor(message: string, retryAfterMs: number | null = null) {
@@ -860,7 +860,7 @@ function requestModel(
   );
 }
 
-export interface ProviderReply {
+interface ProviderReply {
   text: string;
   /** The model that answered, which is not always the one asked. */
   model: string;

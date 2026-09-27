@@ -43,7 +43,7 @@ export function getSupabase(): SupabaseClient {
 }
 
 /** PostgREST errors carry a code worth keeping; callers surface the message. */
-export class SupabaseError extends Error {
+class SupabaseError extends Error {
   readonly code: string;
 
   constructor(message: string, code: string) {

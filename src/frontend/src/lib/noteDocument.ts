@@ -11,7 +11,7 @@
  * parse must still open.
  */
 
-export const NOTE_DOCUMENT_VERSION = 1 as const;
+const NOTE_DOCUMENT_VERSION = 1 as const;
 
 export type NoteBlockKind =
   | "heading"
@@ -21,37 +21,37 @@ export type NoteBlockKind =
   | "formula"
   | "divider";
 
-export interface HeadingBlock {
+interface HeadingBlock {
   id: string;
   kind: "heading";
   text: string;
 }
 
-export interface ParagraphBlock {
+interface ParagraphBlock {
   id: string;
   kind: "paragraph";
   text: string;
 }
 
-export interface BulletListBlock {
+interface BulletListBlock {
   id: string;
   kind: "bulletList";
   items: string[];
 }
 
-export interface CalloutBlock {
+interface CalloutBlock {
   id: string;
   kind: "callout";
   text: string;
 }
 
-export interface FormulaBlock {
+interface FormulaBlock {
   id: string;
   kind: "formula";
   text: string;
 }
 
-export interface DividerBlock {
+interface DividerBlock {
   id: string;
   kind: "divider";
 }
@@ -91,7 +91,7 @@ const BLOCK_KINDS: NoteBlockKind[] = [
 let blockCounter = 0;
 
 /** Stable, collision-resistant id for a newly created block. */
-export function createBlockId(): string {
+function createBlockId(): string {
   blockCounter += 1;
   return `blk-${Date.now().toString(36)}-${blockCounter.toString(36)}`;
 }
@@ -221,9 +221,4 @@ export function extractPlainText(document: NoteDocument): string {
     }
   }
   return parts.join("\n");
-}
-
-/** True when a document has no visible content yet. */
-export function isDocumentEmpty(document: NoteDocument): boolean {
-  return extractPlainText(document).length === 0;
 }

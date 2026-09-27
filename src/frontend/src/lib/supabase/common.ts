@@ -12,7 +12,7 @@ import type { Id } from "@/backend";
 import { tokenHash } from "./tokens";
 import type { Row, SupabaseTransport } from "./transport";
 
-export interface Adapter {
+interface Adapter {
   transport: SupabaseTransport;
 }
 

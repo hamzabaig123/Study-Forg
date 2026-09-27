@@ -14,7 +14,6 @@ import {
 import { timestampToDate } from "@/lib/format";
 import {
   listCompletedLocalSessions,
-  listLocalSessions,
   subscribeLocalSessions,
 } from "@/lib/localSessions";
 import type { LocalSession } from "@/lib/localSessions";
@@ -59,17 +58,8 @@ function localToAttempt(session: LocalSession): MergedAttempt {
   };
 }
 
-/** Every session in the local store, active and completed. */
-export function useLocalSessions(): LocalSession[] {
-  return useSyncExternalStore(
-    subscribeLocalSessions,
-    listLocalSessions,
-    listLocalSessions,
-  );
-}
-
 /** Completed local tests, newest first. */
-export function useCompletedLocalSessions(): LocalSession[] {
+function useCompletedLocalSessions(): LocalSession[] {
   return useSyncExternalStore(
     subscribeLocalSessions,
     listCompletedLocalSessions,
