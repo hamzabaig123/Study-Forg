@@ -5,7 +5,7 @@
  * StudyForge's mail service (the reminder-sender Edge Function), with every
  * attempt recorded in the account's reminder_log table. While the app is open, a
  * scheduler checks once a minute and fires the day's digest at the configured
- * time. With no EmailJS account in the Supabase mode the request goes to the
+ * time. On the Supabase backend the request goes to the
  * scheduled mail runner instead, and where neither is available the same
  * digest surfaces as a browser notification so the nudge still happens.
  *
@@ -37,8 +37,7 @@ export interface ReminderSettings {
   /** Local day key of the last fired digest, so it fires once per day. */
   lastSentDate: string | null;
   /**
-   * The reviewer's own EmailJS account. Device-local by design — only the
-   * fields above mirror to the account's database row.
+     * fields above mirror to the account's database row.
    */
 }
 
