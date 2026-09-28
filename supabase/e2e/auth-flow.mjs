@@ -16,11 +16,12 @@
  *   [SUPABASE_PASSWORD_FLOOR=10] \
  *   node supabase/e2e/auth-flow.mjs
  *
- * The service key is used for exactly two calls on one throwaway account this
- * script creates: confirming its address (so the check does not depend on a
- * mailbox) and deleting it at the end. Everything else is the ordinary public
- * API. Nothing it prints is a credential — passwords it generates are shown as
- * lengths, and error bodies are echoed only for the refusals it expects.
+ * The service key is used for exactly two admin routes on the one throwaway
+ * account this script creates: confirming its address (so the check does not
+ * depend on a mailbox) and deleting it at the end — the delete runs again from
+ * the cleanup path if a step failed in between. Everything else is the ordinary
+ * public API. Nothing it prints is a credential — passwords it generates are
+ * shown as lengths, and error bodies are echoed only for the refusals it expects.
  *
  * Exit 0 = every step passed. Exit 1 = a step failed and is named. Exit 2 = the
  * environment is short.
