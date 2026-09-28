@@ -47,8 +47,8 @@ password inside the email itself.
    hour, leave from a shared `*.supabase.co` address, and Gmail files them
    under Spam — so a correctly pasted template can still look like "the
    verification email never came". Saving the settings does not test them: the
-   failure only surfaces on the next request. Route them through your own
-   verified domain first; the field values and the SMTP-key-vs-API-key trap are
+   failure only surfaces on the next request. Route them through Gmail as the
+   relay — the field values and the app-password trap are
    in `../README.md` → *Sending auth mail through an SMTP relay*, and
    `../e2e/auth-mail-check.mjs` proves which side failed.
 4. If a template is edited in the dashboard later, copy the change back into

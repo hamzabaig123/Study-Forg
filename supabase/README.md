@@ -197,27 +197,26 @@ account's local send time), so the tick can safely run every 10 minutes in UTC.
 Confirm afterwards with `select * from cron.job`, and remove it again with
 `select cron.unschedule('studyforge-reminder-tick')`.
 
-## Brevo as the auth mailer (custom SMTP)
+## Gmail as the auth mailer (custom SMTP)
 
 Verification and password-reset emails are sent by **Supabase Auth itself**,
 not by `reminder-sender` — and the built-in mailer allows only a few per hour,
-which is where "email rate limit exceeded" comes from. Pointing Supabase at
-[Brevo](https://brevo.com) (free: 300 emails/day) removes that ceiling, and a
-domain-verified sender is what lands the mail in Gmail's inbox rather than
-spam. Pure dashboard work, no code:
+which is where "email rate limit exceeded" comes from. Pointing Supabase at a
+Gmail app password removes that ceiling and sends from an address that exists.
+Pure dashboard work, no code:
 
-1. Create a Brevo account → **Senders** → add and verify a sender (your own
-   address). With a domain you own: **Senders & Domains → Domains** → add it
-   and paste the DNS records it shows — this is what makes Gmail trust the mail.
-2. **SMTP & API** → copy the SMTP host (`smtp-relay.brevo.com`, port 587), your
-   Brevo login email, and the SMTP key.
-3. Supabase dashboard → **Authentication → SMTP Settings** → enable custom SMTP
-   and fill in those values → Save. From then on, verification, password
-   reset, invite and magic-link emails all ride Brevo. If anything goes wrong,
-   the same toggle switches back to the built-in mailer instantly.
-4. The reminder chain here reads the API key too: set `BREVO_API_KEY` and
-   `BREVO_FROM` (the verified sender address) as function secrets, and digest
-   email goes out through Brevo first — Resend stays as the fallback behind it.
+1. Google account → **Security** → 2-Step Verification → **App passwords** →
+   create one for "Mail". That 16-letter password is `SMTP_PASS`; the account
+   password is never accepted.
+2. Supabase dashboard → **Authentication → SMTP Settings** → enable custom SMTP
+   and fill in the field table under *Sending auth mail through an SMTP relay*
+   below → Save. From then on, verification, password reset, invite and
+   magic-link emails all ride Gmail. If anything goes wrong, the same toggle
+   switches back to the built-in mailer instantly.
+3. The reminder digest is a **separate** mail path and stays on Brevo's REST
+   API with Resend behind it: `BREVO_API_KEY`/`BREVO_FROM` (and optionally
+   `RESEND_API_KEY`) are function secrets for `functions/reminder-sender`, not
+   SMTP settings. Nothing in this project speaks Brevo **SMTP** any more.
 
 For web push, generate a P-256 VAPID pair once; the public half goes to the
 browser (it already ships in `lib/push.ts`), the private half becomes the
@@ -279,24 +278,21 @@ there:
   until a new password is saved, so a link opened by a stranger who guessed the
   address cannot read the account's rows on the way past it.
 
-### Sending auth mail through an SMTP relay (Brevo)
+### Sending auth mail through an SMTP relay (Gmail)
 
 Verification and password-reset mail are sent by **GoTrue**, not by this app and
 not by `functions/reminder-sender`. That single fact decides the provider:
 GoTrue's built-in mailer speaks **SMTP only**, so a REST-only provider (Resend
-does) cannot be selected in the SMTP settings screen — which is why the digest
-has its own mail path and the auth flows have had to use this one. *Had to*: a
-**Send Email hook** replaces that mailer outright and puts auth mail back on a
-REST provider, which is the route documented under *Taking auth mail off SMTP
-entirely* below.
+does, and Brevo's API half too) cannot be selected in the SMTP settings screen
+— which is why the digest has its own mail path and the auth flows have to use
+an SMTP one.
 
-Brevo works because it has both halves: an SMTP relay for GoTrue, and a REST
-API for the digest. Until it is switched on, both emails leave through
-Supabase's built-in sender, which is capped at **2 messages per hour** and
-sends from a shared `*.supabase.co` address that Gmail files under Spam — that
-cap is the real reason a second verification mail "never arrives" right after
-the first one worked. After you configure your own relay, Supabase still starts
-it at **30 messages per hour**, raisable under Authentication → **Rate limits**.
+Until a relay is switched on, both emails leave through Supabase's built-in
+sender, which is capped at **2 messages per hour** and sends from a shared
+`*.supabase.co` address that Gmail files under Spam — that cap is the real
+reason a second verification mail "never arrives" right after the first one
+worked. After you configure your own relay, Supabase still starts it at
+**30 messages per hour**, raisable under Authentication → **Rate limits**.
 
 **Saving these settings does not test them.** The dashboard accepts wrong
 credentials and reports nothing; the failure only surfaces on the next request,
@@ -308,41 +304,61 @@ Dashboard → Authentication → **SMTP settings** (the fields map to GoTrue's
 
 | Field | Value |
 | --- | --- |
-| Host | `smtp-relay.brevo.com` — no scheme, no `:587` appended, no trailing space |
-| Port | **`587` with STARTTLS.** This is the only pairing that works |
-| Username | the email address you log into Brevo with |
-| Password | the **SMTP key**, generated on Brevo's SMTP & relay page |
-| Sender email | an address on a domain you verified at Brevo |
+| Host | `smtp.gmail.com` — no scheme, no `:587` appended, no trailing space |
+| Port | **`587` with STARTTLS.** This is the pairing verified here |
+| Username | the full Gmail address, `@gmail.com` included |
+| Password | a 16-character **app password**, not the account password |
+| Sender email | the same Gmail address (or an alias Google lets it send as) |
 | Sender name | `StudyForge` |
 
-**Do not use `2465`.** An earlier revision of this table offered it as the SSL
-alternative; from this network it is a silent drop, which is the one wrong value
-that produces a 35-second hang and an HTTP 504 instead of an error message.
-Measured against the live relay from this machine on 2026-09-28:
+An app password only exists once 2-Step Verification is on: Google account →
+Security → 2-Step Verification → **App passwords**. The account password is
+refused at `AUTH LOGIN` no matter how many times it is retyped, and Google
+retired the "less secure apps" switch that used to accept it.
 
-| Port | Plaintext banner | TLS handshake | Verdict |
-| --- | --- | --- | --- |
-| `587` | `220 smtp-relay.brevo.com ESMTP Service Ready` | as implicit TLS: `ERR_SSL_WRONG_VERSION_NUMBER` | **STARTTLS only** — EHLO, STARTTLS, `220`, then a working encrypted EHLO |
-| `2525` | same banner | same refusal | also STARTTLS, usable if 587 is blocked by a host |
-| `2465` | none | **connect hangs until timeout** | silently dropped; a mismatch here never errors, it just stalls |
-| `465` | none | succeeds | implicit TLS, but Supabase's field pair for it is easy to get wrong |
-| `25` | none | — | blocked as everywhere |
+Measured against `smtp.gmail.com:587` from this machine on 2026-09-28 with
+`e2e/smtp-relay-check.mjs` — the first relay this project has tried that got
+past authentication:
 
-A port that drops packets is the one failure mode the dashboard cannot show you
-and GoTrue cannot report: nothing is refused, so nothing is written to the
-response, and the request simply waits until the platform gives up. If
-`auth-mail-check.mjs` answers 504, this table is the first thing to read.
+```
+  ← 220 smtp.gmail.com ESMTP … - gsmtp
+  → EHLO studyforge-check.local
+  ← 250 … STARTTLS …
+  → STARTTLS   ← 220 2.0.0 Ready to start TLS
+  ← encrypted session up in 1410 ms
+  → AUTH LOGIN ← 334 (username) / 334 (password)
+  ← 235 2.7.0 Accepted              authentication: passed
+  → MAIL FROM:<…>       ← 250 2.1.0 OK    sender: accepted
+  → RCPT TO:<…>         ← 250 2.1.5 OK    destination: accepted
+```
 
-Two things trip almost everybody:
+The same run with the last character of the app password changed returns the
+line that identifies the field on its own:
 
-- **The SMTP key and the API key are different strings.** The relay wants the
-  SMTP key; the API key (which is what `functions/reminder-sender` will use in
-  step B) authenticates against `api.brevo.com` and answers
-  `535 Authentication failed` on port 587.
-- **The sender must be verified first.** Brevo → Settings → Senders → Domain,
-  with the SPF/DKIM/DMARC records it shows you added at your registrar. An
-  unverified `From` is refused before anything is queued, so the failure looks
-  like an auth problem rather than a reputation problem.
+```
+← 535 5.7.8 Username and Password not accepted. … https://support.google.com/mail/?p=BadCredentials
+```
+
+Three things this table cannot tell you:
+
+- **The port must match the mode.** Gmail also answers `465`, and that one is
+  *implicit* TLS — point GoTrue's `587` at it, or the reverse, and nothing is
+  refused: the connection just sits there until the platform gives up with
+  HTTP 504. Port 25 is blocked outbound as everywhere. `smtp-relay-check.mjs`
+  prints the mode that worked; `SMTP_TLS=1` tests `465`.
+- **A `535` from Gmail is a password problem, not a key problem.** Unlike
+  Brevo, there is no second "API key" string to confuse it with; the two
+  failures are the account password used instead of an app password, and an
+  app password Google has revoked.
+- **The `From` has to be the authenticated address.** Gmail accepts
+  `MAIL FROM` for that user and its own aliases, and refuses anything else
+  before anything is queued — so a custom sender name looks like an auth
+  problem rather than a sender problem.
+
+One ceiling to know about: a personal Gmail account is rate-limited by Google
+and a sudden burst of identical mail is what flags it. That is no trouble for
+verification and reset traffic, and it is a reason not to send a bulk campaign
+from the same address.
 
 Rollback is one click: clear the SMTP fields and GoTrue goes straight back to
 the built-in sender. Nothing in the app changes either way, and no template is
@@ -375,47 +391,22 @@ arrived, `via <your domain>`, link host, and the reason Gmail's *Show original
 output names which *kind* of failure the shape is and where the exact field is
 written down. Exit 2 = missing input.
 
-### Taking auth mail off SMTP entirely: the Send Email hook
+### Why there is no Send Email hook here
 
-**Deploy it, then wire it.** Both commands are one-liners, and the second one is
-the step that actually changes what GoTrue does:
+**Deleted, on purpose.** A hook (`functions/auth-mail`) did exist here: it took
+the token from GoTrue, built the `/auth/v1/verify` link itself and mailed it
+through Brevo's REST API with Resend behind it, which is the same path the
+digest already used. It was never deployed, and it is gone from the tree now —
+Gmail SMTP is a working relay with no function to maintain, no second secret,
+and no hook URL to rotate. Two consequences worth remembering if the hook is
+ever rebuilt:
 
-```bash
-node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))'  # the hook secret
-supabase secrets set AUTH_HOOK_SECRET=<that string> --project-ref qjoijoxmnliarlyaqmoz
-supabase functions deploy auth-mail --no-verify-jwt --project-ref qjoijoxmnliarlyaqmoz
-```
-
-Then Dashboard → Authentication → **Hooks → Send email** → enable it and set the
-URL to `https://qjoijoxmnliarlyaqmoz.functions.supabase.co/auth-mail?secret=<that
-string>`. From that moment GoTrue does not open an SMTP connection at all.
-
-What the hook replaces, and what it does not:
-
-- It receives `{ user, email_data }` — `token_hash`, `email_action_type`,
-  `redirect_to` — builds `SUPABASE_URL/auth/v1/verify?token=…&type=…&redirect_to=…`,
-  and delivers it through **Brevo's REST API first, Resend behind it**: the two
-  credentials `reminder-sender` already uses, so the digest's working mail path
-  is what auth mail now rides on. No SMTP key exists anywhere in it.
-- A 200 from the function is the only thing that counts as sent. If both
-  providers refuse, the function answers 502 and the visitor sees an error
-  instead of waiting for a mail that will never come.
-- **The `email-templates/` HTML stops being used while the hook is on.** GoTrue
-  hands over the token, not a rendered template, so the copy lives in
-  `functions/auth-mail/index.ts`. Turning the hook off returns both the templates
-  and the SMTP sender to service.
-- `--no-verify-jwt` is required because a hook caller has no user session, which
-  makes the URL's `secret` the only credential. `authorized()` in the function
-  demands it and refuses everything if `AUTH_HOOK_SECRET` is unset, so the
-  endpoint cannot become a form anyone can post to and mail arbitrary addresses
-  from a verified sender. Rotating it means changing the secret *and* the hook
-  URL together.
-
-`node supabase/e2e/auth-mail-hook-check.mjs` runs the real function under Node
-against synthetic GoTrue payloads with every provider call intercepted — link
-shape, per-action copy, escaping of the address, the secret gate, and both
-provider-refusal paths. It is the only way to verify this file on a machine with
-no Deno, and it touches no network and sends no mail.
+- GoTrue's SMTP settings do the whole job, so `email-templates/` stays the
+  version of record for the HTML instead of the copy moving into a function.
+- A hook caller has no user session, so a deployed hook needs `--no-verify-jwt`
+  and has to authenticate the caller itself. Getting that wrong turns an Edge
+  Function URL into a form anyone can post to and mail arbitrary addresses from
+  a verified sender.
 
 **When GoTrue masks the reason, ask the relay directly.**
 `supabase/e2e/smtp-relay-check.mjs` runs the same conversation GoTrue runs —
@@ -428,30 +419,49 @@ GoTrue keeps: run against the live relay with a deliberately wrong key it
 answers
 
 ```
-← 535 5.7.8 Authentication failed
+← 535 5.7.8 Username and Password not accepted.
 ```
 
-and the script names the field that produced it — credentials, sender
-verification, capacity, or the connection mode. `SMTP_TLS=1` tests port 465's
-implicit TLS; without it the script expects STARTTLS, which is what 587 speaks.
+and the script names the field that produced it — the app password, the sender
+address, Google's daily ceiling, or the connection mode. `SMTP_TLS=1` tests port
+465's implicit TLS; without it the script expects STARTTLS, which is what 587
+speaks. Run against `smtp.gmail.com` with the right values it ends
 
-**Read the timing, not only the status.** A refused credential, an unverified
-sender or a spent quota comes back in a couple of seconds. A request that
-instead sits for tens of seconds until the platform answers **HTTP 504 `upstream
-request timeout`** never got a TLS session established at all — that is a port/TLS
-mismatch (implicit TLS on `587`, or anything aimed at `2465`, which this network
-drops), a mistyped host, or a leftover port 25, and it means no verification or
-reset mail is leaving the project while it lasts. Measured here on 2026-09-28,
-same address, two runs:
+```
+← 235 2.7.0 Accepted        = authenticated: the key and the username are right
+← 250 2.1.0 OK              = sender accepted: Gmail sends mail as this address
+← 250 2.1.5 OK              = destination accepted, and nothing was ever sent
+```
+
+**Read the timing, not only the status.** A refused credential, a sender Gmail
+will not send as, or a spent quota comes back in a couple of seconds. A request
+that instead sits for tens of seconds until the platform answers **HTTP 504
+`upstream request timeout`** never got a TLS session established at all — that
+is a port/TLS mismatch (implicit TLS aimed at `587`, or STARTTLS at `465`), a
+mistyped host, or a leftover port 25, and it means no verification or reset mail
+is leaving the project while it lasts. Measured here on 2026-09-28, same
+address, three runs:
 
 | When | Response | Reading |
 | --- | --- | --- |
 | before the dashboard change | HTTP **504** after 35 784 ms | the outbound connection never completed — nothing to do with the key |
-| after it | HTTP **500** `unexpected_failure` after 2 205 ms | GoTrue reached the relay and was refused fast: one of the four fields above is wrong, and only the auth log names it |
+| with the Brevo SMTP key in the panel | HTTP **500** `unexpected_failure` after 2 205 ms | GoTrue reached the relay and was refused fast: a credential or sender field was wrong, and only the auth log named it |
+| with the Gmail app password | HTTP **200**, and the mail arrived | the relay accepted the send and the message reached a real inbox |
 
-The 504 → 500 move is the progress: the hang is gone. What is left is a
-credential/sender question, which cannot be answered from outside the dashboard
-because GoTrue does not forward the provider's line.
+The 504 → 500 → 200 move is the whole story: first the connection could not be
+made, then it could and the credentials were wrong, then both were right.
+
+**Both flows, end to end, on 2026-09-28.** `/auth/v1/signup` answered **200**
+with a `confirmation_sent_at` stamp for a throwaway address, `/auth/v1/recover`
+answered **200** in 3 002 ms for the same one, and **two real messages landed
+in that inbox** — `Confirm your email address` and `Reset your password`, both
+from `mmhb112010@gmail.com`. Following the signup link returned **303** to
+`https://study-forg-frontend-100.vercel.app/verify-email?email=…` carrying a
+fresh `access_token` (a link GoTrue hands a session to has accepted the
+address), and the recovery link returned **303** to the deployed origin with
+`type=recovery` in the fragment, which `RequireAuth` routes on to
+`/reset-password`. Nothing about that needed a code change; the relay was the
+only thing that was broken.
 
 ## Status of `qjoijoxmnliarlyaqmoz`
 

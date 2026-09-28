@@ -17,14 +17,14 @@
  * ignores and source it, rather than typing them into a shell history or a chat
  * window:
  *
- *   SMTP_USER=<the address you sign into Brevo with>
- *   SMTP_PASS=<the SMTP key, not the API key>
- *   SMTP_FROM=<a sender you verified at Brevo>
+ *   SMTP_USER=<the Gmail address in the panel>
+ *   SMTP_PASS=<its 16-character app password, not the account password>
+ *   SMTP_FROM=<that same address, or one of its aliases>
  *
  *   set -a; . supabase/.env; set +a
  *   node supabase/e2e/smtp-relay-check.mjs
  *
- * Options: `SMTP_HOST` (default `smtp-relay.brevo.com`), `SMTP_PORT` (default
+ * Options: `SMTP_HOST` (default `smtp.gmail.com`), `SMTP_PORT` (default
  * 587 — plain connect then STARTTLS, which is what that port expects),
  * `SMTP_TLS=1` for implicit TLS as used by 465, `SMTP_RCPT` (default
  * `demo@studyforge.test`, a domain reserved for exactly this kind of test),
@@ -38,7 +38,7 @@
 import net from "node:net";
 import tls from "node:tls";
 
-const HOST = process.env.SMTP_HOST ?? "smtp-relay.brevo.com";
+const HOST = process.env.SMTP_HOST ?? "smtp.gmail.com";
 const PORT = Number(process.env.SMTP_PORT ?? 587);
 const IMPLICIT_TLS = process.env.SMTP_TLS === "1";
 const USER = process.env.SMTP_USER ?? "";
@@ -164,26 +164,27 @@ function advise(reply, step) {
   if (CREDENTIALS.test(haystack)) {
     return (
       `Refused at ${step} on credentials, in the relay's own words above. The\n` +
-      "  value Supabase needs is Brevo → SMTP & API → *SMTP key*. The API key is a\n" +
-      "  different string and answers exactly this way; so does using the API's\n" +
-      "  login rather than the address you sign into the account with."
+      "  value Supabase needs is the 16-character *app password* from Google →\n" +
+      "  Security → 2-Step Verification → App passwords. The account password is\n" +
+      "  refused exactly this way, and so is an app password Google has revoked —\n" +
+      "  in that case a new one is the fix, not a retype."
     );
   }
   if (QUOTA.test(haystack)) {
     return (
       `Refused at ${step} for capacity, in the relay's own words above — which is\n` +
       "  the good kind of bad news: the credentials and the sender already passed,\n" +
-      "  so the settings are right and the free tier is simply spent. Brevo's free\n" +
-      "  allowance is a fixed number of messages a day and it resets at midnight\n" +
-      "  UTC; nothing in Supabase needs changing."
+      "  so the settings are right and Google has simply stopped this account for\n" +
+      "  the moment. A personal Gmail account has a daily sending ceiling and it\n" +
+      "  resets on its own; nothing in Supabase needs changing."
     );
   }
   if (SENDER.test(haystack)) {
     return (
-      `Refused at ${step} on the sender, in the relay's own words above. Brevo\n` +
-      "  accepts a From it has verified: Brevo → Senders & Domains must show that\n" +
-      "  domain (or that single address) as verified, with the SPF and DKIM\n" +
-      `  records live at the registrar. Tested here as <${FROM}>.`
+      `Refused at ${step} on the sender, in the relay's own words above. Gmail\n` +
+      "  sends as the authenticated account and its own aliases, and refuses any\n" +
+      "  other From before a message exists — so the SMTP panel's *Sender email*\n" +
+      `  has to be that address. Tested here as <${FROM}>.`
     );
   }
   return `Refused at ${step}. That reply line is the provider's own, and it is\n` +
@@ -236,9 +237,9 @@ async function main() {
     fail(
       `Could not establish the connection: ${error.message}\n\n` +
         "  A port that never answers is the pairing, not the key: 587 is STARTTLS,\n" +
-        "  465 is implicit TLS (run this with SMTP_TLS=1), and 2465 drops packets\n" +
-        "  on this network. Supabase's port and encryption toggle have to match the\n" +
-        "  mode that just worked here.",
+        "  465 is implicit TLS (run this with SMTP_TLS=1), and port 25 is blocked\n" +
+        "  from most networks. Supabase's port and encryption toggle have to match\n" +
+        "  the mode that just worked here.",
     );
     return;
   }
@@ -290,7 +291,7 @@ async function main() {
     const from = await conversation.cmd(`MAIL FROM:<${FROM}>`, "MAIL FROM");
     show(from);
     if (from.code !== 250) return fail(advise(from, "MAIL FROM"));
-    console.log("  = sender accepted: Brevo knows this address and lets it send");
+    console.log("  = sender accepted: Gmail sends mail as this address");
 
     const to = await conversation.cmd(`RCPT TO:<${RCPT}>`, "RCPT TO");
     show(to);

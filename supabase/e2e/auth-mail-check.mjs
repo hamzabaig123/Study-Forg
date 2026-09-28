@@ -46,9 +46,7 @@ if (!BASE || !KEY) {
 
 /** True when the text reads like an SMTP or mail-provider refusal. */
 function looksLikeMailFailure(text) {
-  return /smtp|mail|sender|relay|brevo|resend|quota|denied|authentication/i.test(
-    text,
-  );
+  return /smtp|mail|sender|relay|quota|denied|authentication/i.test(text);
 }
 
 /**
@@ -84,16 +82,17 @@ function isMaskedSendFailure(text) {
 const GUIDANCE = [
   "GoTrue reports an SMTP failure on the request itself. Read the message above",
   "against these, in the order they actually happen:",
-  "  1. SMTP password vs API key — the relay wants the *SMTP key* Brevo shows on",
-  "     its SMTP & Sender page; the API key is a different string and produces an",
-  "     authentication failure that looks like a wrong password.",
-  "  2. Port vs TLS mode — 587 with STARTTLS is the only pairing measured to\n" +
-  "     complete against smtp-relay.brevo.com (see supabase/README.md). The\n" +
-  "     dashboard has one toggle for this and the wrong pairing times out.",
-  "  3. Sender address — must be a domain (or address) you verified with the",
-  "     provider. An unverified From is refused before anything is queued.",
-  "  4. Daily quota — a free tier that is spent answers with a quota error, not a",
-  "     connection error, and it clears at midnight UTC.",
+  "  1. Password type — Gmail takes a 16-character *app password* from Google →",
+  "     Security → 2-Step Verification → App passwords. The account password is",
+  "     refused at AUTH LOGIN no matter how often it is retyped, and a revoked",
+  "     app password answers the same way.",
+  "  2. Port vs TLS mode — 587 with STARTTLS is the pairing measured to complete\n" +
+  "     against smtp.gmail.com (see supabase/README.md). 465 is implicit TLS, and\n" +
+  "     the dashboard has one toggle for this; the wrong pairing times out.",
+  "  3. Sender address — Gmail sends as the authenticated account and its own\n" +
+  "     aliases. A From outside that set is refused at MAIL FROM.",
+  "  4. Daily quota — Google caps what a personal account submits; a spent\n" +
+  "     allowance is refused with a quota error, not a connection error.",
 ];
 
 async function health() {
@@ -184,14 +183,14 @@ async function main() {
       "\nGoTrue accepted the request and never came back. That is the shape of a\n" +
         "transport problem, not an authentication problem — a wrong key or a spent\n" +
         "quota is refused in a fraction of a second with a 535/550 line. In order:\n" +
-        "  1. Port vs TLS mode. Use 587 with STARTTLS. 2465 was measured from this\n" +
-        "     project's network as a silent drop — no banner, no refusal, just a\n" +
-        "     hang — so a mismatched pair neither succeeds nor fails; it stalls,\n" +
-        "     which is what a 504 after tens of seconds means.\n" +
-        "  2. Host spelling — `smtp-relay.brevo.com`, with no scheme, no port\n" +
+        "  1. Port vs TLS mode. Use 587 with STARTTLS; 465 is implicit TLS. A\n" +
+        "     mismatched pair is never refused — the handshake just never\n" +
+        "     completes, so the request sits until the platform gives up, which is\n" +
+        "     exactly what a 504 after tens of seconds means.\n" +
+        "  2. Host spelling — `smtp.gmail.com`, with no scheme, no port\n" +
         "     suffix and no trailing space from the copy/paste.\n" +
-        "  3. Anything still pointing at port 25: relay hosts drop it silently and\n" +
-        "     the symptom is the same hang.\n" +
+        "  3. Anything still pointing at port 25: Gmail's SMTP refuses it and many\n" +
+        "     networks drop it silently, and the symptom is the same hang.\n" +
         "Until this answers quickly, no verification or reset mail is leaving the\n" +
         "project, and each attempt costs the user a thirty-second wait.",
     );
@@ -216,11 +215,12 @@ async function main() {
           "the field. In the order the SMTP conversation reaches them:\n" +
           "  - Port and the encryption toggle: 587 with STARTTLS. A TLS handshake\n" +
           "    on a STARTTLS port fails instantly and looks exactly like this.\n" +
-          "  - Username: the address you sign into Brevo with.\n" +
-          "  - Password: the SMTP key. An API key authenticates against a\n" +
-          "    different service and is refused here.\n" +
-          "  - Sender email: a sender or domain verified at Brevo. An unverified\n" +
-          "    From is refused at MAIL FROM, before any mail exists.\n" +
+          "  - Username: the full Gmail address, `@gmail.com` included.\n" +
+          "  - Password: the app password. The account password, and a password\n" +
+          "    Google has revoked, are both refused here.\n" +
+          "  - Sender email: the authenticated address or one of its aliases. A\n" +
+          "    From outside that set is refused at MAIL FROM, before any mail\n" +
+          "    exists.\n" +
           "\nWith the logs unreachable, the ladder is: set the four values above,\n" +
           "run this once, and if it still answers 500 switch custom SMTP off in the\n" +
           "same panel — auth mail returns through Supabase's built-in sender, capped\n" +
