@@ -14,9 +14,9 @@ the localStorage archive the app used when there was no server.
 `migrations/0005_limiter_window_and_cleanup.sql` | Makes `enforce_rate_limit`'s `p_window_seconds` parameter real (0002 truncated to the minute and ignored it), prunes finished windows on every hit, and drops the never-referenced `ai_draft` table. **Applied.** Run after 0004: it re-declares the function 0004 step 8 revoked privileges on, and inherits that revoke.
 `migrations/0006_reminders.sql` | The per-account reminder half of the schema: `reminder_settings` keyed by `user_id` (fire time, the account's UTC offset, which sections it carries, the day it last fired) with the four owner policies in the house style and shape CHECKs, plus `reminder_log` — read-only for its owner, writable only by the delivery function, so a client cannot record a send it did not make — and the two `security definer` views the runner needs (`reminder_digest(uuid, integer)` for one account's numbers, `due_reminders()` for the whole tick). Both are `service_role` only: they answer across accounts, so no signed-in client may call them, and the blanket function grant at the bottom of the file is walked back for them and for `enforce_rate_limit`. Additive — no other object is touched. The digest's recipient is the account's sign-in address, so nothing here stores an address a user typed. **Applied.** Any hand order works, but after 0002 it is the honest state of the rest of the schema
 `migrations/0007_reminder_grants.sql` | The grants 0006's tables were missing — 0001's harden block repeated: DML on `reminder_settings` and read on `reminder_log` for `authenticated`, RLS enabled and forced on both, and the five owner policies re-asserted idempotently. **Applied.**
-`migrations/0008_helper_function_lockdown.sql` | Re-applies the walk-back this project never ran: `reminder_digest`, `due_reminders` and `enforce_rate_limit` are revoked from `public`, `anon` and `authenticated` again, re-granted to `service_role`, and `notify pgrst, 'reload schema'` pushes the denials to the API cache. Revokes come last, so ordering cannot undo them. **Written — needs one paste into the SQL editor** (verify.sql check 12 proves it once applied).
-`migrations/0009_push_subscriptions.sql` | One row per signed-in browser for web push: `endpoint` plus the browser's own `p256dh`/`auth` key material, unique on the endpoint, owner-only RLS with the same four policies. The delivery function reads them with the service key, so no function grants accompany it. **Written — needs one paste into the SQL editor** (it is idempotent per fresh table and must run after 0007).
-`migrations/0010_digest_counts_every_test.sql` | Re-declares `reminder_digest(uuid, integer)` so it sums `result` **and** `custom_session`. The dashboard merges the two — a run built in the Test Builder is graded in the browser and mirrored into `custom_session` — but the digest read only `result`, so an account whose day was spent on built tests was mailed "0%, 0 answered, 0-day streak" while its own dashboard said 50% over 20 questions. Measured live on 2026-09-28. Same eight output columns, same owner scoping, same `service_role`-only grants re-asserted at the bottom. Run after 0002 (which creates `custom_session`) and after 0008. **Written — needs one paste into the SQL editor.**
+`migrations/0008_helper_function_lockdown.sql` | Re-applies the walk-back this project never ran: `reminder_digest`, `due_reminders` and `enforce_rate_limit` are revoked from `public`, `anon` and `authenticated` again, re-granted to `service_role`, and `notify pgrst, 'reload schema'` pushes the denials to the API cache. Revokes come last, so ordering cannot undo them. **Applied.** Measured on the live project 2026-09-28: the three helpers carry execute for `postgres` and `service_role` only, and a request with just the publishable key gets `401 / 42501 permission denied for function` from `reminder_digest` and `due_reminders`.
+`migrations/0009_push_subscriptions.sql` | One row per signed-in browser for web push: `endpoint` plus the browser's own `p256dh`/`auth` key material, unique on the endpoint, owner-only RLS with the same four policies. The delivery function reads them with the service key, so no function grants accompany it. **Applied.** Idempotent per fresh table; it must run after 0007.
+`migrations/0010_digest_counts_every_test.sql` | Re-declares `reminder_digest(uuid, integer)` so it sums `result` **and** `custom_session`. The dashboard merges the two — a run built in the Test Builder is graded in the browser and mirrored into `custom_session` — but the digest read only `result`, so an account whose day was spent on built tests was mailed "0%, 0 answered, 0-day streak" while its own dashboard said 50% over 20 questions. Measured live on 2026-09-28. Same eight output columns, same owner scoping, same `service_role`-only grants re-asserted at the bottom. Run after 0002 (which creates `custom_session`) and after 0008. **Applied 2026-09-28**, and measured before/after against the account that complained: `reminder_digest(<owner>, 300)` went from `0% / 0 answered / 0-day streak` to `50% / 10 correct / 20 answered / streak 1 / 1 test today` — the dashboard's own numbers — while a library-only account kept its `89% / streak 3`, proving the union added rows rather than shifting the calendar.
 `functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by its `CRON_SECRET` bearer or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. Deploying it is three commands and a secret — see its file header — and the full setup, including the Resend sender restriction and the optional tick, is in [The reminder pipeline](#the-reminder-pipeline) below. On the mock backend the digest is a browser notification instead.
 `verify.sql` | Twelve read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, and 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter
 `email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
@@ -68,13 +68,20 @@ the ref is unusable.
 
 The last step — `tests/rls_cross_tenant.sql` through the same endpoint — is the
 one that depends on the Management API accepting a multi-statement script with
-`set local role` in it. That endpoint has never answered this account: the one
-access token tried on 2026-09-27 returned 401 on both `/v1/projects` and
-`/v1/projects/<ref>/database/query`, so nothing below has been run *through the
-script*. The schema and every check in it were reached instead over a direct
-Postgres session — see "Status" below — which proves the SQL, not the transport.
-If the API is refused again, the migration and the seven checks the script
-have a live equivalent already; finish with the RLS file in the dashboard editor.
+`set local role` in it. On 2026-09-27 the token then available returned 401 on
+both `/v1/projects` and `/v1/projects/<ref>/database/query`, so nothing below was
+run *through the script* and the schema was reached over a direct Postgres
+session instead — see "Status" below. **That was the token, not the endpoint.**
+A personal access token that belongs to the project's own account answers
+`200` on `/v1/projects` and `201` on `database/query`, and a whole migration
+file — dollar-quoted function bodies, `revoke`/`grant`, a trailing
+`notify pgrst, 'reload schema'` — runs in one request. Migration 0010 was
+applied exactly that way on 2026-09-28, as were the `APP_URL` secret
+(`POST /v1/projects/<ref>/secrets`) and the `reminder-sender` redeploy
+(`POST …/functions/deploy?slug=reminder-sender`, multipart, with the
+`metadata` form part carrying `entrypoint_path`; a bare `.ts` file works and a
+zip does not). `tests/rls_cross_tenant.sql` has still never been run through
+`apply-migration.mjs`, so the RLS proof remains the SQL editor's job.
 
 ### By hand, in the dashboard
 
@@ -482,7 +489,10 @@ only thing that was broken.
 Applied on 2026-09-27 and verified against the live database, through a direct
 Postgres session (`aws-0-<region>.pooler.supabase.com:5432`, user
 `postgres.<ref>`, the database password) because `db.<ref>.supabase.co` does not
-resolve from this machine and the Management API refused its token:
+resolve from this machine and the Management API token then on hand refused to
+authenticate. Everything since — 0008's confirmation, 0009, 0010, the `APP_URL`
+secret and the `reminder-sender` redeploy — went through the Management API on
+2026-09-28 with a token that does.
 
 - `migrations/0001_init.sql` ran in one implicit transaction: 18 tables, RLS on
   and forced for all 18, 33 public functions.
@@ -513,12 +523,14 @@ yet" for what the run did *not* cover.
 Still true, and each item needs either the project itself or a different
 credential:
 
-- `e2e/apply-migration.mjs` has never completed a run: its Management API
-  endpoint is behind a personal access token this account has not supplied
-  (the one token tried returned 401). The SQL it asserts has all been executed
-  by hand over Postgres, so the script's value now is the report it prints —
-  treat its first run as a re-verification rather than a migration; it will
-  detect `public.question` and skip the apply step.
+- `e2e/apply-migration.mjs` has still never completed a run, but the reason is
+  no longer the endpoint: a personal access token belonging to this account
+  answers `200` on `/v1/projects` and ran migration 0010 on 2026-09-28 through
+  `POST /v1/projects/<ref>/database/query` (the token tried on 2026-09-27 was
+  simply dead). The script is now a re-verification tool rather than the only
+  way in — it will detect `public.question` and skip the apply step, and it
+  applies **0001 only**, so a project missing 0002–0010 is not fixed by running
+  it.
 - The adapter has not been driven method by method against the live database.
   `lib/supabase/adapter.test.ts` (41 cases) proves the shapes against a fake
   transport, `tsc` proves all 77 methods against `backendInterface`, and the
@@ -543,31 +555,33 @@ credential:
   against a real project, and `backup.mjs` has never produced a snapshot. Until
   those two things happen the honest statement is "we can restore", not "we can
   recover".
-- Migrations 0001–0007 are **applied**. Verified 2026-09-27 by probing
-  PostgREST with the publishable key alone: `question`, `custom_session`,
+- Migrations 0001–0010 are **applied**. Verified 2026-09-27 by probing PostgREST
+  with the publishable key alone: `question`, `custom_session`,
   `reminder_settings` and `reminder_log` answer 401 (table exists, zero `anon`
   grants) while the dropped `ai_draft` answers 404 — which also proves 0005
-  ran.
-- `migrations/0008_helper_function_lockdown.sql` is **written, not applied** —
-  the one migration standing between this project and its own security claim.
-  Until it runs in the SQL editor, any signed-in user can execute
-  `due_reminders()` (and, with the right arguments, `reminder_digest()`) and
-  read other accounts' reminder contacts whenever they are due;
-  `enforce_rate_limit` is also re-granted to `authenticated`. The battery
-  (`e2e/security-battery.mjs`) fails its `due_reminders refuses authenticated`
-  check until it is applied.
-- `functions/reminder-sender` **is deployed** — its own "RESEND_API_KEY is not
-  set" error reached the Settings toast on 2026-09-27, which means the deploy,
-  the session auth and the `reminder_settings` read all work. The remaining gap
-  is mail: `RESEND_API_KEY` is **not set yet** (Edge Functions → Secrets, with
-  the Resend sender restriction from *The reminder pipeline* to watch). The
-  `pg_cron` tick was scheduled and exercised live earlier the same day — a tick
-  answered 200, with attempts failing only on the missing key. The `cron`
-  schema is not reachable over PostgREST from this machine, so re-confirm with
-  `select * from cron.job` if in doubt.
-- `studyforge.custom-sessions.v1` (Test Builder runs and their results) is
-  device-local in every mode: it is not in the archive the exporter writes, not
-  erased by "Clear local data", and has no table in this schema.
+  ran. Re-verified 2026-09-28 over the Management API: `push_subscriptions`
+  resolves (0009), `reminder_digest`'s body references `custom_session` (0010),
+  and the three helpers' ACLs read `postgres` + `service_role` only (0008),
+  which the publishable key confirmed by getting `401 / 42501` from
+  `reminder_digest` and `due_reminders`.
+- `functions/reminder-sender` **is deployed** — version 10 on 2026-09-28, built
+  from this repository's `supabase/functions/reminder-sender/index.ts`. Every
+  secret it reads is set (`BREVO_API_KEY`, `BREVO_FROM`, `RESEND_API_KEY`,
+  `CRON_SECRET`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` and now `APP_URL`), and
+  the pipeline was proven end to end the same day: a tick carrying `CRON_SECRET`
+  answered `{"ok":true,"results":[{"email":"mm***@gmail.com","status":"sent"}]}`
+  and wrote a `sent` row naming the channel —
+  `[via brevo] [push skipped: no subscription for this account]`. The `pg_cron`
+  tick was scheduled and exercised live earlier the same week; the `cron` schema
+  is not reachable over PostgREST from this machine, so re-confirm with
+  `select * from cron.job` in the SQL editor if in doubt.
+- `studyforge.custom-sessions.v1` (Test Builder runs and their results) is not
+  in the archive the exporter writes, and not erased by "Clear local data". It
+  does have a table — `custom_session` (0002), fed by `lib/customSync.ts` as
+  each run finishes, merged into dashboard progress and, since 0010, into the
+  digest — but only the runs taken **while signed in on Supabase** are there. A
+  device that built tests on the mock backend has history this project cannot
+  mail.
 
 ## Which URL goes where
 
