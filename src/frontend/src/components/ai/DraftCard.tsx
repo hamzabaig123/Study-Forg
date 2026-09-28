@@ -169,12 +169,12 @@ export function DraftCard({
       data-ocid={`ai_studio.draft_card.${index + 1}`}
       className={
         imported
-          ? "animate-fade-up overflow-hidden rounded-xl border-success/30 bg-success/[0.04]"
+          ? "overflow-hidden rounded-xl border-success/30 bg-success/[0.04]"
           : draft.status === "approved"
-            ? "animate-fade-up overflow-hidden rounded-xl border-primary/40 ring-1 ring-primary/20"
+            ? "overflow-hidden rounded-xl border-primary/40 ring-1 ring-primary/20"
             : draft.status === "rejected"
-              ? "animate-fade-up overflow-hidden rounded-xl border-border/60 bg-muted/30 opacity-70"
-              : "animate-fade-up overflow-hidden rounded-xl border-border bg-card shadow-subtle"
+              ? "overflow-hidden rounded-xl border-border/60 bg-muted/30 opacity-70"
+              : "overflow-hidden rounded-xl border-border bg-card shadow-subtle"
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5">

@@ -37,6 +37,7 @@ import {
   CloudOff,
   CloudUpload,
   Download,
+  Flame,
   Leaf,
   Loader2,
   Lock,
@@ -77,7 +78,7 @@ const SECTIONS: SectionMeta[] = [
   {
     id: "appearance",
     label: "Appearance",
-    hint: "Light, dark, or green",
+    hint: "Light, dark, green, or maroon",
     Icon: Sun,
   },
   {
@@ -110,26 +111,33 @@ const THEME_CARDS: Array<{
   {
     name: "light",
     label: "Light",
-    hint: "Warm parchment",
+    hint: "Vanilla & burnt orange",
     Icon: Sun,
     swatch:
-      "linear-gradient(135deg, oklch(0.99 0.008 85), oklch(0.94 0.014 80))",
+      "linear-gradient(135deg, oklch(0.975 0.045 93), oklch(0.56 0.185 43))",
   },
   {
     name: "dark",
     label: "Dark",
-    hint: "Deep indigo ink",
+    hint: "Graphite & lime",
     Icon: Moon,
+    swatch: "linear-gradient(135deg, oklch(0.24 0.02 262), oklch(0.9 0.2 128))",
+  },
+  {
+    name: "maroon",
+    label: "Maroon Forge",
+    hint: "Deep forge maroon",
+    Icon: Flame,
     swatch:
-      "linear-gradient(135deg, oklch(0.22 0.026 265), oklch(0.14 0.022 265))",
+      "linear-gradient(135deg, oklch(0.9809 0.0109 54.4), oklch(0.3896 0.1234 16.4) 55%, oklch(0.2796 0.0857 13.5))",
   },
   {
     name: "frosted",
     label: "Green",
-    hint: "Mint & olive glass",
+    hint: "Emerald & champagne",
     Icon: Leaf,
     swatch:
-      "linear-gradient(135deg, oklch(0.94 0.045 150), oklch(0.62 0.11 145) 55%, oklch(0.5 0.09 105))",
+      "linear-gradient(135deg, oklch(0.94 0.05 98), oklch(0.5 0.1 168) 55%, oklch(0.378 0.073 168.9))",
   },
 ];
 
@@ -138,7 +146,9 @@ const DESTRUCTIVE_PHRASE = "clear local data";
 const DEFAULT_DAILY_TARGET = 20n;
 
 function normalizeTheme(value: string): ThemeName {
-  return value === "dark" || value === "frosted" ? value : "light";
+  return value === "dark" || value === "frosted" || value === "maroon"
+    ? value
+    : "light";
 }
 
 /* -------------------------------------------------------------------------- */

@@ -1,3 +1,4 @@
+import { BlurFade } from "@/components/motion/blur-fade";
 import { ResultReview } from "@/components/session/ResultReview";
 import { ScoreSummary } from "@/components/session/ScoreSummary";
 import { Button } from "@/components/ui/button";
@@ -117,15 +118,22 @@ export default function SessionResults() {
       </Card>
 
       <section className="mt-8">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 className="font-display text-lg font-semibold">
-            Question review
-          </h2>
-          <span className="text-muted-foreground numeric text-xs">
-            {result.results.length} questions
-          </span>
-        </div>
-        <ResultReview results={result.results} marker={MARKER} />
+        {/* This list mounts when the query resolves, after the route transition
+            has finished — the one place on the page where a reveal is not a
+            second copy of an animation the page already ran. blur={false}
+            because a review can be forty questions tall and an animated filter
+            over that subtree is where the entrance would start to stutter. */}
+        <BlurFade delay={0.18} distance={12} blur={false}>
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="font-display text-lg font-semibold">
+              Question review
+            </h2>
+            <span className="text-muted-foreground numeric text-xs">
+              {result.results.length} questions
+            </span>
+          </div>
+          <ResultReview results={result.results} marker={MARKER} />
+        </BlurFade>
       </section>
 
       <div className="mt-8 flex flex-wrap justify-center gap-3">

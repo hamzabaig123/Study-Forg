@@ -45,7 +45,7 @@ import type { SupabaseTransport } from "../transport";
 const MAX_DISPLAY_NAME = 80;
 const MAX_STUDY_GOAL = 280;
 const MAX_DAILY_TARGET = 1000;
-const APPEARANCES: string[] = ["light", "dark", "frosted"];
+const APPEARANCES: string[] = ["light", "dark", "frosted", "maroon"];
 
 /** The same refusal text the mock produced, so the settings form is unchanged. */
 function settingsProblem(
@@ -70,7 +70,7 @@ function settingsProblem(
     return `Daily target must be at most ${String(MAX_DAILY_TARGET)}`;
   }
   if (!APPEARANCES.includes(appearance)) {
-    return "Appearance must be one of: light, dark, frosted";
+    return "Appearance must be one of: light, dark, frosted, maroon";
   }
   return null;
 }

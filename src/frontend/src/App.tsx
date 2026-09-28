@@ -1,4 +1,5 @@
 import { ErrorBoundary } from "@/components/common/ErrorBoundary";
+import { MotionProvider } from "@/components/motion/provider";
 import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { Toaster } from "@/components/ui/sonner";
 import { useAccountCacheScope } from "@/hooks/useAccountCacheScope";
@@ -25,9 +26,11 @@ function AppShell() {
 
   return (
     <ThemeProvider>
-      <RouterProvider router={router} />
-      <SpeedInsights />
-      <Toaster position="top-right" richColors closeButton />
+      <MotionProvider>
+        <RouterProvider router={router} />
+        <SpeedInsights />
+        <Toaster position="top-right" richColors closeButton />
+      </MotionProvider>
     </ThemeProvider>
   );
 }

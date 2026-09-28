@@ -1117,7 +1117,7 @@ describe("sweep", () => {
         "goal",
         10n,
         "neon",
-        "Appearance must be one of: light, dark, frosted",
+        "Appearance must be one of: light, dark, frosted, maroon",
       ],
     ];
     for (const [name, goal, target, appearance, message] of failures) {

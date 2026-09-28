@@ -43,10 +43,7 @@ export function QuestionRenderer({
   const percent = total > 0 ? (index / total) * 100 : 0;
 
   return (
-    <section
-      data-ocid={`${marker}.question`}
-      className="animate-fade-up flex flex-col gap-6"
-    >
+    <section data-ocid={`${marker}.question`} className="flex flex-col gap-6">
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">
           <span

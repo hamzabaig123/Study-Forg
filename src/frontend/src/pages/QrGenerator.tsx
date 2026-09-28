@@ -1,3 +1,4 @@
+import { AppFooter } from "@/components/layout/AppFooter";
 import { Header } from "@/components/layout/Header";
 import {
   DEFAULT_QR_OPTIONS,
@@ -753,11 +754,7 @@ export default function QrGenerator() {
           </div>
         </div>
       </main>
-      <footer className="border-t border-border bg-card px-4 py-5 sm:px-6">
-        <p className="text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()} StudyForge
-        </p>
-      </footer>
+      <AppFooter />
     </div>
   );
 }

@@ -11,7 +11,7 @@ import {
 import type { PropsWithChildren } from "react";
 
 const STORAGE_KEY = "studyforge-theme";
-const THEMES: ThemeName[] = ["light", "dark", "frosted"];
+const THEMES: ThemeName[] = ["light", "dark", "frosted", "maroon"];
 
 interface ThemeContextValue {
   theme: ThemeName;
@@ -33,9 +33,9 @@ function readStoredTheme(): ThemeName {
 }
 
 /**
- * Applies exactly one of `light`, `dark`, or `frosted` to the document root.
+ * Applies exactly one of `light`, `dark`, `frosted`, or `maroon` to the document root.
  *
- * `light` is the absence of both classes; `dark` and `frosted` are the class
+ * `light` is the absence of the others; `dark`, `frosted`, and `maroon` are the class
  * hooks the design system in index.css keys off. The choice persists to
  * localStorage and is restored before first paint via the inline script in
  * index.html.
@@ -47,6 +47,7 @@ export function ThemeProvider({ children }: PropsWithChildren) {
     const root = document.documentElement;
     root.classList.toggle("dark", theme === "dark");
     root.classList.toggle("frosted", theme === "frosted");
+    root.classList.toggle("maroon", theme === "maroon");
     root.style.colorScheme = theme === "dark" ? "dark" : "light";
     safeSetItem(STORAGE_KEY, theme);
   }, [theme]);

@@ -10,15 +10,16 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import type { ThemeName } from "@/types";
-import { Check, Leaf, Moon, Sun } from "lucide-react";
+import { Check, Flame, Leaf, Moon, Sun } from "lucide-react";
 
 const THEME_META: Record<
   ThemeName,
   { label: string; hint: string; Icon: typeof Sun }
 > = {
-  light: { label: "Light", hint: "Warm parchment", Icon: Sun },
-  dark: { label: "Dark", hint: "Deep ink", Icon: Moon },
-  frosted: { label: "Green", hint: "Mint & olive glass", Icon: Leaf },
+  light: { label: "Light", hint: "Vanilla & burnt orange", Icon: Sun },
+  dark: { label: "Dark", hint: "Graphite & lime", Icon: Moon },
+  frosted: { label: "Green", hint: "Emerald & champagne", Icon: Leaf },
+  maroon: { label: "Maroon Forge", hint: "Deep forge maroon", Icon: Flame },
 };
 
 export function ThemeSwitcher({ className }: { className?: string }) {

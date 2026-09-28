@@ -4,10 +4,11 @@
 
 /* ---------------------------------------------------------------------------
    StudyForge — "Forge & Ink"
-   Ember-warm primary on deep indigo-ink neutrals.
-   Three themes: :root (light parchment), .dark (ink), .frosted (the light
-   green/olive "Green" theme — the class name is the stored appearance value,
-   the label a user sees is Green).
+   A warm action colour on a quiet two-tone canvas. Four themes:
+   :root (vanilla & burnt orange), .dark (graphite & lime), .frosted (the light
+   emerald/champagne "Green" theme — the class name is the stored appearance
+   value, the label a user sees is Green), and .maroon (Maroon Forge: warm white
+   under forge-maroon, with #C43D3D for links and the timer).
 --------------------------------------------------------------------------- */
 
 @font-face {
@@ -41,231 +42,314 @@
     --font-mono: "Geist Mono";
     --radius: 0.75rem;
 
-    /* Light — warm parchment */
-    --background: 0.985 0.008 85;
-    --foreground: 0.2 0.025 265;
-    --card: 1.0 0.004 85;
-    --card-foreground: 0.2 0.025 265;
-    --popover: 1.0 0.004 85;
-    --popover-foreground: 0.2 0.025 265;
+    /* Light — Burnt Orange & Vanilla. A bright two-tone: vanilla cream
+       canvas, burnt-orange actions, warm brown ink. */
+    --background: 0.972 0.045 93;
+    --foreground: 0.3 0.055 55;
+    --card: 0.995 0.014 95;
+    --card-foreground: 0.3 0.055 55;
+    --popover: 0.995 0.014 95;
+    --popover-foreground: 0.3 0.055 55;
 
-    --primary: 0.52 0.16 52;
-    --primary-foreground: 0.99 0.006 52;
+    /* #C74100: the deep burnt tone. It carries near-white action text at 4.7:1
+       and links on the cream canvas at 4.6:1; the lighter orange did neither. */
+    --primary: 0.56 0.185 43;
+    --primary-foreground: 0.995 0.012 70;
 
-    --secondary: 0.94 0.014 80;
-    --secondary-foreground: 0.3 0.025 265;
-    --muted: 0.945 0.012 80;
-    --muted-foreground: 0.47 0.02 265;
+    --secondary: 0.93 0.05 82;
+    --secondary-foreground: 0.34 0.06 55;
+    --muted: 0.945 0.04 88;
+    --muted-foreground: 0.48 0.045 60;
 
-    --accent: 0.42 0.13 265;
-    --accent-foreground: 0.98 0.006 265;
+    --accent: 0.54 0.19 42;
+    --accent-foreground: 0.995 0.012 70;
 
-    --destructive: 0.53 0.2 27;
+    --destructive: 0.55 0.2 27;
     --destructive-foreground: 0.99 0.006 27;
-    --success: 0.5 0.14 152;
-    --success-foreground: 0.99 0.006 152;
-    --warning: 0.72 0.15 78;
-    --warning-foreground: 0.22 0.03 78;
+    --success: 0.52 0.12 150;
+    --success-foreground: 0.99 0.006 150;
+    --warning: 0.53 0.125 86;
+    --warning-foreground: 0.26 0.05 60;
 
-    --border: 0.89 0.014 80;
-    --input: 0.89 0.014 80;
-    --ring: 0.52 0.16 52;
+    --border: 0.9 0.045 85;
+    --input: 0.9 0.045 85;
+    --ring: 0.56 0.185 43;
 
-    --chart-1: 0.55 0.16 52;
-    --chart-2: 0.45 0.13 265;
-    --chart-3: 0.52 0.14 152;
-    --chart-4: 0.6 0.15 320;
-    --chart-5: 0.62 0.14 200;
+    --chart-1: 0.56 0.17 43;
+    --chart-2: 0.42 0.08 55;
+    --chart-3: 0.55 0.12 150;
+    --chart-4: 0.53 0.125 86;
+    --chart-5: 0.62 0.12 200;
 
-    --sidebar: 0.97 0.01 82;
-    --sidebar-foreground: 0.2 0.025 265;
-    --sidebar-primary: 0.52 0.16 52;
-    --sidebar-primary-foreground: 0.99 0.006 52;
-    --sidebar-accent: 0.94 0.014 80;
-    --sidebar-accent-foreground: 0.3 0.025 265;
-    --sidebar-border: 0.89 0.014 80;
-    --sidebar-ring: 0.52 0.16 52;
+    --sidebar: 0.96 0.04 90;
+    --sidebar-foreground: 0.3 0.055 55;
+    --sidebar-primary: 0.56 0.185 43;
+    --sidebar-primary-foreground: 0.995 0.012 70;
+    --sidebar-accent: 0.92 0.055 82;
+    --sidebar-accent-foreground: 0.34 0.06 55;
+    --sidebar-border: 0.9 0.045 85;
+    --sidebar-ring: 0.56 0.185 43;
 
     /* Glass surface tokens (frosted theme + optional accents) */
-    --glass: 0.99 0.006 85 / 0.62;
-    --glass-border: 0.99 0.006 85 / 0.75;
+    --glass: 0.995 0.02 95 / 0.6;
+    --glass-border: 0.995 0.02 95 / 0.72;
     --glass-highlight: 1 0 0 / 0.6;
-    --glass-shadow: 0 8px 32px -8px oklch(0.2 0.025 265 / 0.18);
+    --glass-shadow: 0 8px 32px -8px oklch(0.35 0.06 50 / 0.2);
 
-    /* Pointer spotlight on cards — a warm ember-tinted light on parchment. */
-    --spotlight: 0.99 0.05 52 / 0.1;
+    /* Pointer spotlight on cards — a warm ember-tinted light on vanilla. */
+    --spotlight: 0.97 0.07 60 / 0.14;
 
     --gradient-primary: linear-gradient(
       135deg,
-      oklch(0.58 0.17 58),
-      oklch(0.47 0.15 42)
+      oklch(0.62 0.185 43),
+      oklch(0.52 0.19 42)
     );
     --gradient-subtle: linear-gradient(
       180deg,
-      oklch(0.985 0.008 85),
-      oklch(0.955 0.014 80)
+      oklch(0.975 0.045 93),
+      oklch(0.94 0.06 78)
     );
     --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 
     /* --- Surface extensions: QR tool, Notes workspace, Settings --------- */
     /* Quiet ink wash for formula blocks, mono chips, and QR preview wells. */
-    --code: 0.955 0.01 265;
-    --code-foreground: 0.28 0.03 265;
+    --code: 0.94 0.045 80;
+    --code-foreground: 0.31 0.06 55;
+    /* Modal / dialog backdrop over any theme. */
+    --scrim: 0.28 0.06 45 / 0.45;
     /* Low-chroma ember wash for success panels and active section rails. */
-    --ember-soft: 0.52 0.16 52 / 0.1;
-    --ember-soft-border: 0.52 0.16 52 / 0.32;
+    --ember-soft: 0.56 0.185 43 / 0.11;
+    --ember-soft-border: 0.56 0.185 43 / 0.34;
   }
 
   .dark {
-    --background: 0.155 0.022 265;
-    --foreground: 0.94 0.012 85;
-    --card: 0.195 0.024 265;
-    --card-foreground: 0.94 0.012 85;
-    --popover: 0.215 0.026 265;
-    --popover-foreground: 0.94 0.012 85;
+    /* Two-tone graphite: neutral #23262F surfaces, lime spark actions. */
+    --background: 0.24 0.02 262;
+    --foreground: 0.94 0.012 120;
+    --card: 0.28 0.022 262;
+    --card-foreground: 0.94 0.012 120;
+    --popover: 0.3 0.024 262;
+    --popover-foreground: 0.94 0.012 120;
 
-    --primary: 0.76 0.16 62;
-    --primary-foreground: 0.17 0.03 62;
+    --primary: 0.9 0.2 128;
+    --primary-foreground: 0.24 0.03 128;
 
-    --secondary: 0.245 0.026 265;
-    --secondary-foreground: 0.86 0.012 85;
-    --muted: 0.245 0.026 265;
-    --muted-foreground: 0.66 0.016 85;
+    --secondary: 0.33 0.025 262;
+    --secondary-foreground: 0.88 0.014 120;
+    --muted: 0.33 0.025 262;
+    --muted-foreground: 0.68 0.018 120;
 
-    --accent: 0.68 0.13 265;
-    --accent-foreground: 0.15 0.025 265;
+    --accent: 0.84 0.17 128;
+    --accent-foreground: 0.22 0.03 128;
 
-    --destructive: 0.63 0.19 27;
+    --destructive: 0.65 0.19 25;
     --destructive-foreground: 0.15 0.025 27;
-    --success: 0.68 0.15 152;
+    --success: 0.72 0.15 150;
     --success-foreground: 0.15 0.025 152;
-    --warning: 0.79 0.15 80;
-    --warning-foreground: 0.18 0.03 80;
+    --warning: 0.8 0.14 85;
+    --warning-foreground: 0.18 0.03 85;
 
-    --border: 0.3 0.028 265;
-    --input: 0.3 0.028 265;
-    --ring: 0.76 0.16 62;
+    --border: 0.36 0.022 262;
+    --input: 0.36 0.022 262;
+    --ring: 0.86 0.18 128;
 
-    --chart-1: 0.76 0.16 62;
-    --chart-2: 0.68 0.13 265;
-    --chart-3: 0.68 0.15 152;
-    --chart-4: 0.7 0.16 320;
-    --chart-5: 0.72 0.13 200;
+    --chart-1: 0.87 0.19 128;
+    --chart-2: 0.78 0.13 165;
+    --chart-3: 0.78 0.14 85;
+    --chart-4: 0.7 0.14 300;
+    --chart-5: 0.72 0.12 230;
 
-    --sidebar: 0.175 0.023 265;
-    --sidebar-foreground: 0.94 0.012 85;
-    --sidebar-primary: 0.76 0.16 62;
-    --sidebar-primary-foreground: 0.17 0.03 62;
-    --sidebar-accent: 0.245 0.026 265;
-    --sidebar-accent-foreground: 0.86 0.012 85;
-    --sidebar-border: 0.3 0.028 265;
-    --sidebar-ring: 0.76 0.16 62;
+    --sidebar: 0.21 0.02 262;
+    --sidebar-foreground: 0.94 0.012 120;
+    --sidebar-primary: 0.9 0.2 128;
+    --sidebar-primary-foreground: 0.24 0.03 128;
+    --sidebar-accent: 0.3 0.03 150;
+    --sidebar-accent-foreground: 0.9 0.014 120;
+    --sidebar-border: 0.34 0.022 262;
+    --sidebar-ring: 0.86 0.18 128;
 
-    --glass: 0.22 0.026 265 / 0.55;
-    --glass-border: 0.94 0.012 85 / 0.12;
-    --glass-highlight: 0.94 0.012 85 / 0.08;
-    --glass-shadow: 0 8px 32px -8px oklch(0.08 0.02 265 / 0.6);
+    --glass: 0.28 0.022 262 / 0.6;
+    --glass-border: 0.94 0.012 120 / 0.13;
+    --glass-highlight: 0.94 0.012 120 / 0.09;
+    --glass-shadow: 0 8px 32px -8px oklch(0.06 0.02 262 / 0.6);
 
-    /* Pointer spotlight on cards — candlelight on ink. */
-    --spotlight: 0.93 0.06 75 / 0.09;
+    /* Pointer spotlight on cards — lime-tinged candlelight on graphite. */
+    --spotlight: 0.9 0.13 130 / 0.09;
 
     --gradient-primary: linear-gradient(
       135deg,
-      oklch(0.8 0.16 66),
-      oklch(0.68 0.15 48)
+      oklch(0.9 0.2 128),
+      oklch(0.78 0.17 145)
     );
     --gradient-subtle: linear-gradient(
       180deg,
-      oklch(0.155 0.022 265),
-      oklch(0.185 0.024 265)
+      oklch(0.24 0.02 262),
+      oklch(0.27 0.024 262)
     );
 
-    --code: 0.135 0.02 265;
-    --code-foreground: 0.9 0.014 85;
-    --ember-soft: 0.76 0.16 62 / 0.14;
-    --ember-soft-border: 0.76 0.16 62 / 0.36;
+    --code: 0.2 0.02 262;
+    --code-foreground: 0.9 0.014 120;
+    --scrim: 0.08 0.02 262 / 0.66;
+    --ember-soft: 0.88 0.19 128 / 0.14;
+    --ember-soft-border: 0.88 0.19 128 / 0.36;
   }
 
-  /* Green — "Meadow Glass". A light botanical treatment: pale mint canvas lit
-     by soft green and olive washes, translucent glass panels with a white
-     sheen edge, deep-olive primary actions and fresh leaf accents. Still the
-     third *treatment* rather than a tint of `light` — glass depth, drifting
-     light, and its own chart ramp. Internally the class is still `frosted`,
-     because that string is the persisted `user_settings.appearance` value. */
+  /* Green — Emerald Ink & Champagne. Still internally 'frosted' (that
+     string is the persisted user_settings.appearance value). Deep emerald
+     actions on the mint-glass canvas, warmed by champagne washes. */
   .frosted {
     --background: 0.958 0.024 152;
-    --foreground: 0.31 0.052 154;
+    --foreground: 0.3 0.055 165;
     --card: 0.994 0.012 150 / 0.78;
-    --card-foreground: 0.31 0.052 154;
+    --card-foreground: 0.3 0.055 165;
     --popover: 0.99 0.014 150 / 0.94;
-    --popover-foreground: 0.31 0.052 154;
+    --popover-foreground: 0.3 0.055 165;
 
-    --primary: 0.465 0.092 104;
-    --primary-foreground: 0.985 0.018 110;
+    /* Deep emerald ink (#064E3B) — 9.7:1 against the near-white action text. */
+    --primary: 0.378 0.073 168.9;
+    --primary-foreground: 0.97 0.02 160;
 
-    --secondary: 0.902 0.042 140;
-    --secondary-foreground: 0.32 0.05 140;
-    --muted: 0.912 0.03 145;
-    --muted-foreground: 0.465 0.045 150;
+    --secondary: 0.94 0.05 98;
+    --secondary-foreground: 0.35 0.06 95;
+    --muted: 0.92 0.028 148;
+    --muted-foreground: 0.46 0.045 158;
 
-    --accent: 0.44 0.108 152;
-    --accent-foreground: 0.985 0.018 150;
+    --accent: 0.5 0.1 168;
+    --accent-foreground: 0.97 0.02 160;
 
     --destructive: 0.53 0.19 25;
     --destructive-foreground: 0.985 0.012 25;
-    --success: 0.5 0.115 150;
-    --success-foreground: 0.985 0.02 150;
+    --success: 0.5 0.115 155;
+    --success-foreground: 0.985 0.02 155;
+    /* text-warning is real text on mint glass, so it holds the 4.5:1 floor. */
     --warning: 0.53 0.125 86;
-    --warning-foreground: 0.26 0.055 88;
+    --warning-foreground: 0.28 0.055 92;
 
-    --border: 0.72 0.052 148 / 0.62;
-    --input: 0.7 0.055 150 / 0.6;
-    --ring: 0.55 0.11 146;
+    --border: 0.74 0.05 150 / 0.62;
+    --input: 0.72 0.05 150 / 0.6;
+    --ring: 0.378 0.073 168.9;
 
-    /* A lightness ladder rather than a hue wheel: `AccuracyChart` paints one
-       bar per palette slot, so neighbouring bars must differ in lightness as
-       well as hue, and every slot has to clear 3:1 against pale glass — which
-       caps how light a series colour can be (oklch L ≈ 0.64). */
-    --chart-1: 0.5 0.11 106;
-    --chart-2: 0.62 0.13 168;
-    --chart-3: 0.4 0.09 150;
-    --chart-4: 0.56 0.12 78;
-    --chart-5: 0.3 0.06 176;
+    --chart-1: 0.5 0.1 168;
+    --chart-2: 0.6 0.13 84;
+    --chart-3: 0.56 0.11 178;
+    --chart-4: 0.36 0.06 155;
+    --chart-5: 0.6 0.12 320;
 
     --sidebar: 0.935 0.028 148 / 0.82;
-    --sidebar-foreground: 0.31 0.052 154;
-    --sidebar-primary: 0.465 0.092 104;
-    --sidebar-primary-foreground: 0.985 0.018 110;
-    --sidebar-accent: 0.44 0.108 152 / 0.14;
-    --sidebar-accent-foreground: 0.3 0.058 150;
+    --sidebar-foreground: 0.3 0.055 165;
+    --sidebar-primary: 0.378 0.073 168.9;
+    --sidebar-primary-foreground: 0.97 0.02 160;
+    --sidebar-accent: 0.5 0.1 168 / 0.14;
+    --sidebar-accent-foreground: 0.3 0.058 160;
     --sidebar-border: 0.75 0.048 148 / 0.45;
-    --sidebar-ring: 0.55 0.11 146;
+    --sidebar-ring: 0.5 0.1 168;
 
-    --glass: 0.995 0.008 150 / 0.66;
+    --glass: 0.995 0.008 120 / 0.66;
     --glass-border: 1 0 0 / 0.68;
-    --glass-highlight: 0.9 0.075 152 / 0.55;
-    --glass-shadow: 0 10px 30px -12px oklch(0.34 0.055 152 / 0.3);
+    --glass-highlight: 0.92 0.07 100 / 0.5;
+    --glass-shadow: 0 10px 30px -12px oklch(0.3 0.055 165 / 0.3);
 
-    /* Pointer spotlight on cards — a mint leaf-light, strong enough to read
-       on the near-white glass panes. */
-    --spotlight: 0.93 0.1 148 / 0.14;
+    /* Pointer spotlight on cards — champagne leaf-light. */
+    --spotlight: 0.95 0.08 110 / 0.15;
 
+    /* Emerald ink band: no champagne inside — this gradient is clipped to
+       headline text, and champagne on mint glass measures ~1.2:1. Champagne
+       lives in --secondary, --gradient-subtle and --spotlight instead. */
     --gradient-primary: linear-gradient(
       135deg,
-      oklch(0.66 0.14 150),
-      oklch(0.5 0.1 112),
-      oklch(0.44 0.085 96)
+      oklch(0.5 0.1 168),
+      oklch(0.378 0.073 168.9)
     );
     --gradient-subtle: linear-gradient(
       160deg,
-      oklch(0.985 0.018 150),
-      oklch(0.93 0.036 140)
+      oklch(0.98 0.022 130),
+      oklch(0.94 0.05 100)
     );
 
-    --code: 0.925 0.032 146;
-    --code-foreground: 0.34 0.052 150;
-    --ember-soft: 0.62 0.12 148 / 0.14;
-    --ember-soft-border: 0.62 0.12 148 / 0.4;
+    --code: 0.93 0.032 120;
+    --code-foreground: 0.32 0.055 165;
+    --scrim: 0.24 0.05 168 / 0.4;
+    --ember-soft: 0.5 0.1 168 / 0.12;
+    --ember-soft-border: 0.5 0.1 168 / 0.38;
+  }
+
+  /* Maroon Forge — the 'forge' idea at full strength. A light warm-white
+     canvas (#FFF7F2) under deep forge-maroon actions (#4A111C), with the
+     bright red accent reserved for links and timers. Two-tone, focused,
+     energetic — built for practice sessions and dashboards. */
+  .maroon {
+    --background: 0.9809 0.0109 54.4;
+    --foreground: 0.27 0.05 18;
+    --card: 0.995 0.005 45;
+    --card-foreground: 0.27 0.05 18;
+    --popover: 0.993 0.006 45;
+    --popover-foreground: 0.27 0.05 18;
+
+    --primary: 0.2796 0.0857 13.5;
+    --primary-foreground: 0.985 0.01 40;
+
+    --secondary: 0.9042 0.0318 27.4;
+    --secondary-foreground: 0.35 0.07 18;
+    --muted: 0.945 0.02 40;
+    --muted-foreground: 0.47 0.045 30;
+
+    --accent: 0.5568 0.1718 24.7;
+    --accent-foreground: 0.985 0.012 30;
+
+    --destructive: 0.55 0.21 29;
+    --destructive-foreground: 0.99 0.012 29;
+    --success: 0.4983 0.0764 158;
+    --success-foreground: 0.985 0.012 155;
+    /* text-warning is real text (attempt-history percentages, streak chips),
+       so it holds the AA floor on the warm-white canvas: 5.07:1. */
+    --warning: 0.53 0.125 75;
+    --warning-foreground: 0.26 0.05 70;
+
+    --border: 0.7794 0.056 25.4;
+    --input: 0.7794 0.056 25.4;
+    --ring: 0.2796 0.0857 13.5;
+
+    --chart-1: 0.2796 0.0857 13.5;
+    --chart-2: 0.5568 0.1718 24.7;
+    --chart-3: 0.4983 0.0764 158;
+    --chart-4: 0.53 0.125 75;
+    --chart-5: 0.5 0.12 350;
+
+    --sidebar: 0.965 0.02 45;
+    --sidebar-foreground: 0.27 0.05 18;
+    --sidebar-primary: 0.2796 0.0857 13.5;
+    --sidebar-primary-foreground: 0.985 0.01 40;
+    --sidebar-accent: 0.9042 0.0318 27.4;
+    --sidebar-accent-foreground: 0.35 0.07 18;
+    --sidebar-border: 0.7794 0.056 25.4;
+    --sidebar-ring: 0.2796 0.0857 13.5;
+
+    --glass: 0.995 0.008 45 / 0.66;
+    --glass-border: 1 0 0 / 0.7;
+    --glass-highlight: 0.9 0.06 30 / 0.5;
+    --glass-shadow: 0 10px 30px -12px oklch(0.3 0.05 20 / 0.28);
+
+    /* Pointer spotlight on cards — a warm rose light. */
+    --spotlight: 0.96 0.05 30 / 0.13;
+
+    /* Forge gradient: #791F2D down into the #4A111C action colour. */
+    --gradient-primary: linear-gradient(
+      135deg,
+      oklch(0.3896 0.1234 16.4),
+      oklch(0.2796 0.0857 13.5)
+    );
+    --gradient-subtle: linear-gradient(
+      170deg,
+      oklch(0.985 0.01 50),
+      oklch(0.95 0.03 30)
+    );
+
+    --code: 0.955 0.02 35;
+    --code-foreground: 0.32 0.06 20;
+    /* The one deep forge surface: #2A1015 under a dialog. */
+    --scrim: 0.2148 0.0436 9.3 / 0.5;
+    --ember-soft: 0.2796 0.0857 13.5 / 0.1;
+    --ember-soft-border: 0.2796 0.0857 13.5 / 0.35;
   }
 
   * {
@@ -477,6 +561,15 @@
     background-color: oklch(0.8 0.13 152 / 0.5);
   }
 
+  /* Maroon Forge dims to its own deep forge surface (#2A1015) rather than the
+     generic black the shadcn overlay ships with, so a dialog sits on embers. */
+  .maroon [data-slot="dialog-overlay"],
+  .maroon [data-slot="alert-dialog-overlay"] {
+    background-color: oklch(var(--scrim));
+    backdrop-filter: blur(6px) saturate(120%);
+    -webkit-backdrop-filter: blur(6px) saturate(120%);
+  }
+
   /* Every card reads as layered glass: blurred, hairline-bordered, with a
      lit top edge. On hover the pane lifts and the border takes the leaf tint
      rather than going white-on-white. */
@@ -554,6 +647,64 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
+  }
+
+  /* A phrase that is *typed into view* rather than simply switched on. The
+     sweep is one-shot on purpose: an infinite gradient pan across clipped text
+     repaints that box for as long as the page is open, and a landing headline
+     that never settles is not premium, it is a fan. */
+  .text-sweep {
+    animation: text-sweep 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0.32s backwards;
+  }
+
+  @keyframes text-sweep {
+    from {
+      clip-path: inset(0 100% 0 0);
+    }
+    to {
+      clip-path: inset(0 0 0 0);
+    }
+  }
+
+  /* --- Author credit ---------------------------------------------------- */
+
+  /* The footer name keeps foreground ink rather than the brand gradient: that
+     fill measures 2.21:1 on light and 3.11:1 on Green against its own card,
+     which no amount of weight rescues at 12px. The gradient goes into the
+     hairline under it instead, where 3:1 is the only bar — `--accent` clears it
+     in every theme. The rule draws in from the left, then a highlight pans
+     along it; two animations on two properties, so they do not fight. */
+  .credit-name {
+    position: relative;
+    display: inline-block;
+  }
+
+  .credit-name::after {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    bottom: -0.2em;
+    height: 1.5px;
+    border-radius: 9999px;
+    background-image: linear-gradient(
+      90deg,
+      oklch(var(--accent)),
+      oklch(var(--primary)),
+      oklch(var(--accent))
+    );
+    background-size: 220% 100%;
+    transform-origin: left center;
+    animation: credit-rule 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards,
+      gradient-pan 9s ease-in-out 0.6s infinite;
+  }
+
+  @keyframes credit-rule {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
   }
 
   /* Tabular figures for the timer and analytics numbers. */
@@ -663,34 +814,17 @@
 
   /* --- Motion choreography --------------------------------------------- */
 
-  /* Route arrival: a short rise with a whisper of scale and a quick blur
-     that snaps into focus — the blur only ever runs on this one container,
-     so it never taxes a phone GPU the way per-card blur would. */
-  @keyframes page-enter {
-    from {
-      opacity: 0;
-      transform: translateY(10px) scale(0.996);
-      filter: blur(5px);
-    }
-    60% {
-      filter: blur(1.5px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      filter: blur(0);
-    }
-  }
-
-  .page-enter {
-    animation: page-enter 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
+  /* Route arrival is no longer CSS: `AppLayout`/`PublicLayout` hand the keyed
+     body to `AnimatePresence`, which needs an exit as well as an enter, and a
+     stylesheet cannot hold a node that the DOM already removed. */
 
   /* One child per beat: direct children of a `.stagger` container rise in
-     sequence. `both` fill keeps each child invisible until its beat, and
-     space is reserved up front so nothing shifts while the list arrives.
-     Defined outside Tailwind (with its own keyframes) so the choreography
-     survives even if no component ends up using `animate-fade-up`. */
+     sequence. `backwards` fill keeps each child invisible until its beat and
+     holds the reserved space, but hands `transform` back to the cascade once
+     the run ends — with `both` the final `translateY(0)` stayed the winning
+     declaration forever, so a `.stagger` card's own hover lift could never
+     move it. Defined outside Tailwind (with its own keyframes) so the
+     choreography survives even if no component uses `animate-fade-up`. */
   @keyframes rise-in {
     from {
       opacity: 0;
@@ -703,7 +837,7 @@
   }
 
   .stagger > * {
-    animation: rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: rise-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
   .stagger > *:nth-child(1) {
@@ -740,6 +874,36 @@
      arrives together on the last step instead of marching on. */
   .stagger > *:nth-child(n + 11) {
     animation-delay: 540ms;
+  }
+
+  /* --- Confetti burst --------------------------------------------------- */
+
+  /* The component positions each piece (left, size, delay) and hands it a
+     lateral drift and a spin as custom properties, so one keyframe set serves
+     all 28 pieces instead of 28 rules. The fall stops inside the card that
+     clips it, so the celebration never spills over the result summary. */
+  .confetti-piece {
+    position: absolute;
+    top: -10px;
+    animation-name: confetti-fall;
+    animation-timing-function: cubic-bezier(0.3, 0.6, 0.4, 1);
+    animation-fill-mode: forwards;
+    will-change: transform, opacity;
+  }
+
+  @keyframes confetti-fall {
+    0% {
+      opacity: 0;
+      transform: translate3d(0, 0, 0) rotate(0deg);
+    }
+    12% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translate3d(var(--confetti-drift), 150px, 0)
+        rotate(var(--confetti-spin));
+    }
   }
 
   /* Clickable cards: lift on hover, settle on press. Paired with the card
@@ -893,22 +1057,35 @@ html.theme-switching *::after {
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
     scroll-behavior: auto !important;
   }
 
+  /* Collapsing the duration alone was not enough: `.stagger` keeps a 40-540 ms
+     per-child delay, so an animation reduced to 0.01 ms still left the row
+     invisible for its whole wait. Content arrived late rather than calmly. */
   .animate-fade-up,
   .animate-fade-in,
   .animate-drift,
   .animate-rise-sm,
-  .page-enter,
   .stagger > *,
   .score-ring-fg,
+  .credit-name::after,
+  .text-sweep,
   .draw-hairline {
     animation: none !important;
   }
 
   .sheen-host::before {
+    display: none !important;
+  }
+
+  /* The burst's own component refuses to mount these, but a preference changed
+     mid-session cannot unmount them — and `animation: none` would leave 28
+     static dots pinned to the top of the card. */
+  .confetti-piece {
     display: none !important;
   }
 

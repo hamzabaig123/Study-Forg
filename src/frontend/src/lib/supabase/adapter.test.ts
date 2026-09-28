@@ -1641,7 +1641,7 @@ describe("export and settings", () => {
       ["name", "y".repeat(281), 5n, "light", "at most 280"],
       ["name", "goal", 0n, "light", "at least 1"],
       ["name", "goal", 1001n, "light", "at most 1000"],
-      ["name", "goal", 5n, "system", "light, dark, frosted"],
+      ["name", "goal", 5n, "system", "light, dark, frosted, maroon"],
     ];
     for (const [
       displayName,

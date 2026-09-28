@@ -17,6 +17,9 @@
     } else if (theme === "frosted") {
       root.classList.add("frosted");
       root.style.colorScheme = "light";
+    } else if (theme === "maroon") {
+      root.classList.add("maroon");
+      root.style.colorScheme = "light";
     } else {
       root.style.colorScheme = "light";
     }

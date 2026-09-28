@@ -93,7 +93,7 @@ const ACTIVITY_LIMIT = 200;
 const MAX_DISPLAY_NAME = 80;
 const MAX_STUDY_GOAL = 280;
 const MAX_DAILY_TARGET = 1000;
-const APPEARANCES: string[] = ["light", "dark", "frosted"];
+const APPEARANCES: string[] = ["light", "dark", "frosted", "maroon"];
 
 /**
  * `backend.ts` declares both a generic `Option<T>` (its `Some`/`None` wrapper)
@@ -2122,7 +2122,7 @@ export const mockBackend = {
     if (!APPEARANCES.includes(theme)) {
       return {
         __kind__: "err",
-        err: { __kind__: "invalidInput", invalidInput: "Appearance must be one of: light, dark, frosted" },
+        err: { __kind__: "invalidInput", invalidInput: "Appearance must be one of: light, dark, frosted, maroon" },
       };
     }
     const db = database();

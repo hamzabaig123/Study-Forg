@@ -1,3 +1,4 @@
+import { AppFooter } from "@/components/layout/AppFooter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { useAuth } from "@/hooks/useAuth";
@@ -112,7 +113,10 @@ export default function Landing() {
 
             <h1 className="mt-6 text-balance text-4xl leading-[1.05] sm:text-5xl lg:text-6xl">
               Forge your study material into{" "}
-              <span className="text-gradient-primary">real recall</span>.
+              <span className="text-gradient-primary text-sweep">
+                real recall
+              </span>
+              .
             </h1>
 
             <p className="mt-6 max-w-xl text-pretty text-lg leading-relaxed text-muted-foreground">
@@ -450,6 +454,8 @@ export default function Landing() {
           </div>
         </div>
       </section>
+
+      <AppFooter />
     </div>
   );
 }

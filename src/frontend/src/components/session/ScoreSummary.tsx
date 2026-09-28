@@ -1,3 +1,6 @@
+import { BlurFade } from "@/components/motion/blur-fade";
+import { ConfettiBurst } from "@/components/motion/confetti-burst";
+import { NumberTicker } from "@/components/motion/number-ticker";
 import { Progress } from "@/components/ui/progress";
 import { formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -28,7 +31,10 @@ export function ScoreSummary({
   marker = "results",
 }: ScoreSummaryProps) {
   return (
-    <div className="flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:gap-8">
+    <div className="relative flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:gap-8">
+      {/* 75 is where `scoreMessage` starts saying "strong work", so the paper
+          and the words celebrate the same result or neither does. */}
+      {percent >= 75 ? <ConfettiBurst /> : null}
       <div className="flex flex-col items-center">
         <div className="relative flex size-32 items-center justify-center">
           <svg
@@ -68,7 +74,7 @@ export function ScoreSummary({
               data-ocid={`${marker}.score`}
               className="numeric text-3xl font-semibold"
             >
-              {percent.toFixed(0)}%
+              <NumberTicker value={percent} suffix="%" duration={1.1} />
             </span>
             <span className="text-muted-foreground text-[0.65rem] font-medium tracking-widest uppercase">
               score

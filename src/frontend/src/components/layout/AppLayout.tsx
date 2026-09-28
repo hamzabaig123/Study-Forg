@@ -1,3 +1,4 @@
+import { AppFooter } from "@/components/layout/AppFooter";
 import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { StorageHealthBanner } from "@/components/layout/StorageHealthBanner";
@@ -5,6 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useCardSpotlight } from "@/hooks/useCardSpotlight";
 import { useReminderScheduler } from "@/hooks/useReminders";
 import { Outlet, useRouterState } from "@tanstack/react-router";
+import { AnimatePresence, m } from "motion/react";
 import { type ReactNode, useState } from "react";
 
 /**
@@ -42,17 +44,32 @@ export function AppLayout() {
         >
           <div className="mx-auto w-full max-w-6xl">
             <StorageHealthBanner />
-            <div key={pathname} className="motion-safe:page-enter">
-              <Outlet />
-            </div>
+            {/* `mode="wait"` lets the outgoing page finish its 150ms exit before
+                the next one mounts, so the two never overlap in the scroll box.
+                The key is the pathname, which is what `page-enter` keyed on when
+                this was an entrance-only animation. */}
+            <AnimatePresence mode="wait">
+              <m.div
+                key={pathname}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                  transition: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
+                }}
+                exit={{
+                  opacity: 0,
+                  y: -6,
+                  transition: { duration: 0.15, ease: "easeOut" },
+                }}
+              >
+                <Outlet />
+              </m.div>
+            </AnimatePresence>
           </div>
         </main>
       </div>
-      <footer className="pb-safe border-t border-border bg-card px-4 py-5 sm:px-6">
-        <p className="text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()} StudyForge
-        </p>
-      </footer>
+      <AppFooter />
     </div>
   );
 }
@@ -102,18 +119,27 @@ export function PublicLayout({ children }: { children?: ReactNode }) {
         className="min-w-0 flex-1 px-4 py-8 outline-none sm:px-6 lg:px-8 lg:py-12"
         data-ocid="public.main"
       >
-        <div
-          key={pathname}
-          className="mx-auto w-full max-w-6xl motion-safe:page-enter"
-        >
-          {children ?? <Outlet />}
-        </div>
+        <AnimatePresence mode="wait">
+          <m.div
+            key={pathname}
+            className="mx-auto w-full max-w-6xl"
+            initial={{ opacity: 0, y: 8 }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              transition: { duration: 0.34, ease: [0.16, 1, 0.3, 1] },
+            }}
+            exit={{
+              opacity: 0,
+              y: -6,
+              transition: { duration: 0.15, ease: "easeOut" },
+            }}
+          >
+            {children ?? <Outlet />}
+          </m.div>
+        </AnimatePresence>
       </main>
-      <footer className="pb-safe border-t border-border bg-card px-4 py-5 sm:px-6">
-        <p className="text-center text-xs text-muted-foreground">
-          © {new Date().getFullYear()} StudyForge
-        </p>
-      </footer>
+      <AppFooter />
     </div>
   );
 }

@@ -86,5 +86,6 @@ export {
   UserRole,
 } from "@/backend";
 
-/** The three themes StudyForge supports. */
-export type ThemeName = "light" | "dark" | "frosted";
+/** The four themes StudyForge supports. The persisted strings are the
+ *  appearance values `user_settings` knows; the labels live in the theme UI. */
+export type ThemeName = "light" | "dark" | "frosted" | "maroon";
