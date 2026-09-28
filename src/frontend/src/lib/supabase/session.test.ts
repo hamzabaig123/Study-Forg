@@ -349,10 +349,39 @@ describe("registering", () => {
       args: {
         email: "ada@example.com",
         password: "aaaaaaaa",
-        options: { data: { full_name: "Ada" } },
+        options: {
+          data: { full_name: "Ada" },
+          emailRedirectTo: `${window.location.origin}/verify-email?email=ada%40example.com`,
+        },
       },
     });
     expect(store.account()?.name).toBe("Ada");
+  });
+
+  it("asks for the confirmation link back on the origin that signed up", async () => {
+    // The project's Site URL is one dashboard setting, and a preview deploy or a
+    // dev server is never the origin it names. Sending the address per request
+    // is what keeps the link arriving where the visitor already is — and keeps
+    // the screen that can re-send it able to name the address when they do.
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.register({
+      name: "Ada",
+      email: "Ada@Example.com",
+      password: "aaaaaaaa",
+      passwordConfirmation: "aaaaaaaa",
+    });
+    await store.resendConfirmation("Ada@Example.com");
+
+    const expected = `${window.location.origin}/verify-email?email=ada%40example.com`;
+    const redirects = fake.calls
+      .filter((call) => call.name === "signUp" || call.name === "resend")
+      .map(
+        (call) =>
+          (call.args as { options: { emailRedirectTo?: string } }).options
+            .emailRedirectTo,
+      );
+    expect(redirects).toEqual([expected, expected]);
   });
 
   it("leaves the browser a visitor when the address still needs confirming", async () => {

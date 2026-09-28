@@ -136,6 +136,21 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
     return origin ? `${origin}${path}` : undefined;
   }
 
+  /**
+   * Where a confirmation link lands, with the address it belongs to.
+   *
+   * The verification screen reads the address from `?email=` when there is no
+   * session to read it from, and a link that fails to open a session is exactly
+   * that case. GoTrue appends its own parameters after the query string, so the
+   * address survives the round trip.
+   */
+  function verificationRedirect(email: string) {
+    const target = redirectTo("/verify-email");
+    return target
+      ? `${target}?email=${encodeURIComponent(email.trim().toLowerCase())}`
+      : undefined;
+  }
+
   function apply(next: SupabaseAccount | null) {
     const nextSnapshot = next ? JSON.stringify(next) : "null";
     if (nextSnapshot === snapshot) {
@@ -273,7 +288,16 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
       const { data, error } = await client.auth.signUp({
         email,
         password,
-        options: { data: { full_name: name } },
+        options: {
+          data: { full_name: name },
+          // The same rule the reset link follows: land the visitor back on the
+          // origin that asked, rather than on the project's Site URL, which is
+          // one setting that is wrong for every preview and every dev server.
+          // The screen is the verification one and it carries the address, so a
+          // link that fails to open a session still lands somewhere that can
+          // re-send it.
+          emailRedirectTo: verificationRedirect(email),
+        },
       });
       if (error) {
         throw new Error(authMessage(error.message));
@@ -288,7 +312,11 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
     },
 
     async resendConfirmation(email) {
-      const { error } = await client.auth.resend({ type: "signup", email });
+      const { error } = await client.auth.resend({
+        type: "signup",
+        email,
+        options: { emailRedirectTo: verificationRedirect(email) },
+      });
       if (error) {
         throw new Error(authMessage(error.message));
       }

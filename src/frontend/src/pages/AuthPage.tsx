@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEmailPasswordAuth, useInternetIdentityAuth } from "@/hooks/useAuth";
+import { authLinkError } from "@/lib/authLinkError";
 import { USE_LOCAL_ACCOUNTS, USE_SUPABASE } from "@/lib/authMode";
 import { SUPABASE_PROBLEM } from "@/lib/supabase/env";
 import {
@@ -450,6 +451,11 @@ function VerifyEmailScreen() {
   const pendingEmail = usePendingEmail();
   const address = account?.email ?? pendingEmail;
   const verified = Boolean(account?.emailVerified);
+  // The link can be spent before it reaches this screen — opened once while the
+  // app was not running, or left in an inbox past its hour. GoTrue says so in
+  // the fragment it redirects with and supabase-js stays quiet about it, so the
+  // only way the visitor learns it is if this screen reads it.
+  const linkError = authLinkError();
   const navigate = useNavigate();
   const [cooldown, setCooldown] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -550,6 +556,14 @@ function VerifyEmailScreen() {
               so an old message will not work — send a fresh one instead.
             </p>
           )}
+          {linkError ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
+            >
+              {linkError.message}
+            </p>
+          ) : null}
           {problem ? (
             <p
               role="alert"
@@ -759,17 +773,22 @@ function NewPasswordScreen() {
   }
   const save = updatePassword;
   if (!isAuthenticated) {
+    const spent = authLinkError();
     return (
       <main className="mx-auto flex min-h-dvh w-full max-w-lg items-center motion-safe:animate-fade-up px-5 py-10 sm:py-12">
         <Card className="w-full shadow-elevated">
           <CardHeader>
-            <CardTitle>Open the link from your email</CardTitle>
+            <CardTitle>
+              {spent
+                ? "That link no longer works"
+                : "Open the link from your email"}
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              This page only works from the link StudyForge emailed you, because
-              that link is what proves the address is yours. Ask for a new one
-              if the message has gone.
+              {spent
+                ? spent.message
+                : "This page only works from the link StudyForge emailed you, because that link is what proves the address is yours. Ask for a new one if the message has gone."}
             </p>
             <Button
               className="w-full"

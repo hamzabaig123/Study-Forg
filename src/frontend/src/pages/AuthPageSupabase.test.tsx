@@ -170,6 +170,10 @@ let user: ReturnType<typeof userEvent.setup>;
 
 describe("AuthPage with a Supabase session", () => {
   beforeEach(() => {
+    // The screens read the fragment the same way the browser leaves it after an
+    // auth link redirects, so a hash set by one test would otherwise answer for
+    // all of them.
+    window.history.replaceState(null, "", "/");
     window.localStorage.clear();
     problem.message = null;
     store.recovering = false;
@@ -502,5 +506,42 @@ describe("AuthPage with a Supabase session", () => {
       screen.getByRole("button", { name: /send a reset link/i }),
     ).toBeInTheDocument();
     expect(screen.queryByLabelText("New password")).not.toBeInTheDocument();
+  });
+
+  it("names a reset link the visitor already spent", async () => {
+    // The failure this reproduces: the link is opened while the app is not
+    // running, GoTrue spends the token on the way, and the second tap lands on
+    // this page with no session and an error in the fragment. Without reading
+    // that error the page blames the visitor for not using the link.
+    window.history.replaceState(
+      null,
+      "",
+      "/reset-password#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired",
+    );
+    await renderLogin("/reset-password");
+
+    expect(await screen.findByText(/that link no longer works/i)).toBeVisible();
+    expect(
+      screen.getByText(/already been used, or it has expired/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /send a reset link/i }),
+    ).toBeEnabled();
+  });
+
+  it("says the confirmation link failed on the screen that can re-send it", async () => {
+    window.history.replaceState(
+      null,
+      "",
+      "/verify-email?email=grace@example.com#error=access_denied&error_code=otp_expired",
+    );
+    await renderLogin("/verify-email?email=grace@example.com");
+
+    expect(
+      await screen.findByText(/already been used, or it has expired/i),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: /send the link again/i }),
+    ).toBeEnabled();
   });
 });
