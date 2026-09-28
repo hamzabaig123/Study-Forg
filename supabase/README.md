@@ -283,9 +283,12 @@ there:
 
 Verification and password-reset mail are sent by **GoTrue**, not by this app and
 not by `functions/reminder-sender`. That single fact decides the provider:
-GoTrue speaks **SMTP only**, and providers that expose only a REST API (Resend
-does) can therefore never send these two emails — which is why the digest has
-its own mail path and the auth flows need this one.
+GoTrue's built-in mailer speaks **SMTP only**, so a REST-only provider (Resend
+does) cannot be selected in the SMTP settings screen — which is why the digest
+has its own mail path and the auth flows have had to use this one. *Had to*: a
+**Send Email hook** replaces that mailer outright and puts auth mail back on a
+REST provider, which is the route documented under *Taking auth mail off SMTP
+entirely* below.
 
 Brevo works because it has both halves: an SMTP relay for GoTrue, and a REST
 API for the digest. Until it is switched on, both emails leave through
@@ -371,6 +374,48 @@ arrived, `via <your domain>`, link host, and the reason Gmail's *Show original
 → Encryption and delivery* gives if it went to Spam). Exit 1 = it refused; the
 output names which *kind* of failure the shape is and where the exact field is
 written down. Exit 2 = missing input.
+
+### Taking auth mail off SMTP entirely: the Send Email hook
+
+**Deploy it, then wire it.** Both commands are one-liners, and the second one is
+the step that actually changes what GoTrue does:
+
+```bash
+node -e 'console.log(require("crypto").randomBytes(32).toString("hex"))'  # the hook secret
+supabase secrets set AUTH_HOOK_SECRET=<that string> --project-ref qjoijoxmnliarlyaqmoz
+supabase functions deploy auth-mail --no-verify-jwt --project-ref qjoijoxmnliarlyaqmoz
+```
+
+Then Dashboard → Authentication → **Hooks → Send email** → enable it and set the
+URL to `https://qjoijoxmnliarlyaqmoz.functions.supabase.co/auth-mail?secret=<that
+string>`. From that moment GoTrue does not open an SMTP connection at all.
+
+What the hook replaces, and what it does not:
+
+- It receives `{ user, email_data }` — `token_hash`, `email_action_type`,
+  `redirect_to` — builds `SUPABASE_URL/auth/v1/verify?token=…&type=…&redirect_to=…`,
+  and delivers it through **Brevo's REST API first, Resend behind it**: the two
+  credentials `reminder-sender` already uses, so the digest's working mail path
+  is what auth mail now rides on. No SMTP key exists anywhere in it.
+- A 200 from the function is the only thing that counts as sent. If both
+  providers refuse, the function answers 502 and the visitor sees an error
+  instead of waiting for a mail that will never come.
+- **The `email-templates/` HTML stops being used while the hook is on.** GoTrue
+  hands over the token, not a rendered template, so the copy lives in
+  `functions/auth-mail/index.ts`. Turning the hook off returns both the templates
+  and the SMTP sender to service.
+- `--no-verify-jwt` is required because a hook caller has no user session, which
+  makes the URL's `secret` the only credential. `authorized()` in the function
+  demands it and refuses everything if `AUTH_HOOK_SECRET` is unset, so the
+  endpoint cannot become a form anyone can post to and mail arbitrary addresses
+  from a verified sender. Rotating it means changing the secret *and* the hook
+  URL together.
+
+`node supabase/e2e/auth-mail-hook-check.mjs` runs the real function under Node
+against synthetic GoTrue payloads with every provider call intercepted — link
+shape, per-action copy, escaping of the address, the secret gate, and both
+provider-refusal paths. It is the only way to verify this file on a machine with
+no Deno, and it touches no network and sends no mail.
 
 **When GoTrue masks the reason, ask the relay directly.**
 `supabase/e2e/smtp-relay-check.mjs` runs the same conversation GoTrue runs —
