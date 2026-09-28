@@ -3,11 +3,12 @@
  * SMTP sender behind GoTrue (Supabase Auth) actually works.
  *
  * Why this is the check that matters for email verification and password reset:
- * both are sent by GoTrue, and GoTrue answers SMTP failures *on the request*.
- * A broken relay (wrong key type, wrong port, unverified sender, quota spent)
- * comes back as HTTP 500 carrying the provider's own words. A working one
- * comes back as HTTP 200 and you go look in the inbox. No dashboard, no admin
- * token, no guessing.
+ * both are sent by GoTrue, and GoTrue fails the request the moment its mailer
+ * fails. What it does not do is forward the provider's words: on v2.197.0 the
+ * client gets `{"error_code":"unexpected_failure"}` and the real 535/550 line
+ * stays in the project's auth logs under the response's `error_id`. So this
+ * script reads status *and* timing — a hang is a transport problem, a fast 500
+ * is a refused field — and prints which dashboard field each shape points at.
  *
  *   SUPABASE_URL=https://<ref>.supabase.co \
  *   SUPABASE_ANON_KEY=<publishable key> \
@@ -62,6 +63,21 @@ function looksLikeMailFailure(text) {
 function looksLikeRecipientFailure(text) {
   return /5\d\d.*(recipient|user|mailbox|address)|no such (user|mailbox|domain)|user unknown|does not exist|invalid (recipient|domain)|unresolvable|domain (not found|does not exist)|nodomain/i.test(
     text,
+  );
+}
+
+/**
+ * True when GoTrue refused with its own anonymous line and kept the provider's
+ * SMTP reply in the project's logs. GoTrue appends the real `535`/`550` text
+ * after "smtp send error" on some builds and never on others, so the two shapes
+ * need different advice: one names the fault, the other only proves the relay
+ * was reached.
+ */
+function isMaskedSendFailure(text) {
+  return (
+    /unexpected_failure|error sending (recovery|confirmation|invite|magic link) email/i.test(
+      text,
+    ) && !/smtp send error/i.test(text)
   );
 }
 
@@ -184,6 +200,36 @@ async function main() {
   }
 
   if (code >= 500) {
+    if (isMaskedSendFailure(text)) {
+      // Timing is the diagnosis. A hang means the relay was never reached; a few
+      // seconds means the attempt completed and something in it was refused —
+      // and GoTrue's client-facing reply for every SMTP failure is the same
+      // anonymous line, with only an `error_id` pointing at the real one.
+      const id = /"error_id":"([^"]+)"/.exec(text)?.[1];
+      console.error(
+        `\nAnswered in ${ms} ms instead of hanging, so GoTrue tried the relay and\n` +
+          "was refused. The provider's own line is not forwarded to the client —\n" +
+          "what is printed above is the whole answer" +
+          (id ? `, logged under error_id\n${id}.` : ".") +
+          " Dashboard → Authentication → Logs, or Logs\n" +
+          "Explorer → Auth, shows the 535/550 line behind it, and that line names\n" +
+          "the field. In the order the SMTP conversation reaches them:\n" +
+          "  - Port and the encryption toggle: 587 with STARTTLS. A TLS handshake\n" +
+          "    on a STARTTLS port fails instantly and looks exactly like this.\n" +
+          "  - Username: the address you sign into Brevo with.\n" +
+          "  - Password: the SMTP key. An API key authenticates against a\n" +
+          "    different service and is refused here.\n" +
+          "  - Sender email: a sender or domain verified at Brevo. An unverified\n" +
+          "    From is refused at MAIL FROM, before any mail exists.\n" +
+          "\nWith the logs unreachable, the ladder is: set the four values above,\n" +
+          "run this once, and if it still answers 500 switch custom SMTP off in the\n" +
+          "same panel — auth mail returns through Supabase's built-in sender, capped\n" +
+          "at two an hour, which proves the templates and the flow while the relay\n" +
+          "settings are corrected.",
+      );
+      process.exitCode = 1;
+      return;
+    }
     if (looksLikeMailFailure(text)) {
       console.error("\nThe mailer refused the send. " + GUIDANCE.join("\n"));
       process.exitCode = 1;

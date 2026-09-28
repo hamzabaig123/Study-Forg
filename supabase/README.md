@@ -330,9 +330,13 @@ the built-in sender. Nothing in the app changes either way, and no template is
 touched — `email-templates/` stays the version of record for the HTML.
 
 Prove it with `supabase/e2e/auth-mail-check.mjs`, which asks GoTrue for a
-recovery mail and reads the response: **GoTrue reports an SMTP failure on the
-request itself**, so wrong credentials surface as HTTP 500 with the provider's
-own words instead of a silent green light.
+recovery mail and reads the response. GoTrue fails the request on the spot when
+the mailer fails — but on the version this project runs (v2.197.0) the client
+gets an anonymous `{"error_code":"unexpected_failure"}` and the provider's real
+`535`/`550` line stays in the project's auth logs. So the script's value is the
+**status and the timing**, which together say how far the send got; the field
+that is wrong has to be read from Dashboard → Authentication → Logs, where the
+same failure is logged under the `error_id` the response carries.
 
 ```bash
 SUPABASE_URL=https://qjoijoxmnliarlyaqmoz.supabase.co \
@@ -357,10 +361,17 @@ tens of seconds until the platform answers **HTTP 504 `upstream request
 timeout`** never got a TLS session established at all — that is a port/TLS
 mismatch (implicit TLS on `587`, or anything aimed at `2465`, which this network
 drops), a mistyped host, or a leftover port 25, and it means no verification or
-reset mail is leaving the project while it lasts. Measured here on 2026-09-28:
-`demo@studyforge.test` answered 504 after 35.8 s. Which port the dashboard was
-holding is not knowable from outside it, so the move is to set `587` with
-STARTTLS, save, and re-run the probe.
+reset mail is leaving the project while it lasts. Measured here on 2026-09-28,
+same address, two runs:
+
+| When | Response | Reading |
+| --- | --- | --- |
+| before the dashboard change | HTTP **504** after 35 784 ms | the outbound connection never completed — nothing to do with the key |
+| after it | HTTP **500** `unexpected_failure` after 2 205 ms | GoTrue reached the relay and was refused fast: one of the four fields above is wrong, and only the auth log names it |
+
+The 504 → 500 move is the progress: the hang is gone. What is left is a
+credential/sender question, which cannot be answered from outside the dashboard
+because GoTrue does not forward the provider's line.
 
 ## Status of `qjoijoxmnliarlyaqmoz`
 
