@@ -352,13 +352,32 @@ would turn a broken relay into a passing test. The script creates no account
 and sends mail to exactly one address; the link it generates expires unused.
 Exit 0 = the mailer took the job (then read the four inbox checks it prints —
 arrived, `via <your domain>`, link host, and the reason Gmail's *Show original
-→ Encryption and delivery* gives if it went to Spam). Exit 1 = it refused, with
-the cause named. Exit 2 = missing input.
+→ Encryption and delivery* gives if it went to Spam). Exit 1 = it refused; the
+output names which *kind* of failure the shape is and where the exact field is
+written down. Exit 2 = missing input.
 
-**Read the timing, not only the status.** Refused credentials come back in a
-fraction of a second with a `535`/`550` line. A request that instead sits for
-tens of seconds until the platform answers **HTTP 504 `upstream request
-timeout`** never got a TLS session established at all — that is a port/TLS
+**When GoTrue masks the reason, ask the relay directly.**
+`supabase/e2e/smtp-relay-check.mjs` runs the same conversation GoTrue runs —
+EHLO, STARTTLS, encrypted EHLO, `AUTH LOGIN`, `MAIL FROM`, `RCPT TO` — and stops
+there, so **no message is ever composed** and no daily quota moves. It reads the
+credentials from the environment (`SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`, all
+documented in `supabase/.env.example`, which git ignores) and never prints them,
+not even base64-encoded, because that is reversible. The payoff is the line
+GoTrue keeps: run against the live relay with a deliberately wrong key it
+answers
+
+```
+← 535 5.7.8 Authentication failed
+```
+
+and the script names the field that produced it — credentials, sender
+verification, capacity, or the connection mode. `SMTP_TLS=1` tests port 465's
+implicit TLS; without it the script expects STARTTLS, which is what 587 speaks.
+
+**Read the timing, not only the status.** A refused credential, an unverified
+sender or a spent quota comes back in a couple of seconds. A request that
+instead sits for tens of seconds until the platform answers **HTTP 504 `upstream
+request timeout`** never got a TLS session established at all — that is a port/TLS
 mismatch (implicit TLS on `587`, or anything aimed at `2465`, which this network
 drops), a mistyped host, or a leftover port 25, and it means no verification or
 reset mail is leaving the project while it lasts. Measured here on 2026-09-28,
