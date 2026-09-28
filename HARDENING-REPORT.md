@@ -158,6 +158,24 @@ reviewer's own key. Deploying it is necessary to change that, not sufficient.
 
 **Overall: ~8.8/10.** The distance to "A++" is not code — it is §5.
 
+### 3.1 The same grades as letters, on the `GRADING-REPORT.md` scale
+
+`A++` means *executed, observed, and nothing in the area is known to be broken*.
+`A` means *proven, with a named gap that is not a defect*. Below that, something
+is either unproven or unfixed.
+
+| Area | Letter | Earned from | What stops the next step |
+| --- | --- | --- | --- |
+| Frontend | **A** | 482 tests green in this tree, typecheck clean, biome clean, `pnpm build` exit 0, nine authenticated routes + landing + the auth guard clicked through a real browser with zero console errors | The canister path cannot be compiled or run on this machine, so that half of the surface is typecheck-verified only |
+| Backend | **B+** | All 77 methods implemented against the adapter, the 16/16 contract sweep on the live database, the 12 refusals typed and documented rather than silently wrong | `src/backend/dist/backend.wasm` is a trusted binary: the Motoko source has never been typechecked here |
+| Database | **A++** | 0001–0011 applied and every one of the 14 read-only `verify.sql` items answering as claimed, anon locked out of all 22 tables, the two destructive-helper grants revoked, both throttle paths measured before/after | Nothing known — the residual (`supabase_admin`'s default privileges) is a role this project's credentials cannot alter, which is a boundary, not a defect |
+| Authentication | **A** | Email verification before any data access, `422 weak_password` measured on a 6-character signup, `jwt_exp 3600`, recovery flow that holds the session, the hijack-notification mail now on | Leaked-password screening is plan-gated, the branded templates are still not pasted, and the sender name reads "Study Forg" |
+| Cybersecurity | **A+** | The two exploitable holes in the public surface closed **with permanent probes** — a forged-address burst is now limited (20/5, one counter) and TRUNCATE is gone from both client roles and the defaults | The header fix is committed but the deployed origin still answers with no CSP header until the next build, and the leaked credentials in §5 are still un-rotated |
+| **Whole product** | **A** | Every gate in §1 green, both live batteries green, the five areas above | Not `A++` while the protection shipped today is not yet served, and while a personal access token that administers every project on the account is sitting in a chat log |
+
+The gap between `A` and `A++` here is two commands and one dashboard visit:
+push so Vercel rebuilds, and revoke the token.
+
 ## 4. Commits
 
 | Hash | What it carries |
