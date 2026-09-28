@@ -297,7 +297,8 @@ Dashboard → Authentication → **SMTP settings** (the fields map to GoTrue's
 | Sender name | `StudyForge` |
 
 **Do not use `2465`.** An earlier revision of this table offered it as the SSL
-alternative, and that offer is what produced a 35-second hang and an HTTP 504.
+alternative; from this network it is a silent drop, which is the one wrong value
+that produces a 35-second hang and an HTTP 504 instead of an error message.
 Measured against the live relay from this machine on 2026-09-28:
 
 | Port | Plaintext banner | TLS handshake | Verdict |
@@ -354,10 +355,12 @@ the cause named. Exit 2 = missing input.
 fraction of a second with a `535`/`550` line. A request that instead sits for
 tens of seconds until the platform answers **HTTP 504 `upstream request
 timeout`** never got a TLS session established at all — that is a port/TLS
-mismatch (587 without STARTTLS, or 2465 without SSL), a mistyped host, or a
-leftover port 25, and it means no verification or reset mail is leaving the
-project while it lasts. Measured here on 2026-09-28: `demo@studyforge.test`
-returned 504 after 35.8 s.
+mismatch (implicit TLS on `587`, or anything aimed at `2465`, which this network
+drops), a mistyped host, or a leftover port 25, and it means no verification or
+reset mail is leaving the project while it lasts. Measured here on 2026-09-28:
+`demo@studyforge.test` answered 504 after 35.8 s. Which port the dashboard was
+holding is not knowable from outside it, so the move is to set `587` with
+STARTTLS, save, and re-run the probe.
 
 ## Status of `qjoijoxmnliarlyaqmoz`
 

@@ -71,7 +71,8 @@ const GUIDANCE = [
   "  1. SMTP password vs API key — the relay wants the *SMTP key* Brevo shows on",
   "     its SMTP & Sender page; the API key is a different string and produces an",
   "     authentication failure that looks like a wrong password.",
-  "  2. Port vs TLS mode — 587 needs STARTTLS, 2465 needs SSL. Supabase's",
+  "  2. Port vs TLS mode — 587 with STARTTLS is the only pairing measured to\n" +
+  "     complete against smtp-relay.brevo.com (see supabase/README.md). The\n" +
   "     dashboard has one toggle for this and the wrong pairing times out.",
   "  3. Sender address — must be a domain (or address) you verified with the",
   "     provider. An unverified From is refused before anything is queued.",
@@ -167,9 +168,10 @@ async function main() {
       "\nGoTrue accepted the request and never came back. That is the shape of a\n" +
         "transport problem, not an authentication problem — a wrong key or a spent\n" +
         "quota is refused in a fraction of a second with a 535/550 line. In order:\n" +
-        "  1. Port vs TLS mode. 587 must be paired with STARTTLS and 2465 with SSL.\n" +
-        "     The mismatched pair neither succeeds nor fails; it hangs, which is\n" +
-        "     what a 504 after tens of seconds means.\n" +
+        "  1. Port vs TLS mode. Use 587 with STARTTLS. 2465 was measured from this\n" +
+        "     project's network as a silent drop — no banner, no refusal, just a\n" +
+        "     hang — so a mismatched pair neither succeeds nor fails; it stalls,\n" +
+        "     which is what a 504 after tens of seconds means.\n" +
         "  2. Host spelling — `smtp-relay.brevo.com`, with no scheme, no port\n" +
         "     suffix and no trailing space from the copy/paste.\n" +
         "  3. Anything still pointing at port 25: relay hosts drop it silently and\n" +
