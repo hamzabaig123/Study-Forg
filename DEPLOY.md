@@ -94,29 +94,41 @@ it is one of them:
 
 ## 3. Tell Supabase where the app now lives
 
-Auth emails point back at the app, so the confirmation link must land on your
-Vercel domain:
+Auth emails point back at the app, so the confirmation link must land on a
+running origin:
 
 1. Supabase → Authentication → **URL Configuration**.
-2. **Site URL**: `https://study-forg-frontend-gk2p-rose.vercel.app` (update this
-   when the production domain changes — the Site URL has to match wherever the
-   app actually lives).
-3. **Redirect URLs**: add the same URL.
+2. **Site URL**: `https://study-forg-frontend-100.vercel.app` (update this when
+   the production domain changes — the Site URL has to match wherever the app
+   actually lives).
+3. **Redirect URLs**: add `https://study-forg-frontend-100.vercel.app` and
+   `https://www.study-forg.app`.
+4. Also keep `http://localhost:5173` in that list for development.
 
-Without this, the deployed app still works but every auth link lands on
-localhost, because that is what the Site URL says. The app now asks for the
-origin it is running on with **all three** links — password reset, sign-up
-confirmation and its re-send — so the Site URL is the fallback rather than the
-only thing that decides where a visitor ends up. The allow-list is not a
-fallback: an origin that is not listed there is refused outright, so add the
-Vercel domain *and* `http://localhost:5173` (the dev server's port) here.
+The app asks for the origin it is actually running on with **all three** links —
+password reset, sign-up confirmation and its re-send — so the Site URL is the
+fallback rather than the only thing that decides where a visitor ends up. The
+allow-list is not a fallback: an origin that is not listed there is refused
+outright.
 
-> Measured 2026-09-28: the domain above answers **HTTP 404**, so nothing is
-> deployed at it right now. Until a push rebuilds it, the only origin a link can
-> land on is a dev server that is actually running — and because GoTrue spends
-> the token while it builds that redirect, tapping a link with no server behind
-> it burns the link as well as failing. See `supabase/README.md` → *Auth settings
-> a deployed project needs*.
+> Measured 2026-09-28, after the push that rebuilt production:
+> - `https://study-forg-frontend-100.vercel.app` serves the current production
+>   build (`/`, `/reset-password` and `/verify-email` all 200, same asset hash
+>   as the deployment Vercel lists as Production). This is the alias to use
+>   today.
+> - `https://www.study-forg.app` and `https://study-forg.app` **do not resolve**
+>   — `vercel domains inspect study-forg.app` reports the domain as registered
+>   to the project but with no current nameservers, and asks for
+>   `A study-forg.app 76.76.21.21` at the DNS provider. Until that record
+>   exists, no auth link can land on the custom domain, however the dashboard
+>   is configured.
+> - `study-forg-frontend-gk2p-rose.vercel.app` (named here before) is not a
+>   deployment this project has; `vercel alias ls` shows the five aliases above
+>   and nothing else.
+>
+> Because GoTrue **spends the token while it builds the redirect**, tapping a
+> link whose origin is not up burns the link as well as failing — see
+> `supabase/README.md` → *Auth settings a deployed project needs*.
 
 ## 4. How updates work (the part you asked about)
 
