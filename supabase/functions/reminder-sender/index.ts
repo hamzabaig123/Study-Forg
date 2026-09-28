@@ -29,12 +29,16 @@
 //   "StudyForge <onboarding@resend.dev>", which Resend restricts to the
 //   account owner's own address until a domain is verified)
 //   also: APP_URL=<deployed origin> (the email's CTA and the push's landing
-//   URL); CRON_SECRET=<tick bearer>, required only once the pg_cron tick is
+//   URL). Set it: without it a scheduled tick falls back to the production
+//   origin hardcoded in appOrigin(), and no value ever falls back to this
+//   project's own API origin — that mistake sent readers to
+//   https://<ref>.supabase.co/dashboard
+//   CRON_SECRET=<tick bearer>, required only once the pg_cron tick is
 //   scheduled
 //   the newer channels: BREVO_API_KEY + BREVO_FROM=<verified sender email>
-//   (auth emails ride Brevo too, as Supabase's custom SMTP — see
-//   supabase/README.md → The reminder pipeline); VAPID_PUBLIC_KEY +
-//   VAPID_PRIVATE_KEY to arm web push
+//   (the digest's own transport; sign-up and reset emails ride Gmail as
+//   Supabase's custom SMTP — see supabase/README.md → The reminder pipeline);
+//   VAPID_PUBLIC_KEY + VAPID_PRIVATE_KEY to arm web push
 //
 // Schedule (SQL editor): the `cron.schedule` snippet lives in
 // supabase/README.md → The reminder pipeline. due_reminders() (migration 0006)
@@ -58,6 +62,40 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...CORS, "Content-Type": "application/json" },
   });
+}
+
+/**
+ * Where the digest's links land: the email CTA, the push click action and the
+ * plain-text footer all read this.
+ *
+ * `SUPABASE_URL` is deliberately **not** a fallback. It is this function's own
+ * API origin (`https://<ref>.supabase.co`), so a digest built from it sent
+ * every reader to Supabase's dashboard instead of the app — measured live on
+ * 2026-09-28, the shipped emails linked `…supabase.co/dashboard`.
+ *
+ * Order: `APP_URL` (the only value a cron tick can use, since a tick arrives
+ * with no browser headers) → the calling page's origin, which lets a preview
+ * deployment get a working link from the app's own "send now" button → the
+ * documented production origin.
+ */
+function appOrigin(request: Request): string {
+  const configured = (Deno.env.get("APP_URL") ?? "").trim().replace(/\/+$/, "");
+  if (configured) return configured;
+  for (const header of ["origin", "referer"]) {
+    const value = request.headers.get(header);
+    if (!value) continue;
+    try {
+      const url = new URL(value);
+      // The app is only ever served over HTTPS, and this project's own API
+      // origin is the one answer that must never be chosen.
+      if (url.protocol === "https:" && !url.hostname.endsWith(".supabase.co")) {
+        return url.origin;
+      }
+    } catch {
+      // A header that is not a URL is not a landing page either.
+    }
+  }
+  return "https://study-forg-frontend-100.vercel.app";
 }
 
 function esc(text: string): string {
@@ -696,7 +734,9 @@ Deno.serve(async (request) => {
   const baseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const appUrl = Deno.env.get("APP_URL") ?? baseUrl;
+  // Never `baseUrl`: that is the API origin, and a CTA aimed at it lands the
+  // reader in Supabase's dashboard. See `appOrigin`.
+  const appUrl = appOrigin(request);
   const bearer =
     request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
 

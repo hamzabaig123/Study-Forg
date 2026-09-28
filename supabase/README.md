@@ -15,6 +15,8 @@ the localStorage archive the app used when there was no server.
 `migrations/0006_reminders.sql` | The per-account reminder half of the schema: `reminder_settings` keyed by `user_id` (fire time, the account's UTC offset, which sections it carries, the day it last fired) with the four owner policies in the house style and shape CHECKs, plus `reminder_log` — read-only for its owner, writable only by the delivery function, so a client cannot record a send it did not make — and the two `security definer` views the runner needs (`reminder_digest(uuid, integer)` for one account's numbers, `due_reminders()` for the whole tick). Both are `service_role` only: they answer across accounts, so no signed-in client may call them, and the blanket function grant at the bottom of the file is walked back for them and for `enforce_rate_limit`. Additive — no other object is touched. The digest's recipient is the account's sign-in address, so nothing here stores an address a user typed. **Applied.** Any hand order works, but after 0002 it is the honest state of the rest of the schema
 `migrations/0007_reminder_grants.sql` | The grants 0006's tables were missing — 0001's harden block repeated: DML on `reminder_settings` and read on `reminder_log` for `authenticated`, RLS enabled and forced on both, and the five owner policies re-asserted idempotently. **Applied.**
 `migrations/0008_helper_function_lockdown.sql` | Re-applies the walk-back this project never ran: `reminder_digest`, `due_reminders` and `enforce_rate_limit` are revoked from `public`, `anon` and `authenticated` again, re-granted to `service_role`, and `notify pgrst, 'reload schema'` pushes the denials to the API cache. Revokes come last, so ordering cannot undo them. **Written — needs one paste into the SQL editor** (verify.sql check 12 proves it once applied).
+`migrations/0009_push_subscriptions.sql` | One row per signed-in browser for web push: `endpoint` plus the browser's own `p256dh`/`auth` key material, unique on the endpoint, owner-only RLS with the same four policies. The delivery function reads them with the service key, so no function grants accompany it. **Written — needs one paste into the SQL editor** (it is idempotent per fresh table and must run after 0007).
+`migrations/0010_digest_counts_every_test.sql` | Re-declares `reminder_digest(uuid, integer)` so it sums `result` **and** `custom_session`. The dashboard merges the two — a run built in the Test Builder is graded in the browser and mirrored into `custom_session` — but the digest read only `result`, so an account whose day was spent on built tests was mailed "0%, 0 answered, 0-day streak" while its own dashboard said 50% over 20 questions. Measured live on 2026-09-28. Same eight output columns, same owner scoping, same `service_role`-only grants re-asserted at the bottom. Run after 0002 (which creates `custom_session`) and after 0008. **Written — needs one paste into the SQL editor.**
 `functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by its `CRON_SECRET` bearer or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. Deploying it is three commands and a secret — see its file header — and the full setup, including the Resend sender restriction and the optional tick, is in [The reminder pipeline](#the-reminder-pipeline) below. On the mock backend the digest is a browser notification instead.
 `verify.sql` | Twelve read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, and 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter
 `email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
@@ -107,7 +109,12 @@ have a live equivalent already; finish with the RLS file in the dashboard editor
    the two reminder files: after 0006, paste `migrations/0007_reminder_grants.sql`
    and then `migrations/0008_helper_function_lockdown.sql` (both idempotent;
    0008 re-applies the revokes last and ends with `notify pgrst, 'reload schema'`
-   so the denials reach the API promptly).
+   so the denials reach the API promptly). Finish with
+   `migrations/0009_push_subscriptions.sql` (web push needs it; the sender
+   reads those rows with the service key) and
+   `migrations/0010_digest_counts_every_test.sql`, which must come after both
+   0008 and 0002 itself — it re-declares the helper 0008 locked down, over the table
+   0002 created.
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
@@ -140,6 +147,13 @@ Settings → Reminders, failed attempts included. Because the recipient is alway
 the account's sign-in email, nothing in the pipeline sends to an address a user
 typed.
 
+`reminder_digest` is the only source of the numbers, which is why migration
+0010 matters: through 0006 it summed `result` alone, while a Test Builder run is
+graded in the browser and mirrored into `custom_session`. The dashboard merges
+both, the helper did not, so an account whose day was built tests was mailed
+"0%, 0 answered, 0-day streak" — the email and the app were reading different
+halves of the same history. 0010 re-declares it over both tables.
+
 The request body carries one flag: `{ "daily": true }` from the scheduler (the
 run may consume the day, by stamping `reminder_settings.last_sent_on`) and
 `{ "daily": false }` from the settings page's test button (same pipeline, never
@@ -155,7 +169,7 @@ The function reads four secrets (Edge Functions → Secrets in the dashboard, or
 | Secret | Required | What it does |
 | --- | --- | --- |
 `RESEND_API_KEY` | yes | The mail transport. Without it every send answers "RESEND_API_KEY is not set on this project". Free tier: 3 000 emails/month.
-`APP_URL` | recommended | The deployed app origin; the email's "Continue studying" button links to `${APP_URL}/dashboard`. Without it the link points at the Supabase project URL.
+`APP_URL` | yes in practice | The deployed app origin; the email's "Continue studying" button, the plain-text footer and the push click all point at `${APP_URL}/dashboard`. Set it to `https://study-forg-frontend-100.vercel.app`. It used to fall back to the project's API origin, which mailed every reader a link to `https://<ref>.supabase.co/dashboard` — Supabase's own dashboard, not the app. That fallback is gone: an app-triggered send borrows the page's origin from its `Origin` header, and a cron tick with nothing to borrow lands on the production origin compiled into `appOrigin()`.
 `RESEND_FROM` | no | Custom sender for a verified domain: `StudyForge <notices@yourdomain.com>`. Default: `onboarding@resend.dev`.
 `CRON_SECRET` | only for the tick | The bearer the scheduled pg_cron tick must carry; the function compares it character for character. The value lives in `supabase/.env`.
 
