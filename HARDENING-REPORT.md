@@ -18,11 +18,20 @@ executed, it is marked unproven rather than graded.
 | Lint | `pnpm exec biome check scripts src` | 218 files, 0 errors |
 | Tests | `pnpm test` | **58 files / 486 tests passed** — the guards this pass added (client-address drift, header sync, password floor) are all in that count |
 | Build | `pnpm build` | exit 0; `dist/_headers` regenerated and re-synced to `vercel.json` with no diff |
-| Live security battery | `node supabase/e2e/security-battery.mjs` | **31/31 passed**, four runs across this pass and twice more on this final tree |
+| Live security battery | `node supabase/e2e/security-battery.mjs` | **31/31 passed**, repeatedly across this pass and once more, isolated, on the committed tree |
 | Live schema checks | the 14 numbered items of `supabase/verify.sql`, each run separately | thirteen execute and answer what their comment claims; **item 8 is not an assertion** — its own text says it cannot run in the editor, because the editor connects as `postgres` where `auth.uid()` is null and every policy is bypassed, and it delegates to the RLS file below. (See §4: it was worth reading the items one by one, because two of them did not do what they claimed until today.) |
-| Contract sweep | `supabase/e2e/replay-sweep.mjs` | **19/19** against the real database, including the three client-written tables no other gate touched (§2.8) |
-| Auth protocol | `supabase/e2e/auth-flow.mjs` | **13/13** against live GoTrue v2.197.0 — the probe added in this pass, see §2.7 |
+| Contract sweep | `supabase/e2e/replay-sweep.mjs` | **19/19** against the real database, isolated re-run on the committed tree, including the three client-written tables no other gate touched (§2.8) |
+| Auth protocol | `supabase/e2e/auth-flow.mjs` | **13/13** against live GoTrue v2.197.0, isolated re-run — the probe added in this pass, see §2.7 |
 | Cross-tenant RLS | `supabase/tests/rls_cross_tenant.sql` | clean transaction through the Management API (§2.8) |
+
+**Do not run the live probes at the same time.** Both the battery and the sweep
+drive the anonymous `create_link` throttle, which counts per client IP in
+one-minute windows, so a concurrent run can consume the other's budget — and the
+sweep's throttle assertion is deliberately relative, which means it can only
+notice that a window was already partly used. The "unconfirmed account" steps
+are the other collision: each script mints its own `authflow-*` / `sweep-*`
+address, so they cannot clash on userids, but the shared counter can. Every
+number in this table comes from an isolated run unless it says otherwise.
 
 ## 2. What was broken, and what closed it
 

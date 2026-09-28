@@ -26,10 +26,11 @@
  * environment is short.
  *
  * It is a hand-run probe rather than a CI job: the two privileged calls need the
- * service key, and `supabase-ci.yml` keeps that key out of CI on purpose (the
- * replay sweep does the same work through a direct connection instead). Running
- * it is a step in the staging → production path in OPERATIONS.md, not a push
- * gate.
+ * service key, and `supabase-ci.yml` keeps that key out of CI on purpose. The
+ * replay sweep is hand-run for the same reason — it also needs a privileged
+ * credential (a direct database URL, or the service key as here) to confirm and
+ * delete its throwaway accounts. Running this is a step in the staging →
+ * production path in OPERATIONS.md, not a push gate.
  */
 import { randomBytes } from "node:crypto";
 

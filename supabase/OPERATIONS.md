@@ -158,7 +158,11 @@ tables without FORCE, `anon` table grants — and prints `DRILL PASS` or
    skips the migration because the schema is already there. The two files are
    still worth running in the editor if that command reports something you have
    to look at.
-2. `supabase/verify.sql` — ten read-only checks. Check 4 (`role_table_grants`
+2. `supabase/verify.sql` — fourteen numbered sections, thirteen of which are
+   read-only queries; **item 8 is not a query at all**, its own comment explains
+   that cross-tenant isolation cannot be checked from the editor (which connects
+   as `postgres`, where `auth.uid()` is null and the policies are bypassed) and
+   points at step 3 below. Check 4 (`role_table_grants`
    for `anon`) returning **zero rows** is the one that decides whether the
    publishable key is safe to ship.
 3. `supabase/tests/rls_cross_tenant.sql` — two fake signed-in tenants in one
@@ -166,13 +170,20 @@ tables without FORCE, `anon` table grants — and prints `DRILL PASS` or
    an unconfirmed account cannot write, and that the anonymous link functions
    still answer. Everything happens inside `BEGIN … ROLLBACK`, so a run leaves
    no trace.
-4. `node supabase/e2e/replay-sweep.mjs` — the whole 77-method contract driven
-   through the real client against a real Postgres: it creates three throwaway
+4. `node supabase/e2e/replay-sweep.mjs` — the write path behind the 77-method
+   contract driven through the real client against a real Postgres: it creates
+   three throwaway
    accounts (two confirmed through GoTrue's public sign-up plus a direct
    database session, one left unconfirmed on purpose), exercises sessions,
    grading, notes, shares, links, settings and analytics, and deletes all three.
    No service-role key is needed when `SUPABASE_DB_URL` is set; the service role
    is the fallback. Exit 0 means every step matched the adapter's expectations.
+   From this machine the fallback is the route that works: `verify.sql` and the
+   Management API replaced the pooler harness, and
+   `GET /v1/projects/<ref>/database/connection-string` — the endpoint that used
+   to build one — answers **404** (see HARDENING-REPORT §2.8). Run it on its own,
+   not alongside `security-battery.mjs`: both drive the anonymous `create_link`
+   throttle, which counts per client IP in one-minute windows.
 5. the app itself: point `src/frontend/.env.local` at staging
    (`VITE_DATA_BACKEND=supabase`), sign in **with an account that exists in the
    snapshot**, and open the dashboard — a count that matches is not the same as
