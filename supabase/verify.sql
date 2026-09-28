@@ -239,3 +239,28 @@ select invariant, ok
            and g.rolname in ('anon', 'authenticated', 'public')))
   ) as checks(invariant, ok)
  order by 1;
+
+-- 13. The web-push invariants 0009 promises, stated over the live schema.
+--     A subscription row is account content: RLS forced, no anon grants, and
+--     the endpoint (one browser's address) is unique so a re-subscribe
+--     upserts rather than piling rows.
+select invariant, ok
+  from (values
+    ('push_subscriptions rls enabled and forced',
+      exists (select 1 from pg_class
+               where oid = 'public.push_subscriptions'::regclass
+                 and relrowsecurity and relforcerowsecurity)),
+    ('push_subscriptions grants anon nothing',
+      not exists (
+        select 1
+          from information_schema.role_table_grants
+         where table_schema = 'public'
+           and table_name = 'push_subscriptions'
+           and grantee = 'anon')),
+    ('push_subscriptions endpoint is unique',
+      exists (select 1 from pg_indexes
+               where schemaname = 'public'
+                 and tablename = 'push_subscriptions'
+                 and indexdef ilike '%unique%endpoint%'))
+  ) as checks(invariant, ok)
+ order by 1;

@@ -289,12 +289,29 @@ Dashboard → Authentication → **SMTP settings** (the fields map to GoTrue's
 
 | Field | Value |
 | --- | --- |
-| Host | `smtp-relay.brevo.com` |
-| Port | `587` with STARTTLS, **or** `2465` with SSL — they are not interchangeable |
+| Host | `smtp-relay.brevo.com` — no scheme, no `:587` appended, no trailing space |
+| Port | **`587` with STARTTLS.** This is the only pairing that works |
 | Username | the email address you log into Brevo with |
 | Password | the **SMTP key**, generated on Brevo's SMTP & relay page |
 | Sender email | an address on a domain you verified at Brevo |
 | Sender name | `StudyForge` |
+
+**Do not use `2465`.** An earlier revision of this table offered it as the SSL
+alternative, and that offer is what produced a 35-second hang and an HTTP 504.
+Measured against the live relay from this machine on 2026-09-28:
+
+| Port | Plaintext banner | TLS handshake | Verdict |
+| --- | --- | --- | --- |
+| `587` | `220 smtp-relay.brevo.com ESMTP Service Ready` | as implicit TLS: `ERR_SSL_WRONG_VERSION_NUMBER` | **STARTTLS only** — EHLO, STARTTLS, `220`, then a working encrypted EHLO |
+| `2525` | same banner | same refusal | also STARTTLS, usable if 587 is blocked by a host |
+| `2465` | none | **connect hangs until timeout** | silently dropped; a mismatch here never errors, it just stalls |
+| `465` | none | succeeds | implicit TLS, but Supabase's field pair for it is easy to get wrong |
+| `25` | none | — | blocked as everywhere |
+
+A port that drops packets is the one failure mode the dashboard cannot show you
+and GoTrue cannot report: nothing is refused, so nothing is written to the
+response, and the request simply waits until the platform gives up. If
+`auth-mail-check.mjs` answers 504, this table is the first thing to read.
 
 Two things trip almost everybody:
 

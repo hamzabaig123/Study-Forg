@@ -21,7 +21,7 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 const OCID = "settings.reminders";
@@ -241,6 +241,8 @@ export function RemindersSection() {
         />
       </div>
 
+      {USE_SUPABASE ? <PushRow /> : null}
+
       {USE_SUPABASE ? (
         <div
           className="rounded-lg border border-border bg-background p-4"
@@ -399,6 +401,49 @@ function DigestActions({
           : "Send a test now"}
       </Button>
     </div>
+  );
+}
+
+/**
+ * Web push: the instant bell. It reaches this browser even when the app is
+ * closed and costs no email quota; the sender still falls back to email when a
+ * push cannot be delivered, so this changes the first bell, not the only one.
+ * Everything real happens in `lib/push.ts`, reached through a dynamic import
+ * so the Supabase client stays out of the bundles that never use it.
+ */
+function PushRow() {
+  const [state, setState] = useState<"unknown" | "on" | "off">("unknown");
+
+  useEffect(() => {
+    void (async () => {
+      const push = await import("@/lib/push");
+      setState((await push.pushEnabled()) ? "on" : "off");
+    })();
+  }, []);
+
+  async function toggle() {
+    const push = await import("@/lib/push");
+    const result =
+      state === "on" ? await push.disablePush() : await push.enablePush();
+    setState(result.enabled ? "on" : "off");
+    if (result.enabled) {
+      toast.success(result.detail);
+    } else {
+      toast.error(result.detail);
+    }
+  }
+
+  if (state === "unknown") {
+    return null;
+  }
+  return (
+    <ToggleCard
+      checked={state === "on"}
+      label="Push notifications"
+      description="Instant, even with the app closed. Email stays as the fallback when a push cannot be delivered."
+      ocid={`${OCID}.push_toggle`}
+      onToggle={() => void toggle()}
+    />
   );
 }
 

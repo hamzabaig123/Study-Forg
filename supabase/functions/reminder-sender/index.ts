@@ -9,9 +9,18 @@
 //     may consume the day — or { "daily": false } — the settings page's test
 //     button, which never stamps last_sent_on.
 //
-// Email goes out through Resend (https://resend.com, free tier); the key is a
-// deploy-time secret. Recipient = the account's sign-in email — nobody pastes
-// anything, and the address is whatever they verified at sign-up.
+// Delivery is a chain, first channel that succeeds wins:
+//   1. Web push (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY) — instant, free, reaches
+//      a closed desktop; the browser's subscriptions live in
+//      push_subscriptions (migration 0009).
+//   2. Email via Brevo (BREVO_API_KEY + BREVO_FROM, a verified sender) —
+//      300/day free and the sender that lands in Gmail.
+//   3. Email via Resend (RESEND_API_KEY, optional RESEND_FROM) — the original
+//      transport, kept as the fallback it has always been.
+//   reminder_log's detail names the channel that actually carried each digest.
+//
+// Recipient = the account's sign-in email — nobody pastes anything, and the
+// address is whatever they verified at sign-up.
 //
 // Deploy (Management API or CLI):
 //   supabase functions deploy reminder-sender --project-ref <ref>
@@ -19,9 +28,13 @@
 //   optional: RESEND_FROM="StudyForge <notices@yourdomain.com>" (default:
 //   "StudyForge <onboarding@resend.dev>", which Resend restricts to the
 //   account owner's own address until a domain is verified)
-//   also: APP_URL=<deployed origin> (the email's CTA links to
-//   ${APP_URL}/dashboard); CRON_SECRET=<tick bearer>, required only once the
-//   pg_cron tick is scheduled
+//   also: APP_URL=<deployed origin> (the email's CTA and the push's landing
+//   URL); CRON_SECRET=<tick bearer>, required only once the pg_cron tick is
+//   scheduled
+//   the newer channels: BREVO_API_KEY + BREVO_FROM=<verified sender email>
+//   (auth emails ride Brevo too, as Supabase's custom SMTP — see
+//   supabase/README.md → The reminder pipeline); VAPID_PUBLIC_KEY +
+//   VAPID_PRIVATE_KEY to arm web push
 //
 // Schedule (SQL editor): the `cron.schedule` snippet lives in
 // supabase/README.md → The reminder pipeline. due_reminders() (migration 0006)
@@ -204,16 +217,79 @@ function plainText(digest: Digest, appUrl: string): string {
   ].join("\n");
 }
 
+/** The mail chain, priority order. Brevo stands first: 300 emails/day free and
+ * a sender that can carry a verified domain, which is what lands mail in
+ * Gmail's inbox. Resend keeps its place as the fallback it has always been.
+ * A transport is skipped entirely when its secret is absent, and each failure
+ * is tagged so `reminder_log` shows exactly which one answered. */
 async function sendEmail(
   to: string,
   subject: string,
   html: string,
   text: string,
-): Promise<void> {
+): Promise<"brevo" | "resend"> {
+  const attempts: string[] = [];
+  try {
+    return await sendViaBrevo(to, subject, html, text);
+  } catch (cause) {
+    attempts.push(cause instanceof Error ? cause.message : String(cause));
+  }
+  try {
+    return await sendViaResend(to, subject, html, text);
+  } catch (cause) {
+    attempts.push(cause instanceof Error ? cause.message : String(cause));
+  }
+  throw new Error(attempts.join(" | "));
+}
+
+async function sendViaBrevo(
+  to: string,
+  subject: string,
+  html: string,
+  text: string,
+): Promise<"brevo"> {
+  const key = Deno.env.get("BREVO_API_KEY");
+  const from = Deno.env.get("BREVO_FROM");
+  if (!key || !from) {
+    throw new Error(
+      "brevo: skipped — BREVO_API_KEY/BREVO_FROM is not set on this project",
+    );
+  }
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: {
+      "api-key": key,
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({
+      sender: { name: "StudyForge", email: from },
+      to: [{ email: to }],
+      subject,
+      htmlContent: html,
+      textContent: text,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `brevo: ${body.trim().slice(0, 200) || `HTTP ${res.status}`}`,
+    );
+  }
+  return "brevo";
+}
+
+async function sendViaResend(
+  to: string,
+  subject: string,
+  html: string,
+  text: string,
+): Promise<"resend"> {
   const key = Deno.env.get("RESEND_API_KEY");
   if (!key) {
     throw new Error(
-      "RESEND_API_KEY is not set on this project — add it under Edge Functions → Secrets.",
+      "resend: skipped — RESEND_API_KEY is not set on this project",
     );
   }
   const res = await fetch("https://api.resend.com/emails", {
@@ -234,9 +310,10 @@ async function sendEmail(
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new Error(
-      body.trim().slice(0, 200) || `Resend answered HTTP ${res.status}`,
+      `resend: ${body.trim().slice(0, 200) || `HTTP ${res.status}`}`,
     );
   }
+  return "resend";
 }
 
 interface DueSetting {
@@ -306,7 +383,255 @@ async function logAttempt(
   }).catch(() => undefined);
 }
 
-/** Sends one digest and records it. Returns the failure reason, if any. */
+/* -------------------------------------------------------------------------- */
+/* Web push — the instant channel, tried before email                         */
+/*                                                                            */
+/* A push subscription is per browser (endpoint + the browser's own keys), so  */
+/* "installed" means one row per device. Delivery costs nothing and it reaches */
+/* the desktop even with the app closed, which is exactly the gap email has.  */
+/* The crypto is RFC 8291 `aes128gcm` plus an ES256 VAPID JWT, done with the   */
+/* WebCrypto the runtime already ships — no remote import, which the ai-proxy */
+/* taught us breaks the boot.                                                 */
+/* -------------------------------------------------------------------------- */
+
+const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY") ?? "";
+const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY") ?? "";
+const PUSH_CONTACT = "mailto:studyforge@users.noreply.github.com";
+
+const b64uToBytes = (value: string): Uint8Array => {
+  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
+  const binary = atob(padded + "=".repeat((4 - (padded.length % 4)) % 4));
+  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+};
+
+const bytesToB64u = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+};
+
+const textBytes = (value: string): Uint8Array =>
+  new TextEncoder().encode(value);
+
+let cachedSigningKey: CryptoKey | null = null;
+
+/** The account's private VAPID key, rebuilt from `d` plus the `x`/`y` the
+ * public key already carries, since the secret stores only the scalar. */
+async function vapidSigningKey(): Promise<CryptoKey> {
+  if (cachedSigningKey) return cachedSigningKey;
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    throw new Error("push: VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY is not set");
+  }
+  const publicBytes = b64uToBytes(VAPID_PUBLIC_KEY);
+  cachedSigningKey = await crypto.subtle.importKey(
+    "jwk",
+    {
+      kty: "EC",
+      crv: "P-256",
+      x: bytesToB64u(publicBytes.slice(1, 33)),
+      y: bytesToB64u(publicBytes.slice(33, 65)),
+      d: bytesToB64u(b64uToBytes(VAPID_PRIVATE_KEY)),
+      key_ops: ["sign"],
+    },
+    { name: "ECDSA", namedCurve: "P-256" },
+    false,
+    ["sign"],
+  );
+  return cachedSigningKey;
+}
+
+/** RFC 8291: encrypt the payload to the browser's public key so only it can
+ * read the message, then hand the push service an un-readable body. */
+async function sendWebPush(
+  subscription: { endpoint: string; p256dh: string; auth: string },
+  title: string,
+  body: string,
+  url: string,
+): Promise<void> {
+  const payloadBytes = new TextEncoder().encode(
+    JSON.stringify({ title, body, url }),
+  );
+  const userPublicBytes = b64uToBytes(subscription.p256dh);
+  const authSecret = b64uToBytes(subscription.auth);
+
+  // A fresh server key pair per message; its public half rides in the header.
+  const serverKeys = await crypto.subtle.generateKey(
+    { name: "ECDH", namedCurve: "P-256" },
+    true,
+    ["deriveBits"],
+  );
+  const serverPublic = new Uint8Array(
+    await crypto.subtle.exportKey("raw", serverKeys.publicKey),
+  );
+  const userPublic = await crypto.subtle.importKey(
+    "raw",
+    userPublicBytes,
+    { name: "ECDH", namedCurve: "P-256" },
+    false,
+    [],
+  );
+  const shared = new Uint8Array(
+    await crypto.subtle.deriveBits(
+      { name: "ECDH", public: userPublic },
+      serverKeys.privateKey,
+      256,
+    ),
+  );
+
+  const hkdf = async (
+    ikm: Uint8Array,
+    salt: Uint8Array,
+    info: Uint8Array,
+    bytes: number,
+  ): Promise<Uint8Array> =>
+    new Uint8Array(
+      await crypto.subtle.deriveBits(
+        { name: "HKDF", hash: "SHA-256", salt, info },
+        await crypto.subtle.importKey("raw", ikm, "HKDF", false, ["deriveBits"]),
+        bytes * 8,
+      ),
+    );
+
+  // PRK_key = HKDF(salt=auth, ikm=ECDH, info="WebPush: info" || 0x00 || keys).
+  const keyInfo = new Uint8Array(144);
+  keyInfo.set(textBytes("WebPush: info"), 0);
+  keyInfo[13] = 0x00;
+  keyInfo.set(userPublicBytes, 14);
+  keyInfo.set(serverPublic, 79);
+  const prk = await hkdf(shared, authSecret, keyInfo, 32);
+
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const cek = await hkdf(
+    prk,
+    salt,
+    textBytes("Content-Encoding: aes128gcm\0"),
+    16,
+  );
+  const nonce = await hkdf(
+    prk,
+    salt,
+    textBytes("Content-Encoding: nonce\0"),
+    12,
+  );
+
+  // One record: the payload plus the final-record delimiter.
+  const record = new Uint8Array(payloadBytes.length + 1);
+  record.set(payloadBytes, 0);
+  record[payloadBytes.length] = 0x02;
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv: nonce },
+      await crypto.subtle.importKey("raw", cek, "AES-GCM", false, ["encrypt"]),
+      record,
+    ),
+  );
+
+  // Header: salt(16) | record size(4) | key-id length(1) | server public(65).
+  const header = new Uint8Array(86);
+  header.set(salt, 0);
+  new DataView(header.buffer).setUint32(16, 4096);
+  header[20] = serverPublic.length;
+  header.set(serverPublic, 21);
+
+  const bodyBytes = new Uint8Array(header.length + ciphertext.length);
+  bodyBytes.set(header, 0);
+  bodyBytes.set(ciphertext, header.length);
+
+  // The VAPID JWT: proof that this server owns the key the browser subscribed to.
+  const signingKey = await vapidSigningKey();
+  const aud = new URL(subscription.endpoint).origin;
+  const claims = {
+    aud,
+    exp: Math.floor(Date.now() / 1000) + 12 * 3600,
+    sub: PUSH_CONTACT,
+  };
+  const encodeSegment = (input: unknown) =>
+    bytesToB64u(textBytes(JSON.stringify(input)));
+  const unsigned = `${encodeSegment({ typ: "JWT", alg: "ES256" })}.${encodeSegment(claims)}`;
+  const signature = new Uint8Array(
+    await crypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      signingKey,
+      textBytes(unsigned),
+    ),
+  );
+
+  const res = await fetch(subscription.endpoint, {
+    method: "POST",
+    headers: {
+      Authorization: `vapid t=${unsigned}.${bytesToB64u(signature)}, k=${VAPID_PUBLIC_KEY}`,
+      "Content-Encoding": "aes128gcm",
+      TTL: "86400",
+      "Content-Type": "application/octet-stream",
+    },
+    body: bodyBytes,
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 120);
+    throw new Error(`push: ${res.status} ${detail}`);
+  }
+}
+
+/** Try every push subscription the account owns. Returns null when one of them
+ * delivered, otherwise the reasons — the caller falls back to email on those.
+ * A browser that dropped its subscription answers 404/410 and its row leaves. */
+async function deliverPush(
+  owner: string,
+  subject: string,
+  appUrl: string,
+): Promise<string | null> {
+  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
+    return "VAPID keys are not set on this project";
+  }
+  const baseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const res = await fetch(
+    `${baseUrl}/rest/v1/push_subscriptions?user_id=eq.${owner}&select=endpoint,p256dh,auth`,
+    { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } },
+  );
+  if (!res.ok) {
+    return `could not read subscriptions (HTTP ${res.status})`;
+  }
+  const subs = (await res.json()) as Array<{
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+  }>;
+  if (subs.length === 0) {
+    return "no subscription for this account";
+  }
+  const failures: string[] = [];
+  let delivered = false;
+  for (const subscription of subs) {
+    try {
+      await sendWebPush(
+        subscription,
+        subject,
+        "Your StudyForge digest is ready — open the app to see the numbers.",
+        `${appUrl}/dashboard`,
+      );
+      delivered = true;
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause);
+      failures.push(message);
+      // A gone endpoint means this browser unsubscribed or rotted — remove it.
+      if (/push: 40[41]/.test(message)) {
+        await fetch(
+          `${baseUrl}/rest/v1/push_subscriptions?endpoint=${encodeURIComponent(subscription.endpoint)}`,
+          {
+            method: "DELETE",
+            headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+          },
+        ).catch(() => undefined);
+      }
+    }
+  }
+  return delivered ? null : failures.join(" | ");
+}
+
+/** Sends one digest and records it: web push first, the mail chain as the
+ * safety net. Returns the failure reason, if any. */
 async function deliver(
   appUrl: string,
   setting: DueSetting,
@@ -328,13 +653,26 @@ async function deliver(
       setting.send_task_reminder,
       setting.send_daily_report,
     );
-    await sendEmail(
+    // Push first: instant, free, and it reaches a closed desktop. Its failure
+    // is never fatal — the mail chain below is the safety net, and the log
+    // records which channel actually carried the digest.
+    const pushFailure = await deliverPush(setting.user_id, subject, appUrl);
+    if (pushFailure === null) {
+      await logAttempt(setting.user_id, kind, "sent", `${subject} [via push]`);
+      return null;
+    }
+    const via = await sendEmail(
       setting.email,
       subject,
       html,
       plainText(digest, appUrl),
     );
-    await logAttempt(setting.user_id, kind, "sent", subject);
+    await logAttempt(
+      setting.user_id,
+      kind,
+      "sent",
+      `${subject} [via ${via}] [push skipped: ${pushFailure}]`,
+    );
     return null;
   } catch (cause) {
     const detail = cause instanceof Error ? cause.message : String(cause);

@@ -110,3 +110,53 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(staticResponse(url, request));
   }
 });
+
+/*
+ * Web push — the server's instant channel for the daily digest. The payload is
+ * RFC 8291-encrypted by the reminder-sender Edge Function, so the browser
+ * decrypts it before this handler runs; what arrives here is plain JSON:
+ * { title, body, url }.
+ */
+
+self.addEventListener("push", (event) => {
+  let payload = {
+    title: "StudyForge",
+    body: "Your daily digest is ready.",
+    url: "/dashboard",
+  };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch {
+    // A body that does not parse still becomes a notification; silently
+    // dropping a push because of one bad field would lose the message.
+  }
+  event.waitUntil(
+    self.registration.showNotification(payload.title, {
+      body: payload.body,
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-96.png",
+      tag: "studyforge-digest",
+      data: { url: payload.url },
+    }),
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = `${self.location.origin}${event.notification.data?.url ?? "/dashboard"}`;
+  event.waitUntil(
+    (async () => {
+      const windows = await self.clients.matchAll({
+        type: "window",
+        includeUncontrolled: true,
+      });
+      for (const client of windows) {
+        if (client.url.startsWith(self.location.origin)) {
+          await client.focus();
+          return client.navigate(target);
+        }
+      }
+      return self.clients.openWindow(target);
+    })(),
+  );
+});
