@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   contentSecurityPolicy,
   securityHeaders,
@@ -168,4 +170,98 @@ describe("securityHeaders", () => {
     expect(text).toMatch(/\/index\.html\n {2}Cache-Control: no-cache/);
     expect(text).toMatch(/\/sw\.js\n {2}Cache-Control: no-cache/);
   });
+});
+
+/**
+ * The same policy in the host's own config.
+ *
+ * Vercel does not read `dist/_headers`, so without this the deployed responses
+ * carry no header at all: the `<meta>` still cannot deliver `frame-ancestors`,
+ * and a clickjacking defence that lives only in a meta is a defence nothing
+ * enforces. `pnpm build && pnpm security:headers` writes the values; the test is
+ * what makes skipping that step red instead of quietly unprotected.
+ */
+describe("vercel.json", () => {
+  /** The name/value pairs under the `/*` path of a generated header file. */
+  function globalBlock(policy: string): Record<string, string> {
+    const lines = policy
+      .split("\n")
+      .filter((line) => line.trim() !== "" && !line.startsWith("#"));
+    const start = lines.indexOf("/*");
+    const out: Record<string, string> = {};
+    for (const line of lines.slice(start + 1)) {
+      if (line.startsWith("/")) break;
+      const rule = line.match(/^ {2}([A-Za-z][A-Za-z-]*): (.+)$/);
+      if (rule) out[rule[1]] = rule[2];
+    }
+    return out;
+  }
+
+  const paths: [string, string][] = [
+    // The root file is the one Vercel reads while the Root Directory is empty;
+    // the frontend copy only matters if someone moves it (see DEPLOY.md).
+    ["deploy config", join(process.cwd(), "..", "..", "vercel.json")],
+    ["frontend copy", join(process.cwd(), "vercel.json")],
+  ];
+
+  for (const [label, path] of paths) {
+    it(`${label} sends the generated policy as real response headers`, () => {
+      const config = JSON.parse(readFileSync(path, "utf8")) as {
+        headers?: {
+          source: string;
+          headers: { key: string; value: string }[];
+        }[];
+      };
+      const rule = (config.headers ?? []).find(
+        (entry) => entry.source === "/(.*)",
+      );
+      const sent = Object.fromEntries(
+        (rule?.headers ?? []).map((entry) => [entry.key, entry.value]),
+      );
+      expect(rule, `${label} has no headers rule covering /(.*)`).toBeDefined();
+
+      // The project origin comes out of the file itself; everything else has to
+      // match the generated string directive for directive, so an edit to the
+      // module that never reaches this JSON fails here.
+      const supabaseUrl = sent["Content-Security-Policy"]?.match(
+        /https:\/\/[a-z0-9-]+\.supabase\.co/,
+      )?.[0];
+      expect(supabaseUrl, `${label} names no Supabase origin`).toBeTruthy();
+      expect(sent).toEqual(globalBlock(securityHeaders({ supabaseUrl })));
+    });
+
+    it(`${label} carries the directives a <meta> cannot deliver`, () => {
+      const config = JSON.parse(readFileSync(path, "utf8")) as {
+        headers?: { headers: { key: string; value: string }[] }[];
+      };
+      const sent = Object.fromEntries(
+        (config.headers?.[0]?.headers ?? []).map((entry) => [
+          entry.key,
+          entry.value,
+        ]),
+      );
+      expect(sent["Content-Security-Policy"]).toContain(
+        "frame-ancestors 'none'",
+      );
+      expect(sent["X-Frame-Options"]).toBe("DENY");
+      expect(sent["Strict-Transport-Security"]).toContain("max-age=31536000");
+    });
+
+    it(`${label} does not switch off a feature the app uses`, () => {
+      const config = JSON.parse(readFileSync(path, "utf8")) as {
+        headers?: { headers: { key: string; value: string }[] }[];
+      };
+      const permissions =
+        config.headers?.[0]?.headers.find(
+          (entry) => entry.key === "Permissions-Policy",
+        )?.value ?? "";
+      for (const feature of [
+        "clipboard-write",
+        "notifications",
+        "display-capture",
+      ]) {
+        expect(permissions, feature).not.toContain(feature);
+      }
+    });
+  }
 });

@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build && pnpm copy:env",
+    "security:headers": "node scripts/sync-vercel-headers.mjs",
     "copy:env": "node -e \"require('fs').copyFileSync('env.json','dist/env.json')\"",
     "typecheck": "tsc --noEmit",
     "check": "biome check src",

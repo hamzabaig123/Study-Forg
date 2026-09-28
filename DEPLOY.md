@@ -180,12 +180,25 @@ git push
   `dist/` can therefore be stale: check that the CSP in `dist/index.html` names
   `https://va.vercel-scripts.com` before trusting a local preview to match the
   deploy.
-- `dist/_headers` is a build artifact the CSP plugin writes next to the bundle,
-  and Vercel *does* read it, so the directives a `<meta>` cannot carry —
-  `frame-ancestors`, `Strict-Transport-Security`, `X-Content-Type-Options` — are
-  live on Vercel. The same file is inert on the caffeine host, which has no
-  header surface. That is a real difference between the two deploys, not a
-  detail: on Vercel the app is protected against being framed.
+- **Vercel does not read `dist/_headers`.** Measured on the deployed origin
+  (2026-09-28): it sent Vercel's own `strict-transport-security` and nothing else
+  — no `Content-Security-Policy`, no `X-Frame-Options`, no
+  `X-Content-Type-Options`. The directives a `<meta>` cannot carry therefore did
+  not travel to Vercel by that file at all; they now travel by the `headers`
+  array in the root `vercel.json`, which `pnpm build && pnpm security:headers`
+  writes from the generated block, and `contentSecurityPolicy.test.ts` pins
+  against the policy module.
+  Two things follow. That JSON is a committed snapshot, so its CSP names the
+  Supabase origin of whatever build ran the sync — a project with a different
+  `VITE_SUPABASE_URL` must re-run it, or the header (stricter than the meta)
+  blocks its own API calls. And the policy refuses framing in every dialect
+  (`frame-ancestors 'none'`, `X-Frame-Options: DENY`), which includes
+  same-origin frames: once this deploys, the app cannot be loaded inside an
+  iframe at all, so responsive checks have to drive real tabs. Nothing in the
+  app embeds itself. The `/*` cache rules in `_headers` remain Vercel-default
+  territory — the platform already caches hashed assets and revalidates the
+  entry point, so they were left out rather than duplicated.
+  The same file is inert on the caffeine host, which has no header surface.
 - `src/frontend/env.json` stays at its committed placeholders: it configures
   the canister path, which the deployed app does not use.
 - The caffeine credit is gone; the footer reads "© <year> StudyForge".
