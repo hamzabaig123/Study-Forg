@@ -1,3 +1,4 @@
+import { MIN_PASSWORD_LENGTH } from "@/lib/passwordPolicy";
 /**
  * Session store tests.
  *
@@ -482,9 +483,27 @@ describe("resetting a password", () => {
     const store = createSessionStore(fake.client);
 
     await expect(store.updatePassword("abc", "abc")).rejects.toThrow(
-      /at least eight/i,
+      /between 10 and 128/i,
     );
     expect(fake.calls.map((call) => call.name)).not.toContain("updateUser");
+  });
+
+  it("refuses exactly one character under the live GoTrue floor", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    const underFloor = "x".repeat(MIN_PASSWORD_LENGTH - 1);
+
+    await expect(store.updatePassword(underFloor, underFloor)).rejects.toThrow(
+      /between 10 and 128/i,
+    );
+    expect(fake.calls.map((call) => call.name)).not.toContain("updateUser");
+
+    const atFloor = "x".repeat(MIN_PASSWORD_LENGTH);
+    await store.updatePassword(atFloor, atFloor);
+    expect(fake.calls).toContainEqual({
+      name: "updateUser",
+      args: { password: atFloor },
+    });
   });
 
   it("sends the new password and keeps the session it belongs to", async () => {

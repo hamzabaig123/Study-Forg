@@ -23,7 +23,9 @@ the localStorage archive the app used when there was no server.
 `email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
 `tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the later migrations are pasted by hand until a runner that knows about all of them exists
-`e2e/replay-sweep.mjs` | The 77-method contract driven against a live database through the real client. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and **either** `SUPABASE_DB_URL` **or** `SUPABASE_SERVICE_ROLE_KEY`; creates three throwaway accounts (two confirmed, one deliberately left unconfirmed) and deletes all three. No service key required — see the header of the script
+`e2e/replay-sweep.mjs` | The whole write path, driven against a live database through the real client (supabase-js, the same one the adapter uses — this exercises the RPCs and tables behind the 77 methods, not each of the 77 calls). Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and **either** `SUPABASE_DB_URL` **or** `SUPABASE_SERVICE_ROLE_KEY`; creates three throwaway accounts (two confirmed, one deliberately left unconfirmed) and deletes all three. No service key required — see the header of the script. It is also the only gate that writes tables as a client rather than through a `security definer` function: the hierarchy, `note`, `activity`, `user_settings`, and the three that used to have no proof at all — `reminder_settings`, `push_subscriptions` and `custom_session`, the mirror every finished Test Builder run sends. Every one of those is then re-read as a *second* account, which must see zero rows
+`e2e/security-battery.mjs` | The live stranger test: thirty-one read-only or self-cleaning probes over HTTPS — every public table refused to `anon`, the `service_role`-only helpers refused to a signed-in key, the token-addressed RPCs throttled, and a burst that forges its own `x-forwarded-for` per call answered by the limiter rather than let through. Needs only `SUPABASE_URL` + `SUPABASE_ANON_KEY` (`DEMO_EMAIL`/`DEMO_PASSWORD` add the authenticated write surface). Run it after every migration
+`e2e/auth-flow.mjs` | The whole sign-up → confirm → sign-in → refresh → change-password → recovery → sign-out → delete path against a live GoTrue, in the order a real user meets it, ending with the throwaway account it created deleted. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`, which it uses for exactly two admin calls on that one account. `SUPABASE_PASSWORD_FLOOR` (default 10) is asserted on both the sign-up and the change-password route, so a dashboard policy change fails here rather than surprising a user
 `functions/ai-proxy/` | The Edge Function that calls Gemini or OpenRouter with keys held on the server, so the browser never stores one. Deploy command in its header
 `backup/backup.mjs` | Dumps every public table to one readable JSON snapshot under `backup/snapshots/` (git-ignored — that folder holds other people's homework). Needs `SUPABASE_ACCESS_TOKEN` + `SUPABASE_PROJECT_REF`
 `backup/restore.mjs` | The other half: restores a JSON snapshot into a **different** project and then proves it — row counts, RLS and `anon` grants re-read after the write, not assumed from the schema file. `--into <ref>` and `--confirm <ref>` are both required and must agree; `--dry-run` does the whole preflight and writes nothing; it refuses a non-empty target, an `auth.users` owner the snapshot needs, and its own source project. Both transports and every flag are in OPERATIONS.md → *Restore drill*
@@ -310,6 +312,14 @@ there:
   server-side: measured after the change, a 6-character signup is answered
   `422 weak_password {"reasons":["length"]}` and the UI shows GoTrue's own
   sentence, "Password should be at least 10 characters.", verbatim.
+  **The browser floor used to be 8**, so a visitor could fill the form, pass the
+  HTML validation, and only then be refused by the server. `src/frontend/src/lib/`
+  **`passwordPolicy.ts`** is now the one place that number lives: `localAuth`
+  (mock accounts), `supabase/session.ts` (the reset screen's own pre-flight) and
+  all four `minLength` attributes in `AuthPage.tsx` read it, and
+  `passwordPolicy.test.ts` fails if the constant and the number written above
+  ever disagree. `e2e/auth-flow.mjs` asserts the server half, on both the public
+  sign-up route and an authenticated `PUT /auth/v1/user`.
   The leaked-password (Have I Been Pwned) check could **not** be enabled here:
   `PATCH /config/auth` refuses the whole request with `402 Configuring leaked
   password protection via HaveIBeenPwned.org is available on Pro Plans and up`,
@@ -551,13 +561,19 @@ credential:
   way in — it will detect `public.question` and skip the apply step, and it
   applies **0001 only**, so a project missing 0002–0010 is not fixed by running
   it.
-- The adapter has not been driven method by method against the live database.
-  `lib/supabase/adapter.test.ts` (41 cases) proves the shapes against a fake
-  transport, `tsc` proves all 77 methods against `backendInterface`, and the
-  dashboard/analytics/notes reads answer 200 for real — but
-  `e2e/replay-sweep.mjs`, which exercises every method as two signed-in users
-  plus one deliberately unconfirmed account, has never run. It no longer needs a
-  service role key to do so.
+- The adapter has been driven against the live database by the sweep rather than
+  method by method: `e2e/replay-sweep.mjs` reports **19/19** on
+  `qjoijoxmnliarlyaqmoz` (first completed run 2026-09-28, through
+  `SUPABASE_SERVICE_ROLE_KEY` after the pooler route stopped resolving), covering
+  the hierarchy, a graded session, notes, both share types, the whole link
+  surface, settings, activity, the reminder and push rows and the Test Builder
+  mirror, as two signed-in users plus one deliberately unconfirmed account.
+  `lib/supabase/adapter.test.ts` (41 cases) still proves the shapes against a
+  fake transport and `tsc` proves all 77 methods against `backendInterface`; what
+  the sweep adds is that the database answers. The 12 methods the adapter
+  deliberately refuses are **not** covered by the sweep — they never reach the
+  database, so their proof stays the unit tests and the documentation in
+  `lib/supabase/system.ts`.
 - The archive importer (`lib/archiveImport.ts`, offered from Settings) is written
   and tested against the mock backend, but it has not run against this database.
   It restores the library, not the practice history, because `start_session`

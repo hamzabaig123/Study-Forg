@@ -15,6 +15,10 @@ import {
   startDemoAccount,
   verifyCurrentAccount,
 } from "@/lib/localAuth";
+import {
+  MIN_PASSWORD_LENGTH,
+  PASSWORD_POLICY_MESSAGE,
+} from "@/lib/passwordPolicy";
 import { beforeEach, describe, expect, it } from "vitest";
 
 const PASSWORD = "Newton's-third-law";
@@ -113,7 +117,17 @@ describe("local accounts", () => {
         password: "abc123",
         passwordConfirmation: "abc123",
       }),
-    ).rejects.toThrow("Use a password between 8 and 128 characters.");
+    ).rejects.toThrow(PASSWORD_POLICY_MESSAGE);
+    // One character under the live floor, so the number cannot drift back to the
+    // eight this project used to accept and the server refused.
+    await expect(
+      registerAccount({
+        name: "Almost",
+        email: "almost@example.com",
+        password: "x".repeat(MIN_PASSWORD_LENGTH - 1),
+        passwordConfirmation: "x".repeat(MIN_PASSWORD_LENGTH - 1),
+      }),
+    ).rejects.toThrow(PASSWORD_POLICY_MESSAGE);
     await expect(
       registerAccount({
         name: "Echo",

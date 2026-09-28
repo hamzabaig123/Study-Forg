@@ -15,12 +15,14 @@ executed, it is marked unproven rather than graded.
 | Gate | Command | Result |
 | --- | --- | --- |
 | Types | `pnpm typecheck` | clean |
-| Lint | `pnpm exec biome check scripts src` | 216 files, 0 errors |
-| Tests | `pnpm test` | **57 files / 482 tests passed** (201 s) — 472 before this pass; +10 are the new client-address and header guards |
+| Lint | `pnpm exec biome check scripts src` | 218 files, 0 errors |
+| Tests | `pnpm test` | **58 files / 486 tests passed** — the guards this pass added (client-address drift, header sync, password floor) are all in that count |
 | Build | `pnpm build` | exit 0; `dist/_headers` regenerated and re-synced to `vercel.json` with no diff |
-| Live security battery | `node supabase/e2e/security-battery.mjs` | **31/31 passed**, run twice — before and after the auth change |
-| Live schema checks | all 14 numbered items of `supabase/verify.sql` | every item answers what its comment claims (see §4 — two of them did not, until today) |
-| Contract sweep | `supabase/e2e/replay-sweep.mjs` | 16/16 against the real database (unchanged code since it was run) |
+| Live security battery | `node supabase/e2e/security-battery.mjs` | **31/31 passed**, four runs across this pass and twice more on this final tree |
+| Live schema checks | the 14 numbered items of `supabase/verify.sql`, each run separately | thirteen execute and answer what their comment claims; **item 8 is not an assertion** — its own text says it cannot run in the editor, because the editor connects as `postgres` where `auth.uid()` is null and every policy is bypassed, and it delegates to the RLS file below. (See §4: it was worth reading the items one by one, because two of them did not do what they claimed until today.) |
+| Contract sweep | `supabase/e2e/replay-sweep.mjs` | **19/19** against the real database, including the three client-written tables no other gate touched (§2.8) |
+| Auth protocol | `supabase/e2e/auth-flow.mjs` | **13/13** against live GoTrue v2.197.0 — the probe added in this pass, see §2.7 |
+| Cross-tenant RLS | `supabase/tests/rls_cross_tenant.sql` | clean transaction through the Management API (§2.8) |
 
 ## 2. What was broken, and what closed it
 
@@ -146,6 +148,116 @@ session-bearing call reaches the provider). What is actually true — and now wh
 file says — is that nothing in the frontend calls it, so the studio still uses the
 reviewer's own key. Deploying it is necessary to change that, not sufficient.
 
+### 2.7 The sign-in protocol had no probe at all — it has one now
+
+`supabase/e2e/auth-flow.mjs` is new in this pass. Before it, nothing in the
+project asserted the *shape* of the auth protocol: the battery asserts what a
+stranger cannot do, the sweep asserts what a signed-in account can do with its
+rows, and the sign-in path itself — the part a GoTrue upgrade or a dashboard
+policy change breaks first — was covered by unit tests against a mocked client
+only. It runs thirteen steps against a live project and deletes the account it
+created:
+
+| Step | What it proves, as measured on v2.197.0 on 2026-09-28 |
+| --- | --- |
+| health | GoTrue answers and names its version |
+| sign-up with 8 characters | `422 weak_password` — the floor §2.4 raised is live on the **public** route |
+| sign-up at the floor | creates the user, sends confirmation, and **withholds the session** |
+| password grant, unconfirmed | `400 email_not_confirmed` — the wall `owner_is_verified()` stands on |
+| password grant, unknown address | `invalid_credentials`, i.e. no account enumeration |
+| admin confirm → grant | the same address then signs in and gets a complete pair |
+| `GET /auth/v1/user` | the access token reads its own address, `aud = authenticated` |
+| refresh grant | rotates **both** tokens; the new access token re-reads the user |
+| update with 8 characters | `422 weak_password` — the floor on the **authenticated** route, asserted for the first time anywhere |
+| change password | keeps the session, the old password stops working, a floor-length one works |
+| recovery | `200`, and not `Redirect not allowed` for `<origin>/reset-password` — the redirect allow-list covers the deployed origin |
+| sign-out | `204`, and afterwards the access token is refused `403 session_not_found` **immediately** while the refresh token is refused at the token endpoint. Measured, not assumed: a JWT that stays valid until its natural expiry is the common deployment, and it would have been a real finding |
+| delete | the account is gone and can no longer sign in |
+
+Two integration facts this probe earned the hard way, both recorded in its
+source so the next reader does not repeat them: this GoTrue answers `/signup`
+with the user object **inline** rather than wrapped in `{user, session}`, and
+the admin routes take the service key as a **bearer token** with the
+publishable key still in `apikey`.
+
+**Result: 13 passed, 0 failed.**
+
+### 2.8 The rest of the backend, re-proven after all of it
+
+Re-run on the same tree the report describes, after 0011 and the password floor
+had already been applied:
+
+- `supabase/e2e/replay-sweep.mjs` — **19/19**, including "the second account
+  sees none of it" and "an unconfirmed account is refused before it touches a
+  row".
+
+**Which database features a client actually writes, and what was missing.** The
+live project has 22 tables; 19 of them carry an `INSERT` policy for
+`authenticated`, meaning the browser is allowed to write them directly. Read
+against the list of what the sweep exercised, three of those nineteen had never
+been written by anything but a hand-run SQL editor session:
+
+| Table | Written in the app by | Now proven by |
+| --- | --- | --- |
+| `reminder_settings` | `lib/supabase/reminders.ts`, on every Settings → Reminders save | "mirrors the device preference and reads back" — upsert keyed on the account, then `enabled`, `time_of_day` and both flags from a fresh SELECT |
+| `push_subscriptions` | `lib/push.ts`, on every service-worker registration | "stores one row per endpoint and replaces it" — two writes to the same `endpoint` must leave exactly one row carrying the second `p256dh` (that is what re-registering after a browser update looks like), then delete cleanly |
+| `custom_session` | `lib/customSync.ts`, on every finished Test Builder run | "mirrors a finished Test Builder run, twice" — the same id upserted twice must be one row carrying the newer score, the run must appear in the newest-100 read the merged dashboard uses, and a `score > total` row must be refused by `custom_session_score_within_total` |
+
+The other sixteen were already covered, and exactly half of them through a
+server-side function rather than a direct insert: eight are written by the
+sweep itself as the account (`class`, `subject`, `chapter`, `topic`, `question`,
+`note`, `activity`, `user_settings`), and eight by the function that owns them —
+`start_session` → `session` + `session_item`, `complete_session` → `result` +
+`result_item`, `create_link` → `link`, `resolve_link` → `link_scan`,
+`create_share` → `content_share`, `create_note_share` → `note_share`.
+Three tables have no client `INSERT` policy at all and are written only by a
+`security definer` function or the Edge Function — `abuse_report`, `rate_limit`,
+`reminder_log` — which is the shape you want, and `security-battery.mjs` is what
+proves a client cannot write them.
+
+"An unconfirmed account is refused before it touches a row" and "the second
+account sees none of it" now assert zero rows for all three of those tables too,
+so their owner policies sit under the same tenant and confirmation gates as
+everything else.
+- `supabase/tests/rls_cross_tenant.sql` — executed as one transaction through
+  the Management API: `HTTP 201` with no error body. Every assertion in that
+  file raises on failure, so a clean response *is* the `NOTICE: PASS` line; the
+  script rolls back and leaves no fixture behind.
+- `supabase/e2e/security-battery.mjs` — **31/31**, again after the auth change.
+
+One harness note, because it will bite the next reader: the Management API's
+`GET /v1/projects/<ref>/database/connection-string` endpoint (and
+`/database/config`, `/database`) now answers **404**, so the out-of-repo runner
+that swapped the host for the regional pooler can no longer build a connection
+string. The sweep's documented second credential — `SUPABASE_SERVICE_ROLE_KEY`
+— is the working route from this machine, and `GET /v1/projects/<ref>/api-keys`
+still serves the legacy JWTs in their `api_key` field.
+
+### 2.9 The browser promised eight characters while the server refused them — closed
+
+§2.4 raised the **project's** floor to 10 and proved GoTrue enforces it. What that
+pass missed is the client: `lib/localAuth.ts` accepted 8, `supabase/session.ts`
+refused under 8 before calling `updateUser`, and all four password inputs in
+`AuthPage.tsx` carried `minLength={8}`. So on the deployed project a visitor could
+type a nine-character password, pass every check the browser makes, submit, and be
+answered by a server's sentence instead of the app's — a round trip, a dead form,
+and no reason to suspect the field.
+
+One module now owns the number:
+
+- `src/lib/passwordPolicy.ts` — `MIN_PASSWORD_LENGTH = 10`, `MAX_PASSWORD_LENGTH =
+  128`, the shared message, and `passwordLengthError()`.
+- `localAuth.ts`, `supabase/session.ts` and `AuthPage.tsx` all read it; the mock
+  account store and the Supabase reset screen now refuse the same input.
+- `passwordPolicy.test.ts` pins the constant **against the number README.md
+  documents for the live project**, so a dashboard change and a code change can no
+  longer disagree quietly, and fails if `AuthPage.tsx` reintroduces a numeric
+  `minLength`.
+
+Existing accounts are unaffected: the floor is enforced at registration and on a
+password change, never at sign-in, which matches the server's own behaviour (§2.4 —
+"existing accounts keep working through a short password until they reset it").
+
 ## 3. Ratings after this pass
 
 | Area | Before (2026-09-27) | Now | Why it is not higher |
@@ -167,9 +279,9 @@ is either unproven or unfixed.
 | Area | Letter | Earned from | What stops the next step |
 | --- | --- | --- | --- |
 | Frontend | **A** | 482 tests green in this tree, typecheck clean, biome clean, `pnpm build` exit 0, nine authenticated routes + landing + the auth guard clicked through a real browser with zero console errors | The canister path cannot be compiled or run on this machine, so that half of the surface is typecheck-verified only |
-| Backend | **B+** | All 77 methods implemented against the adapter, the 16/16 contract sweep on the live database, the 12 refusals typed and documented rather than silently wrong | `src/backend/dist/backend.wasm` is a trusted binary: the Motoko source has never been typechecked here |
+| Backend | **B+** | All 77 methods implemented against the adapter, the 19/19 contract sweep on the live database (including every client-writable table: the three reminder/push/test-mirror tables are now proven through the browser's own write path in §2.8), the 12 refusals typed and documented rather than silently wrong | `src/backend/dist/backend.wasm` is a trusted binary: the Motoko source has never been typechecked here |
 | Database | **A++** | 0001–0011 applied and every one of the 14 read-only `verify.sql` items answering as claimed, anon locked out of all 22 tables, the two destructive-helper grants revoked, both throttle paths measured before/after | Nothing known — the residual (`supabase_admin`'s default privileges) is a role this project's credentials cannot alter, which is a boundary, not a defect |
-| Authentication | **A** | Email verification before any data access, `422 weak_password` measured on a 6-character signup, `jwt_exp 3600`, recovery flow that holds the session, the hijack-notification mail now on | Leaked-password screening is plan-gated, the branded templates are still not pasted, and the sender name reads "Study Forg" |
+| Authentication | **A** | Email verification before any data access, `422 weak_password` measured on both routes (public sign-up and an authenticated password change), `jwt_exp 3600`, a recovery flow that holds the session, the hijack-notification mail now on, and — new in this pass — `e2e/auth-flow.mjs`, which re-proves all thirteen protocol steps against a live project in one command, sign-out invalidation included | Still not `A+`: leaked-password screening is plan-gated, the branded templates are still not pasted into the dashboard, and the sender name reads "Study Forg". Those are content the reviewer has to paste, not code left unverified |
 | Cybersecurity | **A+** | The two exploitable holes in the public surface closed **with permanent probes** — a forged-address burst is now limited (20/5, one counter) and TRUNCATE is gone from both client roles and the defaults | The header fix is committed but the deployed origin still answers with no CSP header until the next build, and the leaked credentials in §5 are still un-rotated |
 | **Whole product** | **A** | Every gate in §1 green, both live batteries green, the five areas above | Not `A++` while the protection shipped today is not yet served, and while a personal access token that administers every project on the account is sitting in a chat log |
 

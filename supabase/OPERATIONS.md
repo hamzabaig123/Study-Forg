@@ -232,6 +232,15 @@ paste into the SQL Editor — because:
 Before that manual step: take a dump, run the same migration on staging, run
 the four checks above, and only then apply.
 
+Two probes are deliberately outside that job, because both need a credential CI
+does not hold: `node supabase/e2e/security-battery.mjs` (no service key needed,
+but it hammers the live throttles, which CI should not do to a shared project)
+and `node supabase/e2e/auth-flow.mjs` (its two privileged calls need the service
+key, and the workflow keeps that key out of runners on purpose). Run both by
+hand against staging after a migration and again against production after the
+apply — the auth flow is the one check that catches a GoTrue upgrade or a
+dashboard policy change breaking sign-in before a user does.
+
 ## Known gaps
 
 Stated plainly, because a runbook that hides its holes is worse than none:

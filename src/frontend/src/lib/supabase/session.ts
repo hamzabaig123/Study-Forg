@@ -13,6 +13,7 @@
  * `useSyncExternalStore`, and turns a failed call into an `Error` whose message is
  * worth showing. `client.auth` is not called anywhere else.
  */
+import { passwordLengthError } from "@/lib/passwordPolicy";
 import { SUPABASE_URL } from "@/lib/supabase/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -337,9 +338,12 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
       }
       // Refused before the request rather than after it: an empty password would
       // be accepted by `updateUser` if the project's policy allowed it, and the
-      // visitor would find out only when the next sign-in fails.
-      if (password.length < 8) {
-        throw new Error("Use at least eight characters.");
+      // visitor would find out only when the next sign-in fails. The floor is
+      // the deployed project's own — GoTrue answers under it with
+      // `422 weak_password`, measured live.
+      const tooShort = passwordLengthError(password);
+      if (tooShort) {
+        throw new Error(tooShort);
       }
       const { data, error } = await client.auth.updateUser({ password });
       const account = unwrap(data.user, error);

@@ -38,7 +38,8 @@
  *
  * `pg` is not a dependency of this project (see the note in loadDriver below).
  * Exit code 0 means every step passed; 2 means the environment is short.
- */import { createHash, randomBytes } from "node:crypto";
+ */
+import { createHash, randomBytes } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -435,6 +436,159 @@ await step("activity insert and read", async () => {
   must(rows.data.length === before.data.length + 1,
     `expected ${before.data.length + 1} activity rows, saw ${rows.data.length}`);
 });
+await step("reminder_settings mirrors the device preference and reads back", async () => {
+  // The same two calls `lib/supabase/reminders.ts` makes when Settings → Reminders
+  // is saved: an upsert keyed on the account, then the five columns the digest
+  // screen reads. Not covered by any other step — the Edge Function that *consumes*
+  // it is service-role only, so this row was otherwise never written as a client.
+  const { error } = await client
+    .from("reminder_settings")
+    .upsert(
+      {
+        user_id: ids.a,
+        enabled: true,
+        time_of_day: "19:30",
+        utc_offset_minutes: -300,
+        send_task_reminder: true,
+        send_daily_report: false,
+      },
+      { onConflict: "user_id" },
+    )
+    .select();
+  must(!error, `upsert: ${error?.message}`);
+  const row = await client
+    .from("reminder_settings")
+    .select("enabled,time_of_day,send_task_reminder,send_daily_report,last_sent_on")
+    .maybeSingle();
+  must(!row.error, `read: ${row.error?.message}`);
+  must(row.data?.enabled === true, `enabled came back ${JSON.stringify(row.data?.enabled)}`);
+  must(row.data?.time_of_day === "19:30", `time_of_day: ${row.data?.time_of_day}`);
+  must(
+    row.data?.send_task_reminder === true && row.data?.send_daily_report === false,
+    `flags: ${JSON.stringify(row.data)}`,
+  );
+});
+await step("push_subscriptions stores one row per endpoint and replaces it", async () => {
+  // `lib/push.ts` upserts on the endpoint, so the unique index 0009 puts on
+  // `endpoint` has to accept a replacement of the same subscription rather than
+  // refuse it; a second write with fresh key material is what re-registering a
+  // browser after a service-worker update looks like.
+  const endpoint = `https://push.example.com/sweep/${slug(12)}`;
+  const write = (p256dh) =>
+    client
+      .from("push_subscriptions")
+      .upsert(
+        { endpoint, p256dh, auth: slug(16), user_id: ids.a, user_agent: "replay-sweep" },
+        { onConflict: "endpoint" },
+      )
+      .select();
+  const first = await write(slug(32));
+  must(!first.error, `first upsert: ${first.error?.message}`);
+  const second = await write(slug(32));
+  must(!second.error, `replacement upsert: ${second.error?.message}`);
+  const rows = await client
+    .from("push_subscriptions")
+    .select("endpoint,p256dh")
+    .eq("endpoint", endpoint);
+  must(!rows.error, `read: ${rows.error?.message}`);
+  must(rows.data?.length === 1, `${rows.data?.length} rows for one endpoint, expected 1`);
+  must(
+    rows.data[0].p256dh === second.data?.[0]?.p256dh,
+    "the replacement did not land on the same row",
+  );
+  const { error: removed } = await client
+    .from("push_subscriptions")
+    .delete()
+    .eq("endpoint", endpoint);
+  must(!removed, `delete: ${removed?.message}`);
+});
+await step("custom_session mirrors a finished Test Builder run, twice", async () => {
+  // `lib/customSync.ts` upserts every completed run on the run's own id, so the
+  // table has to behave like a cache: the same id twice is one row carrying the
+  // newer numbers, not a duplicate attempt and not a refused write. A retry of a
+  // finished run is the ordinary case — the mirror is fire-and-forget, so a flaky
+  // connection re-sends the same row.
+  const id = `sweep-${slug(12)}`;
+  const startedAt = new Date(Date.now() - 20 * 60 * 1000).toISOString();
+  // The same per-question records `localSessions.ts` builds, since `results` is
+  // what the merged analytics read back out of the row.
+  const paper = [true, false, true, false].map((correct, index) => ({
+    questionId: `q${index + 1}`,
+    prompt: `Sweep question ${index + 1}`,
+    questionType: "multipleChoice",
+    submitted: { __kind__: "multipleChoice", multipleChoice: { selectedOptionId: "1" } },
+    correct,
+    correctAnswer: { __kind__: "multipleChoice", multipleChoice: { correctOptionId: "1" } },
+    explanation: null,
+    labels: { topic: "Sweep topic", chapter: "Sweep chapter", subject: "Sweep subject" },
+  }));
+  const write = (score) =>
+    client
+      .from("custom_session")
+      .upsert(
+        {
+          id,
+          mode: "timedTest",
+          scope_label: "Sweep chapter · mixed",
+          duration_seconds: 420,
+          started_at: startedAt,
+          completed_at: new Date().toISOString(),
+          score,
+          total: paper.length,
+          results: paper,
+        },
+        { onConflict: "id" },
+      )
+      .select();
+  const first = await write(2);
+  must(!first.error, `first mirror: ${first.error?.message}`);
+  const retry = await write(3);
+  must(!retry.error, `retry mirror: ${retry.error?.message}`);
+  const rows = await client
+    .from("custom_session")
+    .select("id,score,total,mode,results")
+    .eq("id", id);
+  must(!rows.error, `read: ${rows.error?.message}`);
+  must(rows.data?.length === 1, `${rows.data?.length} rows for one run id, expected 1`);
+  must(rows.data[0].score === 3, `score after the retry: ${rows.data[0].score}`);
+  must(rows.data[0].mode === "timedTest", `mode: ${rows.data[0].mode}`);
+  must(
+    Array.isArray(rows.data[0].results) && rows.data[0].results.length === paper.length,
+    `results: ${JSON.stringify(rows.data[0].results)}`,
+  );
+  // The dashboard's merged history reads exactly this shape; a run that does not
+  // appear in it is invisible to the streak and accuracy maths.
+  const recent = await client
+    .from("custom_session")
+    .select("id")
+    .order("completed_at", { ascending: false })
+    .limit(100);
+  must(!recent.error, `recent read: ${recent.error?.message}`);
+  must(
+    recent.data?.some((row) => row.id === id),
+    "the mirrored run is missing from the newest-100 read",
+  );
+  // A score above the total is the one thing the local engine could send by
+  // mistake, and the CHECK is what stops it reaching a digest.
+  const impossible = await client
+    .from("custom_session")
+    .upsert(
+      {
+        id: `sweep-${slug(12)}`,
+        mode: "practice",
+        scope_label: "Should not land",
+        started_at: startedAt,
+        completed_at: new Date().toISOString(),
+        score: paper.length + 1,
+        total: paper.length,
+        results: [],
+      },
+      { onConflict: "id" },
+    )
+    .select();
+  must(impossible.error, "score > total was accepted — custom_session_score_within_total is gone");
+  ids.customSession = id;
+});
 await step("the second account sees none of it", async () => {
   const other = createClient(URL_, ANON, { auth: { persistSession: false } });
   const signedIn = await other.auth.signInWithPassword({ email: userB.email, password: userB.password });
@@ -443,6 +597,18 @@ await step("the second account sees none of it", async () => {
   must(!classes.error && classes.data.length === 0, `B sees ${classes.data?.length} classes`);
   const settings = await other.from("user_settings").select("owner_id");
   must(!settings.error && settings.data.length === 0, "B sees A's settings row");
+  // The two tables the digest and the push path keep: both are account rows, and
+  // a stranger reading them would learn when A studies and how to reach their
+  // browser.
+  const reminders = await other.from("reminder_settings").select("user_id");
+  must(!reminders.error && reminders.data.length === 0, `B sees ${reminders.data?.length} reminder rows`);
+  const push = await other.from("push_subscriptions").select("user_id");
+  must(!push.error && push.data.length === 0, `B sees ${push.data?.length} push rows`);
+  const mirrored = await other.from("custom_session").select("id");
+  must(
+    !mirrored.error && mirrored.data.length === 0,
+    `B sees ${mirrored.data?.length} mirrored test runs`,
+  );
   await other.auth.signOut();
 });
 await step("an unconfirmed account is refused before it touches a row", async () => {

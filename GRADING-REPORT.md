@@ -42,6 +42,24 @@ measurement instead of by picking a side.*
 live `create_link` body, and settles all of it in one run. Until that output is in
 front of us, the migrations are graded as unapplied.
 
+### Settled the next day (2026-09-28), by measurement
+
+Both objections above were resolved from this machine, so the rows are kept as
+written and answered here rather than quietly rewritten:
+
+- **0002, 0003 and every migration since are applied** — 0001 through 0011, and
+  all 14 read-only items of `verify.sql` (item 9 included) now answer as their
+  comments claim. `HARDENING-REPORT.md` §2.8 and §4 record the runs.
+- **The contract sweep has run.** `node supabase/e2e/replay-sweep.mjs` against
+  `qjoijoxmnliarlyaqmoz` with `SUPABASE_SERVICE_ROLE_KEY` (the documented pooler
+  route is gone: `GET /v1/projects/<ref>/database/connection-string` now answers
+  404) reports **19/19**, and the step count moved twice after this file was
+  written — the three newest steps drive the tables no other gate had ever had a
+  client write (`reminder_settings`, `push_subscriptions`, `custom_session`). It
+  deletes all three throwaway accounts at the end, so the "a run leaves a row
+  behind" objection is closed too.
+
+
 ## The consequence, stated plainly
 
 The frontend built from this tree mints **10-character** short codes. Production

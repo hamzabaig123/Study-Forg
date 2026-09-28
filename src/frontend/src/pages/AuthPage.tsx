@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { useEmailPasswordAuth, useInternetIdentityAuth } from "@/hooks/useAuth";
 import { authLinkError } from "@/lib/authLinkError";
 import { USE_LOCAL_ACCOUNTS, USE_SUPABASE } from "@/lib/authMode";
+import { MIN_PASSWORD_LENGTH } from "@/lib/passwordPolicy";
 import { SUPABASE_PROBLEM } from "@/lib/supabase/env";
 import {
   Link,
@@ -328,7 +329,7 @@ function EmailPasswordAuthPage({
                 autoComplete={
                   registerMode ? "new-password" : "current-password"
                 }
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 required
               />
             </div>
@@ -341,7 +342,7 @@ function EmailPasswordAuthPage({
                   value={confirmation}
                   onChange={(e) => setConfirmation(e.target.value)}
                   autoComplete="new-password"
-                  minLength={8}
+                  minLength={MIN_PASSWORD_LENGTH}
                   required
                 />
               </div>
@@ -845,7 +846,7 @@ function NewPasswordScreen() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 required
               />
             </div>
@@ -857,7 +858,7 @@ function NewPasswordScreen() {
                 value={confirmation}
                 onChange={(e) => setConfirmation(e.target.value)}
                 autoComplete="new-password"
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 required
               />
             </div>

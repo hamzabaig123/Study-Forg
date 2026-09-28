@@ -23,6 +23,11 @@ export interface AuthSession {
 }
 
 import { safeRemoveItem, safeSetItem } from "@/lib/localStore";
+import {
+  MAX_PASSWORD_LENGTH,
+  MIN_PASSWORD_LENGTH,
+  PASSWORD_POLICY_MESSAGE,
+} from "@/lib/passwordPolicy";
 
 export const ACCOUNTS_KEY = "studyforge.personal-accounts.v1";
 export const SESSION_KEY = "studyforge.personal-session.v1";
@@ -127,8 +132,11 @@ export async function registerAccount(input: {
   if (!input.name.trim()) throw new Error("Enter your name.");
   if (!/^\S+@\S+\.\S+$/.test(email))
     throw new Error("Enter a valid email address.");
-  if (input.password.length < 8 || input.password.length > 128)
-    throw new Error("Use a password between 8 and 128 characters.");
+  if (
+    input.password.length < MIN_PASSWORD_LENGTH ||
+    input.password.length > MAX_PASSWORD_LENGTH
+  )
+    throw new Error(PASSWORD_POLICY_MESSAGE);
   if (input.password.toLowerCase() === email)
     throw new Error("Your password cannot be your email address.");
   if (input.password !== input.passwordConfirmation)
