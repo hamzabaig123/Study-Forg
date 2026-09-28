@@ -33,7 +33,7 @@ const SPENT = new Set([
 ]);
 
 const SPENT_MESSAGE =
-  "That link has already been used, or it has expired. A reset link opens once, so the first tap that could not reach the app spends it — ask for a new one.";
+  "That link has already been used, or it has expired. These links open once, so the first tap that could not reach the app spends it — ask for a new one.";
 
 /** Anything else GoTrue named: its own words beat a guess, when it has any. */
 function describe(code: string, detail: string) {

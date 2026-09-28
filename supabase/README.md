@@ -251,13 +251,29 @@ sign-up returns no session until the link is clicked.
 Three dashboard settings, and each one is the reason a flow works here and fails
 there:
 
-- **Site URL** — the origin links return the visitor to by default.
+- **Site URL** — the origin links return the visitor to by default. Both mail
+  flows the app starts send their own redirect, so this is the fallback rather
+  than the only answer: `requestPasswordReset` sends the current origin plus
+  `/reset-password`, and `register`/`resendConfirmation` send the current origin
+  plus `/verify-email?email=<address>`, which is why a spent confirmation link
+  still lands on the one screen that can re-send it and knows the address to
+  re-send to.
 - **Redirect URLs (allow-list)** — must contain every origin the app is served
   from, including `http://localhost:<port>` for development. `requestPasswordReset`
   sends `redirectTo` as the current origin plus `/reset-password`, and GoTrue
   answers a request whose redirect is not listed with `Redirect not allowed`,
   which the screen shows verbatim rather than swallowing. An email confirmation
   link sent from an unlisted origin fails the same way.
+- **A link is spent by the first hit it gets, not by the app reading it.**
+  GoTrue consumes the token while it builds the redirect, so a visitor who taps
+  the link while nothing is listening on that origin — a dev server that is not
+  running, a deployment that has been taken down — gets a dead page *and* burns
+  the link: the next tap comes back
+  `#error=access_denied&error_code=otp_expired&error_description=Email+link+is+invalid+or+has+expired`
+  with no session. supabase-js consumes such a fragment in silence, so
+  `src/lib/authLinkError.ts` reads it and the landing screens name it
+  (`AuthPage`'s reset and verify screens), instead of looking like a form that
+  simply refuses to work. The fix is a live origin, not a retry.
 - **Password recovery** uses the same allow-list; the app listens for the
   `PASSWORD_RECOVERY` auth event and holds that session at `/reset-password`
   until a new password is saved, so a link opened by a stranger who guessed the

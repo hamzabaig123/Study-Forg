@@ -103,11 +103,20 @@ Vercel domain:
    app actually lives).
 3. **Redirect URLs**: add the same URL.
 
-Without this, sign-up on the deployed app still works but the confirmation
-email sends the user to localhost, because Supabase builds that link from the
-Site URL, not from the page that asked for it. (The app's own share links and
-password-reset redirects already use the origin the page is actually on, so
-those follow the deployment without any dashboard change.)
+Without this, the deployed app still works but every auth link lands on
+localhost, because that is what the Site URL says. The app now asks for the
+origin it is running on with **all three** links — password reset, sign-up
+confirmation and its re-send — so the Site URL is the fallback rather than the
+only thing that decides where a visitor ends up. The allow-list is not a
+fallback: an origin that is not listed there is refused outright, so add the
+Vercel domain *and* `http://localhost:5173` (the dev server's port) here.
+
+> Measured 2026-09-28: the domain above answers **HTTP 404**, so nothing is
+> deployed at it right now. Until a push rebuilds it, the only origin a link can
+> land on is a dev server that is actually running — and because GoTrue spends
+> the token while it builds that redirect, tapping a link with no server behind
+> it burns the link as well as failing. See `supabase/README.md` → *Auth settings
+> a deployed project needs*.
 
 ## 4. How updates work (the part you asked about)
 
