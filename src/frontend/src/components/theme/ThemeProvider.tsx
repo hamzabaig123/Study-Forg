@@ -52,6 +52,21 @@ export function ThemeProvider({ children }: PropsWithChildren) {
   }, [theme]);
 
   const setTheme = useCallback((next: ThemeName) => {
+    // Crossfade the swap: for one beat every surface eases its background,
+    // border, and text colour to the new palette instead of snapping. Skipped
+    // for reduced-motion users, and re-entrant — flipping themes quickly
+    // restarts the window rather than stacking transitions.
+    if (
+      typeof window !== "undefined" &&
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      const root = document.documentElement;
+      root.classList.remove("theme-switching");
+      // Force a style flush so a rapid second switch restarts the ease.
+      void root.offsetWidth;
+      root.classList.add("theme-switching");
+      window.setTimeout(() => root.classList.remove("theme-switching"), 480);
+    }
     setThemeState(next);
   }, []);
 

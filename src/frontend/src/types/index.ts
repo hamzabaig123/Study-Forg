@@ -88,11 +88,3 @@ export {
 
 /** The three themes StudyForge supports. */
 export type ThemeName = "light" | "dark" | "frosted";
-
-/** A single entry in the sidebar navigation tree. */
-export interface NavItem {
-  label: string;
-  to: string;
-  icon: string;
-  exact?: boolean;
-}

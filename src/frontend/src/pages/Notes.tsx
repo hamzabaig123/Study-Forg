@@ -471,7 +471,7 @@ export default function Notes() {
             />
           )
         ) : (
-          <ul data-ocid="notes.list" className="space-y-3">
+          <ul data-ocid="notes.list" className="stagger space-y-3">
             {rows.map((note, index) => (
               <NoteRow
                 key={note.id.toString()}

@@ -285,17 +285,24 @@ export default function PracticeSession() {
 
       <Card className="surface-glass shadow-elevated">
         <CardContent className="pt-6">
-          <QuestionRenderer
-            prompt={current.prompt}
-            questionType={current.questionType}
-            options={current.options}
-            index={index + 1}
-            total={questions.length}
-            value={draft}
-            onChange={setDraft}
-            disabled={answered}
-            marker={MARKER}
-          />
+          {/* Keyed by the question so stepping forward replays the small
+              rise; the footer below stays put so buttons never flicker. */}
+          <div
+            key={current.id.toString()}
+            className="motion-safe:animate-rise-sm"
+          >
+            <QuestionRenderer
+              prompt={current.prompt}
+              questionType={current.questionType}
+              options={current.options}
+              index={index + 1}
+              total={questions.length}
+              value={draft}
+              onChange={setDraft}
+              disabled={answered}
+              marker={MARKER}
+            />
+          </div>
 
           {answered && feedback ? (
             <div

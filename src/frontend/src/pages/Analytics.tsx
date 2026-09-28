@@ -85,7 +85,7 @@ export default function Analytics() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="stagger grid grid-cols-1 gap-6 lg:grid-cols-2">
           <AccuracyChart
             title="By class"
             description="Accuracy across each of your classes"
@@ -106,6 +106,7 @@ export default function Analytics() {
             buckets={breakdown.byQuestionType}
             ocid="by_question_type"
             index={3}
+            className="lg:col-span-2"
           />
         </div>
       )}

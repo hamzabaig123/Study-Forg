@@ -56,7 +56,7 @@ import type {
   TopicSummary,
   UserSettingsView,
 } from "@/backend";
-import { LinkStatus, QuestionType, SessionMode, UserRole } from "@/backend";
+import { LinkStatus, QuestionType, SessionMode } from "@/backend";
 import type { Row } from "./transport";
 
 const MS_TO_NS = 1_000_000n;
@@ -110,13 +110,6 @@ export function toMilliseconds(value: unknown): number {
   return parsed;
 }
 
-/** Domain nanoseconds → the ISO string a `timestamptz` column accepts. */
-export function stampToIso(value: Timestamp | undefined): string | undefined {
-  return value === undefined
-    ? undefined
-    : new Date(Number(value / MS_TO_NS)).toISOString();
-}
-
 export function toText(value: unknown): string {
   return value === null || value === undefined ? "" : String(value);
 }
@@ -131,10 +124,6 @@ export function toOptionalText(value: unknown): string | undefined {
 
 export function toBoolean(value: unknown): boolean {
   return value === true || value === 1 || value === "true";
-}
-
-export function toOptionalBoolean(value: unknown): boolean | undefined {
-  return value === null || value === undefined ? undefined : toBoolean(value);
 }
 
 export function toNumber(value: unknown): number {
@@ -191,20 +180,12 @@ function envelope(payload: unknown): RpcEnvelope {
   return payload as RpcEnvelope;
 }
 
-export function rpcFailed(payload: unknown): boolean {
-  return "err" in envelope(payload) && envelope(payload).err !== undefined;
-}
-
 export function rpcOk<T>(payload: unknown): T {
   const value = envelope(payload).ok;
   if (value === undefined) {
     throw new TypeError("RPC reply has no ok branch");
   }
   return value as T;
-}
-
-export function optionalOk<T>(payload: unknown): T | undefined {
-  return envelope(payload).ok as T | undefined;
 }
 
 export function sessionError(err: unknown): SessionError {
@@ -597,8 +578,4 @@ export function topicPathOf(row: Row): TopicPath | null {
     chapter: breadcrumbOf(chapter.id, chapter.name),
     topic: breadcrumbOf(row.id, row.name),
   };
-}
-
-export function userRoleOf(signedIn: boolean): UserRole {
-  return signedIn ? UserRole.user : UserRole.guest;
 }

@@ -4,9 +4,14 @@ import animate from "tailwindcss-animate";
 
 /** @type {import('tailwindcss').Config} */
 export default {
-  // Frosted is a dark glass treatment, so every `dark:` variant applies under
-  // it exactly as under `.dark` — light/dark/frosted differ by tokens only.
-  darkMode: ["class", "&:where(.dark, .dark *, .frosted, .frosted *)"],
+  // `dark:` means the `.dark` theme and nothing else. The third theme is
+  // internally still named `frosted` — that string is the persisted
+  // `user_settings.appearance` value, so it is an identifier, not a label — but
+  // it presents as **Green**, a light mint-and-olive glass surface. Keeping it
+  // out of this selector is what makes the 27 `dark:` refinements in the shadcn
+  // layer (input fills, destructive ring weights, lightened amber text) apply
+  // only to the ink theme, which is where they belong.
+  darkMode: ["class", "&:where(.dark, .dark *)"],
   content: ["index.html", "src/**/*.{js,ts,jsx,tsx,html,css}"],
   theme: {
     container: {
@@ -84,21 +89,9 @@ export default {
         subtle: "0 1px 3px -1px oklch(0.2 0.025 265 / 0.1), 0 1px 2px -1px oklch(0.2 0.025 265 / 0.06)",
         elevated:
           "0 12px 32px -12px oklch(0.2 0.025 265 / 0.22), 0 4px 10px -6px oklch(0.2 0.025 265 / 0.12)",
-        glass: "0 8px 32px -8px oklch(0.3 0.05 258 / 0.28)",
         "inset-soft": "inset 0 1px 0 0 oklch(1 0 0 / 0.45)",
-        "qr-frame": "0 18px 44px -18px oklch(0.2 0.025 265 / 0.3)",
-        "toast": "0 16px 40px -12px oklch(0.2 0.025 265 / 0.3)",
-        "dialog": "0 24px 64px -20px oklch(0.2 0.025 265 / 0.42)",
       },
       keyframes: {
-        "accordion-down": {
-          from: { height: "0" },
-          to: { height: "var(--radix-accordion-content-height)" },
-        },
-        "accordion-up": {
-          from: { height: "var(--radix-accordion-content-height)" },
-          to: { height: "0" },
-        },
         "fade-up": {
           from: { opacity: "0", transform: "translateY(14px)" },
           to: { opacity: "1", transform: "translateY(0)" },
@@ -111,34 +104,11 @@ export default {
           "0%, 100%": { transform: "translate3d(0, 0, 0) scale(1)" },
           "50%": { transform: "translate3d(0, -18px, 0) scale(1.04)" },
         },
-        "pulse-ring": {
-          "0%": { opacity: "0.55", transform: "scale(0.96)" },
-          "70%": { opacity: "0", transform: "scale(1.08)" },
-          "100%": { opacity: "0", transform: "scale(1.08)" },
-        },
-        "toast-in": {
-          from: { opacity: "0", transform: "translateY(12px) scale(0.98)" },
-          to: { opacity: "1", transform: "translateY(0) scale(1)" },
-        },
-        "scale-in": {
-          from: { opacity: "0", transform: "scale(0.97)" },
-          to: { opacity: "1", transform: "scale(1)" },
-        },
-        "save-pulse": {
-          "0%, 100%": { opacity: "1" },
-          "50%": { opacity: "0.45" },
-        },
       },
       animation: {
-        "accordion-down": "accordion-down 0.2s ease-out",
-        "accordion-up": "accordion-up 0.2s ease-out",
         "fade-up": "fade-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both",
         "fade-in": "fade-in 0.4s ease-out both",
         drift: "drift 14s ease-in-out infinite",
-        "pulse-ring": "pulse-ring 2s ease-out infinite",
-        "toast-in": "toast-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both",
-        "scale-in": "scale-in 0.18s ease-out both",
-        "save-pulse": "save-pulse 1.4s ease-in-out infinite",
       },
     },
   },

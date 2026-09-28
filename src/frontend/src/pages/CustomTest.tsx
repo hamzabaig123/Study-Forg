@@ -193,17 +193,24 @@ export default function CustomTest() {
         <>
           <Card className="surface-glass shadow-elevated">
             <CardContent className="pt-6">
-              <QuestionRenderer
-                prompt={current.prompt}
-                questionType={current.questionType}
-                options={current.options}
-                index={index + 1}
-                total={questions.length}
-                value={answers[current.id.toString()] ?? null}
-                onChange={setAnswer}
-                disabled={finishing || (!isTimed && answered)}
-                marker={MARKER}
-              />
+              {/* Keyed by the question so stepping forward replays the small
+                  rise; the footer below stays put so buttons never flicker. */}
+              <div
+                key={current.id.toString()}
+                className="motion-safe:animate-rise-sm"
+              >
+                <QuestionRenderer
+                  prompt={current.prompt}
+                  questionType={current.questionType}
+                  options={current.options}
+                  index={index + 1}
+                  total={questions.length}
+                  value={answers[current.id.toString()] ?? null}
+                  onChange={setAnswer}
+                  disabled={finishing || (!isTimed && answered)}
+                  marker={MARKER}
+                />
+              </div>
 
               {!isTimed && feedback ? (
                 <output
@@ -264,7 +271,10 @@ export default function CustomTest() {
                   <ArrowLeft className="size-4" aria-hidden="true" /> Previous
                 </Button>
 
-                <div className="flex flex-wrap items-center justify-end gap-3">
+                {/* `contents` on phones lets the three buttons share one flex
+                    row (Finish drops to its own full-width line); from sm the
+                    Next/Finish pair sits together on the right. */}
+                <div className="contents sm:flex sm:items-center sm:gap-3">
                   {!isLast ? (
                     <Button
                       type="button"
@@ -281,12 +291,13 @@ export default function CustomTest() {
                   ) : null}
                   <Button
                     type="button"
-                    variant={isLast || !isTimed ? "default" : "outline"}
+                    variant={isLast ? "default" : "outline"}
                     data-ocid={`${MARKER}.submit_button`}
                     disabled={finishing}
                     onClick={finish}
                     className={cn(
-                      (isLast || !isTimed) &&
+                      "w-full justify-center sm:w-auto",
+                      isLast &&
                         "bg-gradient-primary text-primary-foreground hover:opacity-90",
                     )}
                   >

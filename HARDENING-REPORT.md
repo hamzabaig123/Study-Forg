@@ -22,6 +22,7 @@ executed, it is marked unproven rather than graded.
 | Live schema checks | the 14 numbered items of `supabase/verify.sql`, each run separately | thirteen execute and answer what their comment claims; **item 8 is not an assertion** — its own text says it cannot run in the editor, because the editor connects as `postgres` where `auth.uid()` is null and every policy is bypassed, and it delegates to the RLS file below. (See §4: it was worth reading the items one by one, because two of them did not do what they claimed until today.) |
 | Contract sweep | `supabase/e2e/replay-sweep.mjs` | **19/19** against the real database, isolated re-run on the committed tree, including the three client-written tables no other gate touched (§2.8) |
 | Auth protocol | `supabase/e2e/auth-flow.mjs` | **13/13** against live GoTrue v2.197.0, isolated re-run — the probe added in this pass, see §2.7 |
+| Auth-mail branding | `supabase/e2e/auth-mail-brand.mjs` | **17/17** — the config half of the mail nobody had read since the templates were committed: sender name, and each live template byte-identical to its file here (§2.10) |
 | Cross-tenant RLS | `supabase/tests/rls_cross_tenant.sql` | clean transaction through the Management API (§2.8) |
 
 **Do not run the live probes at the same time.** Both the battery and the sweep
@@ -267,6 +268,49 @@ Existing accounts are unaffected: the floor is enforced at registration and on a
 password change, never at sign-in, which matches the server's own behaviour (§2.4 —
 "existing accounts keep working through a short password until they reset it").
 
+### 2.10 Auth mail arrived as the person, not the product — closed
+
+The confirmation and reset mails reached a real inbox under the Gmail account's
+own name, `Study Forg`, and in Supabase's stock HTML — a 184-character
+`<h2>Confirm your email address</h2>` and a 254-character recovery body, against
+the branded documents that had been sitting in `supabase/email-templates/` since
+they were written. The repo had the design; the live project had never been told.
+Both halves were config, not code: `smtp_sender_name` was a truncation of the
+brand, and `mailer_templates_confirmation_content` /
+`mailer_templates_recovery_content` still held the platform default.
+
+Three single-field `PATCH`es to `/v1/projects/<ref>/config/auth` moved them —
+one field per request, because this endpoint is atomic and one rejected key in a
+multi-field body would have rolled the other two back with it. Then a throwaway
+inbox, not a config read, decided whether it worked: a real sign-up and a real
+recovery request both arrived as
+
+```
+From: StudyForge <…>       subject: Confirm your email address
+html: 4 271 chars, gradient band present, wordmark 4×, one CTA
+```
+
+The display name is the part a relay is entitled to overrule — Gmail **can**
+replace a `From` name it does not associate with the account — so measuring it at
+a third-party inbox rather than asserting it from the setting is the whole value
+of the probe, and what the inbox said is that this relay left it alone. `smtp_admin_email` cannot be branded the same way: Gmail authenticates
+one address and refuses a `MAIL FROM` outside it and its aliases, so the header
+keeps reading `StudyForge <the-authenticated-gmail-address>` until the relay itself moves to
+a verified sending domain.
+
+`supabase/e2e/auth-mail-brand.mjs` is the permanent guard, and it is the check
+this pass should have had from the start: every battery here reaches the database
+or the auth protocol through a client, and none of them reads auth *config*,
+which is why a folder of committed templates and a live project sending defaults
+could both be true at once. It reads one `GET /config/auth`
+and asserts seventeen things — the sender name, each live template
+**byte-identical** to its committed file, the gradient/wordmark/preheader markers,
+only GoTrue-known `{{ .Variable }}`s, and every `href` still GoTrue's own action
+URL. Verified against a mutated copy rather than trusted: pointed at the wrong
+expectation it answers `FAIL` and exits 1, and against the pre-patch state it
+would have failed the default-body assertion (the old values began `<h2>` and
+carried no `<html>` tag, which is exactly the shape the predicate rejects).
+
 ## 3. Ratings after this pass
 
 | Area | Before (2026-09-27) | Now | Why it is not higher |
@@ -274,10 +318,13 @@ password change, never at sign-in, which matches the server's own behaviour (§2
 | Frontend | 8 / 10 | **8.5** | No UI code changed in this pass; the +0.5 is the deploy-time protection. Untested surface: the canister path cannot run on this machine (no `dfx`/`mops`/Rust), so Internet Identity work stays typecheck- and unit-verified only |
 | Backend | 7.5 / 10 | **7.5** | 12 of the 77 adapter methods are deliberate typed refusals; the Motoko canister still cannot be compiled here, so `src/backend/dist/backend.wasm` remains a trusted binary |
 | Database | 8.5 / 10 | **9.5** | Throttle honest, destructive grants gone, all 14 verify items passing. Not 10: `supabase_admin`'s default privileges are out of reach, and backups/PITR/restore have never been run against a real project |
-| Authentication | 7 / 10 | **8.5** | Floor raised and proven, change mail on, email-verification-before-data-access enforced, refresh rotation and `jwt_exp 3600` sane. Not higher: HIBP needs Pro, the branded auth templates are still not pasted into the dashboard, and the sender name still reads "Study Forg" |
+| Authentication | 7 / 10 | **9** | Floor raised and proven, change mail on, email-verification-before-data-access enforced, refresh rotation and `jwt_exp 3600` sane, and the auth mail now arrives branded at both ends — `smtp_sender_name` `StudyForge` and the two committed templates live, proven from a real inbox and pinned by `e2e/auth-mail-brand.mjs` (§2.10). Not higher: HIBP needs Pro, and the `From` address stays the Gmail account that authenticates until the relay moves to a verified sending domain |
 | Cybersecurity | 6 / 10 | **9** | The two exploitable holes in the public surface are closed with permanent probes, and the host finally gets a real header policy. Not higher: the header fix is not deployed yet, and the credential rotation below is still open |
 
-**Overall: ~8.8/10.** The distance to "A++" is not code — it is §5.
+**Overall: ~8.7/10** — the plain mean of the five rows above, and the arithmetic
+is shown because the last version of this line did not match its own table (it
+read 8.8 with Authentication at 8.5, which averages 8.6). §2.10 moved that row to
+9, so the mean moved with it. The distance to "A++" is not code — it is §5.
 
 ### 3.1 The same grades as letters, on the `GRADING-REPORT.md` scale
 
@@ -290,7 +337,7 @@ is either unproven or unfixed.
 | Frontend | **A** | 482 tests green in this tree, typecheck clean, biome clean, `pnpm build` exit 0, nine authenticated routes + landing + the auth guard clicked through a real browser with zero console errors | The canister path cannot be compiled or run on this machine, so that half of the surface is typecheck-verified only |
 | Backend | **B+** | All 77 methods implemented against the adapter, the 19/19 contract sweep on the live database (including every client-writable table: the three reminder/push/test-mirror tables are now proven through the browser's own write path in §2.8), the 12 refusals typed and documented rather than silently wrong | `src/backend/dist/backend.wasm` is a trusted binary: the Motoko source has never been typechecked here |
 | Database | **A++** | 0001–0011 applied and every one of the 14 read-only `verify.sql` items answering as claimed, anon locked out of all 22 tables, the two destructive-helper grants revoked, both throttle paths measured before/after | Nothing known — the residual (`supabase_admin`'s default privileges) is a role this project's credentials cannot alter, which is a boundary, not a defect |
-| Authentication | **A** | Email verification before any data access, `422 weak_password` measured on both routes (public sign-up and an authenticated password change), `jwt_exp 3600`, a recovery flow that holds the session, the hijack-notification mail now on, and — new in this pass — `e2e/auth-flow.mjs`, which re-proves all thirteen protocol steps against a live project in one command, sign-out invalidation included | Still not `A+`: leaked-password screening is plan-gated, the branded templates are still not pasted into the dashboard, and the sender name reads "Study Forg". Those are content the reviewer has to paste, not code left unverified |
+| Authentication | **A** | Email verification before any data access, `422 weak_password` measured on both routes (public sign-up and an authenticated password change), `jwt_exp 3600`, a recovery flow that holds the session, the hijack-notification mail on, `e2e/auth-flow.mjs` re-proving all thirteen protocol steps against a live project in one command, and — new since the first draft of this row — mail that arrives as the product: `From: StudyForge`, both branded templates live and byte-identical to this repo, asserted by `e2e/auth-mail-brand.mjs` | Still not `A+`: leaked-password screening is plan-gated, the `From` address is the Gmail account that authenticates (so the mail says `via gmail.com` until the relay has a verified domain), and the hijack-notification body is still Supabase's default |
 | Cybersecurity | **A+** | The two exploitable holes in the public surface closed **with permanent probes** — a forged-address burst is now limited (20/5, one counter) and TRUNCATE is gone from both client roles and the defaults | The header fix is committed but the deployed origin still answers with no CSP header until the next build, and the leaked credentials in §5 are still un-rotated |
 | **Whole product** | **A** | Every gate in §1 green, both live batteries green, the five areas above | Not `A++` while the protection shipped today is not yet served, and while a personal access token that administers every project on the account is sitting in a chat log |
 
@@ -315,7 +362,7 @@ push so Vercel rebuilds, and revoke the token.
 | Push `master` and let Vercel rebuild — the only thing that makes §2.3 live | ask, and it is one command |
 | Revoke/delete the `sbp_…` personal access token pasted into chat on 2026-09-28, then delete `%TEMP%\sf-deploy\sb-token.txt` | **his** (dashboard), then I can delete the file |
 | Rotate the Gmail app password, Brevo key, database password, service key and AI provider keys — all of them appeared in this project's history or in chat | **his** |
-| Paste `supabase/email-templates/` into Authentication → Email Templates and fix the "Study Forg" sender name | **his** |
+| Brand the hijack-notification mail (the password-changed body is still Supabase's default — one more PATCH, and `auth-mail-brand.mjs` has no opinion on it because it asserts the two templates committed here) | code, needs a decision |
 | DNS for `study-forg.app` (the domain currently resolves nowhere; `study-forg-frontend-100.vercel.app` is the real origin) | **his** |
 | Wire `ai-proxy` to the AI Studio, or delete it — it is deployed and unused | code, needs a decision |
 | Run one real backup → restore drill; until then "we can recover" is a claim, not a fact | code exists (`backup/restore.mjs`), needs a window on a real project |

@@ -33,6 +33,46 @@ password inside the email itself.
   `src/frontend/src/lib/reminders.ts`. Keep the two visually in step when one
   changes.
 
+## What is live, and how it got there
+
+Dashboard paste is the documented route, but the same three values are writable
+through the Management API, and that is how they were set on 2026-09-28:
+
+```
+PATCH /v1/projects/<ref>/config/auth   { "smtp_sender_name": "StudyForge" }
+PATCH /v1/projects/<ref>/config/auth   { "mailer_templates_confirmation_content": <confirm-signup.html> }
+PATCH /v1/projects/<ref>/config/auth   { "mailer_templates_recovery_content":      <reset-password.html> }
+```
+
+One field per request, because a PATCH to this endpoint is atomic — a single
+rejected key rolls the whole body back (the free plan does that to
+`password_hibp_enabled`) and leaves every other value untouched.
+
+Proven against a throwaway inbox rather than by reading the config back: a real
+sign-up and a real recovery request both arrived as
+`From: StudyForge <…gmail.com>`, carrying the gradient band, the wordmark, the
+hidden preheader and a single CTA — 4 271 and 4 084 characters of HTML against
+Supabase's 184- and 254-character defaults. Reading the **received** header is
+the part that matters: a relay is entitled to overwrite the display name with the
+account's own, and this one did not, which no config read could have shown.
+`supabase/e2e/auth-mail-brand.mjs` is the guard that keeps it that way.
+
+`magic-link.html`, `invite.html` and `change-email.html` are **not** applied, on
+purpose: the project has Email + password sign-in only, no invite flow, and no
+email-change surface in the app (`lib/supabase/session.ts` never calls
+`updateUser`), so those three templates have nothing to be sent from. The
+notification templates stay at their defaults too, except
+`password_changed_notification`, which is enabled and still plain — say so
+before pasting a branded one over it.
+
+The **subjects are the plain ones**, not the suggested column above:
+`mailer_subjects_confirmation` reads `Confirm your email address` and
+`mailer_subjects_recovery` reads `Reset your password`. They already named the
+action correctly, this task was about the sender name and the document, and no
+measurement here says a brand-led subject would do better — so they stayed, and
+the suggested column is advice for whoever wants it rather than a record. Each is
+one more `mailer_subjects_*` PATCH.
+
 ## Prerequisites on the Supabase side
 
 1. **Authentication → URL Configuration → Site URL** must be the deployed app

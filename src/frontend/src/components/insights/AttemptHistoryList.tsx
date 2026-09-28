@@ -78,7 +78,7 @@ export function AttemptHistoryList({
             }
           />
         ) : (
-          <ul className="divide-y divide-border/60">
+          <ul className="stagger divide-y divide-border/60">
             {rows.map((attempt, index) => {
               const percent = scorePercent(attempt.score, attempt.total);
               return (

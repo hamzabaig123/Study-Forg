@@ -104,7 +104,7 @@ export default function Landing() {
           className="pointer-events-none absolute -right-24 -top-32 h-96 w-96 rounded-full bg-primary/10 blur-3xl animate-drift"
         />
         <div className="relative mx-auto grid max-w-6xl items-center gap-12 px-6 py-20 lg:grid-cols-[1.05fr_0.95fr] lg:py-28">
-          <div className="animate-fade-up">
+          <div className="stagger">
             <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
               <Sparkles className="size-3.5 text-primary" aria-hidden="true" />
               Study platform for serious learners
@@ -178,7 +178,7 @@ export default function Landing() {
             </p>
           </div>
 
-          <div className="animate-fade-up [animation-delay:120ms]">
+          <div className="animate-fade-up [animation-delay:220ms]">
             <div className="surface-glass overflow-hidden rounded-2xl p-2">
               {/*
                 The JPEG is 656 KB and is the largest thing on this page; the
@@ -234,7 +234,7 @@ export default function Landing() {
             </p>
           </div>
 
-          <ol className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <ol className="stagger mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {HIERARCHY.map((level, index) => (
               <li key={level.label}>
                 <Card
@@ -272,7 +272,7 @@ export default function Landing() {
             </h2>
           </div>
 
-          <div className="mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="stagger mt-12 grid grid-cols-1 gap-4 md:grid-cols-3">
             {QUESTION_TYPES.map((type, index) => (
               <Card
                 key={type.name}
@@ -310,7 +310,7 @@ export default function Landing() {
             </h2>
           </div>
 
-          <div className="mt-12 grid gap-4 sm:grid-cols-2">
+          <div className="stagger mt-12 grid gap-4 sm:grid-cols-2">
             {FEATURES.map((feature, index) => (
               <Card
                 key={feature.title}
@@ -349,7 +349,7 @@ export default function Landing() {
             </h2>
           </div>
 
-          <ol className="mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+          <ol className="stagger mt-12 grid grid-cols-1 gap-6 md:grid-cols-3">
             {STEPS.map((item, index) => (
               <li
                 key={item.step}

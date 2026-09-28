@@ -19,3 +19,7 @@ supabase/backup/snapshots/
 # E2E harness installs its own dependencies
 e2e/node_modules/
 e2e/package-lock.json
+
+# A run artifact, not a report: vitest only writes it when someone passes
+# --reporter=jsonoutfile, and an empty one used to sit tracked in the repo.
+vitest-results.json

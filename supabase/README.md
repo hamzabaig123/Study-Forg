@@ -367,6 +367,18 @@ Security → 2-Step Verification → **App passwords**. The account password is
 refused at `AUTH LOGIN` no matter how many times it is retyped, and Google
 retired the "less secure apps" switch that used to accept it.
 
+The sender name is worth measuring rather than trusting, because a display name
+is exactly where a relay can overrule your configuration. It read `Study Forg`
+until 2026-09-28, when `smtp_sender_name` became `StudyForge` and the two
+branded templates in `email-templates/` went live with it (the API route and the
+inbox evidence are in `email-templates/README.md` → *What is live*). The check is
+a real sign-up into a throwaway inbox: `auth-flow.mjs` already proves the
+protocol, and what the mail itself has to prove is a
+`From: StudyForge <…>` line and the gradient band instead of Supabase's
+184-character default. `smtp_admin_email` stays the Gmail address that
+authenticates — Gmail refuses a `MAIL FROM` for anything else, so the address in
+the header cannot be branded even though the name in front of it now is.
+
 Measured against `smtp.gmail.com:587` from this machine on 2026-09-28 with
 `e2e/smtp-relay-check.mjs` — the first relay this project has tried that got
 past authentication:
@@ -441,6 +453,30 @@ arrived, `via <your domain>`, link host, and the reason Gmail's *Show original
 → Encryption and delivery* gives if it went to Spam). Exit 1 = it refused; the
 output names which *kind* of failure the shape is and where the exact field is
 written down. Exit 2 = missing input.
+
+`auth-mail-check.mjs` proves the *relay*; it cannot see the *branding*, because
+the sender name and the two template bodies live in the auth config rather than
+in a migration, so nothing in the suite could notice them drifting back to
+Supabase's defaults. `supabase/e2e/auth-mail-brand.mjs` is that guard: one
+credentialed `GET /config/auth`, no mail sent, and seventeen assertions — the
+sender name equals `StudyForge`, each live template is **byte-identical** to its
+file in `email-templates/`, and each still carries the gradient band, the
+wordmark, the hidden preheader, only GoTrue-known `{{ .Variable }}`s and an
+action URL that came from GoTrue rather than a hand-written one.
+
+```bash
+SUPABASE_ACCESS_TOKEN=<personal access token> \
+SUPABASE_PROJECT_REF=qjoijoxmnliarlyaqmoz \
+node supabase/e2e/auth-mail-brand.mjs
+```
+
+Two things it is deliberately not: it is not a rendering test — the visual proof
+is a real inbox (see `email-templates/README.md` → *What is live*), because only
+a received message shows whether Gmail rewrites the display name; and its marker
+checks do not tell two of our own templates apart (they share one shell), which
+is why the byte-identity assertion is the one that catches a paste into the
+wrong field. Run it against staging before promoting, since a second project does
+not inherit an auth config change from the first.
 
 ### Why there is no Send Email hook here
 

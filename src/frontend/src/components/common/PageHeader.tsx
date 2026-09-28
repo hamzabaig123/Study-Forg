@@ -49,10 +49,11 @@ export function PageHeader({
         </div>
       ) : null}
       {/* Hairline that warms toward the right — a quiet signature under every
-          page title, hand-set so it never fights the border above it. */}
+          page title, hand-set so it never fights the border above it. It
+          draws itself in on each navigation (draw-hairline in index.css). */}
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute bottom-[-1px] left-0 h-px w-40 bg-gradient-to-r from-primary/50 to-transparent"
+        className="draw-hairline pointer-events-none absolute bottom-[-1px] left-0 h-px w-40 bg-gradient-to-r from-primary/50 to-transparent"
       />
     </header>
   );

@@ -37,7 +37,7 @@ import {
   CloudOff,
   CloudUpload,
   Download,
-  Flame,
+  Leaf,
   Loader2,
   Lock,
   Moon,
@@ -77,7 +77,7 @@ const SECTIONS: SectionMeta[] = [
   {
     id: "appearance",
     label: "Appearance",
-    hint: "Light, dark, or frosted",
+    hint: "Light, dark, or green",
     Icon: Sun,
   },
   {
@@ -125,11 +125,11 @@ const THEME_CARDS: Array<{
   },
   {
     name: "frosted",
-    label: "Frosted",
-    hint: "Lit glass",
-    Icon: Flame,
+    label: "Green",
+    hint: "Mint & olive glass",
+    Icon: Leaf,
     swatch:
-      "linear-gradient(135deg, oklch(0.86 0.09 60), oklch(0.78 0.07 275))",
+      "linear-gradient(135deg, oklch(0.94 0.045 150), oklch(0.62 0.11 145) 55%, oklch(0.5 0.09 105))",
   },
 ];
 
@@ -466,7 +466,7 @@ export default function SettingsPage() {
 
   if (settingsQuery.isLoading) {
     return (
-      <div data-ocid="settings.page" className="space-y-6">
+      <div data-ocid="settings.page" className="stagger space-y-6">
         <PageHeader
           eyebrow="Preferences"
           title="Settings"
@@ -479,7 +479,7 @@ export default function SettingsPage() {
 
   if (settingsQuery.isError) {
     return (
-      <div data-ocid="settings.page" className="space-y-6">
+      <div data-ocid="settings.page" className="stagger space-y-6">
         <PageHeader
           eyebrow="Preferences"
           title="Settings"
@@ -495,7 +495,7 @@ export default function SettingsPage() {
   }
 
   return (
-    <div data-ocid="settings.page" className="space-y-8">
+    <div data-ocid="settings.page" className="stagger space-y-8">
       <PageHeader
         eyebrow="Preferences"
         title="Settings"
@@ -684,7 +684,7 @@ export default function SettingsPage() {
                     onClick={() => handleThemeSelect(name)}
                     data-ocid={`settings.appearance.theme_card.${name}`}
                     className={cn(
-                      "group flex flex-col gap-3 rounded-xl border p-3 text-left transition-smooth outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+                      "card-interactive group flex flex-col gap-3 rounded-xl border p-3 text-left outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
                       selected
                         ? "border-primary bg-primary/5 shadow-subtle"
                         : "border-border bg-background hover:border-primary/40 hover:bg-muted/40",

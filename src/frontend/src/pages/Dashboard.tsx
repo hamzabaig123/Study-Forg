@@ -159,7 +159,7 @@ export default function Dashboard() {
       ) : (
         <section
           aria-label="Content totals"
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
+          className="stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-5"
         >
           {statCards.map((card, index) => (
             <StatCard
@@ -228,7 +228,7 @@ export default function Dashboard() {
                 }
               />
             ) : (
-              <ul className="divide-y divide-border/60">
+              <ul className="stagger divide-y divide-border/60">
                 {activity.map((item, index) => (
                   <li
                     key={`${item.kind}-${item.at.toString()}-${index}`}
@@ -263,7 +263,7 @@ export default function Dashboard() {
                 Quick actions
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-2 px-3 py-3">
+            <CardContent className="stagger space-y-2 px-3 py-3">
               {QUICK_ACTIONS.map((action) => {
                 const Icon = action.icon;
                 return (

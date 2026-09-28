@@ -39,8 +39,8 @@ export function StatCard({
         className={cn(
           "absolute inset-x-0 top-0 h-1 transition-smooth",
           featured
-            ? "bg-gradient-primary"
-            : "bg-border group-hover:bg-primary/40",
+            ? "sheen-host bg-gradient-primary"
+            : "bg-transparent group-hover:bg-primary/40",
         )}
       />
       <div className="flex items-start justify-between gap-3 p-5">

@@ -127,7 +127,7 @@ export default function Classes() {
       ) : (
         <div
           data-ocid="classes.list"
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          className="stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
         >
           {classes.map((classSummary, index) => (
             <ClassCard

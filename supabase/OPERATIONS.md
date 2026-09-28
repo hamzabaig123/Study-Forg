@@ -252,6 +252,16 @@ hand against staging after a migration and again against production after the
 apply — the auth flow is the one check that catches a GoTrue upgrade or a
 dashboard policy change breaking sign-in before a user does.
 
+The third hand-run probe is `node supabase/e2e/auth-mail-brand.mjs`, and it
+belongs on the staging list even though it touches no data. Auth config is not
+part of a migration and not part of the deploy: a fresh project starts with
+Supabase's stock `smtp_sender_name` and its 184-character template bodies, which
+is how this repository held branded HTML for a week while the live project sent
+plain defaults. So after any project is created or restored, read the config back
+before telling a user the mail is branded — and note that a `PATCH` to
+`/config/auth` is atomic, so one rejected field in the body rolls the other
+changes in that request back with it.
+
 ## Known gaps
 
 Stated plainly, because a runbook that hides its holes is worse than none:

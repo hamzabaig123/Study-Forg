@@ -54,6 +54,7 @@ export function ScoreSummary({
               strokeDasharray={2 * Math.PI * 52}
               strokeDashoffset={2 * Math.PI * 52 * (1 - percent / 100)}
               className={cn(
+                "score-ring-fg",
                 percent >= 75
                   ? "stroke-success"
                   : percent >= 50

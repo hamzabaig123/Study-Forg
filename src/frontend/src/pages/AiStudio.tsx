@@ -499,7 +499,7 @@ export default function AiStudio() {
             </Button>
           </Card>
         ) : (
-          <div className="space-y-4">
+          <div className="stagger space-y-4">
             {visible.map((draft, index) => (
               <DraftCard
                 key={draft.id}

@@ -273,7 +273,7 @@ export default function TopicDetail() {
           }
         />
       ) : (
-        <div className="space-y-3" data-ocid="questions.list">
+        <div className="stagger space-y-3" data-ocid="questions.list">
           {questions.map((question, index) => (
             <QuestionCard
               key={question.id.toString()}

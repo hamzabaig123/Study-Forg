@@ -63,7 +63,7 @@ function describeAnswer(
  */
 export function ResultReview({ results, marker }: ResultReviewProps) {
   return (
-    <ol data-ocid={`${marker}.review_list`} className="grid gap-3">
+    <ol data-ocid={`${marker}.review_list`} className="stagger grid gap-3">
       {results.map((result, index) => {
         const submitted = describeAnswer(result.submitted);
         const correctAnswer = describeAnswer(result.correctAnswer);

@@ -164,7 +164,7 @@ export default function SubjectDetail() {
         />
       ) : (
         <div
-          className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+          className="stagger grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
           data-ocid="chapters.list"
         >
           {chapters.map((chapter, index) => (

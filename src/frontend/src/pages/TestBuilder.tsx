@@ -308,7 +308,7 @@ export default function TestBuilder() {
   const subjectName =
     subjects.find((item) => item.id === subjectId)?.name ?? "";
   return (
-    <div data-ocid={`${MARKER}.page`} className="space-y-8">
+    <div data-ocid={`${MARKER}.page`} className="stagger space-y-8">
       <PageHeader
         eyebrow="Practice"
         title="Build a test"

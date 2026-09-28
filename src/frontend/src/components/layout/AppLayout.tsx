@@ -2,6 +2,7 @@ import { Header } from "@/components/layout/Header";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { StorageHealthBanner } from "@/components/layout/StorageHealthBanner";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useCardSpotlight } from "@/hooks/useCardSpotlight";
 import { useReminderScheduler } from "@/hooks/useReminders";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
@@ -15,6 +16,8 @@ export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Daily email/notification digest, checked once a minute while signed in.
   useReminderScheduler();
+  // Pointer-tracked highlight behind every card surface (desktop only).
+  useCardSpotlight();
   // Re-keying the page body on every navigation replays its entrance, which
   // is the whole page-transition: a short rise the route content makes as it
   // arrives. motion-safe keeps it off for visitors who ask for less motion.
@@ -39,7 +42,7 @@ export function AppLayout() {
         >
           <div className="mx-auto w-full max-w-6xl">
             <StorageHealthBanner />
-            <div key={pathname} className="motion-safe:animate-fade-up">
+            <div key={pathname} className="motion-safe:page-enter">
               <Outlet />
             </div>
           </div>
@@ -88,6 +91,7 @@ export function PublicLayout({ children }: { children?: ReactNode }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
+  useCardSpotlight();
   return (
     <div className="flex min-h-dvh flex-col bg-background">
       <SkipLink />
@@ -100,7 +104,7 @@ export function PublicLayout({ children }: { children?: ReactNode }) {
       >
         <div
           key={pathname}
-          className="mx-auto w-full max-w-6xl motion-safe:animate-fade-up"
+          className="mx-auto w-full max-w-6xl motion-safe:page-enter"
         >
           {children ?? <Outlet />}
         </div>

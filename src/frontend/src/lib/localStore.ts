@@ -42,10 +42,6 @@ export function subscribeStorageHealth(listener: () => void): () => void {
   return () => listeners.delete(listener);
 }
 
-export function clearStorageHealth(): void {
-  snapshot = Object.freeze([]);
-}
-
 function classify(cause: unknown): StorageProblemKind {
   const name = cause instanceof Error ? cause.name : "";
   if (name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED") {

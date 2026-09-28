@@ -51,8 +51,11 @@ export function QuestionCard({
       className="gap-0 rounded-lg border-border/70 py-0 shadow-none"
     >
       <div className="flex flex-col gap-4 p-5">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-start gap-3">
+        {/* Wraps on the narrowest phones so the type badge never squeezes the
+            prompt into one-word lines; the wrapped badge aligns with the text
+            column via ml-7. */}
+        <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
+          <div className="flex min-w-[13rem] flex-1 items-start gap-3">
             <span className="numeric text-muted-foreground mt-0.5 shrink-0 text-xs">
               {String(index + 1).padStart(2, "0")}
             </span>
@@ -63,14 +66,14 @@ export function QuestionCard({
           <Badge
             variant="secondary"
             data-ocid={`questions.type.${index}`}
-            className="shrink-0 text-[0.7rem] tracking-wide uppercase"
+            className="ml-7 shrink-0 text-[0.7rem] tracking-wide uppercase sm:ml-0"
           >
             {TYPE_LABELS[question.questionType]}
           </Badge>
         </div>
 
         {options.length > 0 ? (
-          <ul className="grid gap-1.5 pl-7">
+          <ul className="grid gap-1.5 pl-7 sm:max-w-2xl">
             {options.map((option) => {
               const isCorrect = option.id === multipleChoice?.correctOptionId;
               return (
@@ -100,7 +103,7 @@ export function QuestionCard({
             })}
           </ul>
         ) : (
-          <div className="border-success/40 bg-success/10 ml-7 flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+          <div className="border-success/40 bg-success/10 ml-7 flex max-w-2xl items-center gap-2 rounded-md border px-3 py-2 text-sm">
             <Check
               className="text-success size-3.5 shrink-0"
               aria-hidden="true"
@@ -113,7 +116,7 @@ export function QuestionCard({
         )}
 
         {question.explanation?.trim() ? (
-          <p className="text-muted-foreground border-border/60 ml-7 border-l-2 pl-3 text-xs leading-relaxed">
+          <p className="text-muted-foreground border-border/60 ml-7 max-w-2xl border-l-2 pl-3 text-xs leading-relaxed">
             {question.explanation}
           </p>
         ) : null}

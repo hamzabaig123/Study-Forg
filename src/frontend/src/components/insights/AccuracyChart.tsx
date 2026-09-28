@@ -1,6 +1,7 @@
 import { EmptyState } from "@/components/common/EmptyState";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatPercent } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { AccuracyBucket } from "@/types";
 import { BarChart3 } from "lucide-react";
 import {
@@ -21,6 +22,8 @@ interface AccuracyChartProps {
   /** ocid suffix so each breakdown chart is addressable. */
   ocid: string;
   index: number;
+  /** Extra classes for the wrapping Card, e.g. a grid span. */
+  className?: string;
 }
 
 /** Chart palette pulled from the design tokens so all three themes stay legible. */
@@ -54,13 +57,17 @@ export function AccuracyChart({
   buckets,
   ocid,
   index,
+  className,
 }: AccuracyChartProps) {
   const data = buckets.map(toDatum);
 
   return (
     <Card
       data-ocid={`analytics.${ocid}.${index}`}
-      className="gap-0 rounded-lg border-border/70 py-0 shadow-none"
+      className={cn(
+        "gap-0 rounded-lg border-border/70 py-0 shadow-none",
+        className,
+      )}
     >
       <CardHeader className="border-b border-border/60 px-5 py-4">
         <CardTitle className="font-display text-base font-semibold">
