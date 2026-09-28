@@ -17,8 +17,9 @@ the localStorage archive the app used when there was no server.
 `migrations/0008_helper_function_lockdown.sql` | Re-applies the walk-back this project never ran: `reminder_digest`, `due_reminders` and `enforce_rate_limit` are revoked from `public`, `anon` and `authenticated` again, re-granted to `service_role`, and `notify pgrst, 'reload schema'` pushes the denials to the API cache. Revokes come last, so ordering cannot undo them. **Applied.** Measured on the live project 2026-09-28: the three helpers carry execute for `postgres` and `service_role` only, and a request with just the publishable key gets `401 / 42501 permission denied for function` from `reminder_digest` and `due_reminders`.
 `migrations/0009_push_subscriptions.sql` | One row per signed-in browser for web push: `endpoint` plus the browser's own `p256dh`/`auth` key material, unique on the endpoint, owner-only RLS with the same four policies. The delivery function reads them with the service key, so no function grants accompany it. **Applied.** Idempotent per fresh table; it must run after 0007.
 `migrations/0010_digest_counts_every_test.sql` | Re-declares `reminder_digest(uuid, integer)` so it sums `result` **and** `custom_session`. The dashboard merges the two — a run built in the Test Builder is graded in the browser and mirrored into `custom_session` — but the digest read only `result`, so an account whose day was spent on built tests was mailed "0%, 0 answered, 0-day streak" while its own dashboard said 50% over 20 questions. Measured live on 2026-09-28. Same eight output columns, same owner scoping, same `service_role`-only grants re-asserted at the bottom. Run after 0002 (which creates `custom_session`) and after 0008. **Applied 2026-09-28**, and measured before/after against the account that complained: `reminder_digest(<owner>, 300)` went from `0% / 0 answered / 0-day streak` to `50% / 10 correct / 20 answered / streak 1 / 1 test today` — the dashboard's own numbers — while a library-only account kept its `89% / streak 3`, proving the union added rows rather than shifting the calendar.
+`migrations/0011_trusted_client_address.sql` | Re-declares `enforce_rate_limit` so a window is keyed on the address the edge vouches for — `cf-connecting-ip`, which Cloudflare writes and refuses to pass through from a client — instead of the leftmost `x-forwarded-for` element, which the caller writes. The old key was measured live: 25 `create_link` calls carrying 25 invented addresses produced 25 accepted requests and 25 separate limiter rows, i.e. every public throttle was decorative. Falls back to the proxy-appended last `x-forwarded-for` element, then `x-real-ip`, then `unknown`. The file also takes back `TRUNCATE`, `TRIGGER` and (on 17 and up) `MAINTAIN` from `anon` and `authenticated` on every public table and from the `postgres` default privileges, because RLS does not apply to TRUNCATE and a signed-in account could otherwise wipe a table another account's rows live in. `REFERENCES` is deliberately left alone — the client roles' own FK inserts need it. **Applied 2026-09-28.** Measured after: the same forged-address burst is answered `20 accepted / 5 limited` with one limiter row keyed on the real address, and the battery's `shared_content` probe still trips at 121 on the honest path.
 `functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by its `CRON_SECRET` bearer or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. Deploying it is three commands and a secret — see its file header — and the full setup, including the Resend sender restriction and the optional tick, is in [The reminder pipeline](#the-reminder-pipeline) below. On the mock backend the digest is a browser notification instead.
-`verify.sql` | Twelve read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, and 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter
+`verify.sql` | Fourteen read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter, and 14 the client-address and privilege invariants `0011` promises: the limiter reads `cf-connecting-ip`, never the caller-written leftmost `x-forwarded-for` element, and no client role holds TRUNCATE/TRIGGER/MAINTAIN on any public table or in the stored default privileges
 `email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
 `tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the later migrations are pasted by hand until a runner that knows about all of them exists
@@ -121,7 +122,10 @@ zip does not). `tests/rls_cross_tenant.sql` has still never been run through
    reads those rows with the service key) and
    `migrations/0010_digest_counts_every_test.sql`, which must come after both
    0008 and 0002 itself — it re-declares the helper 0008 locked down, over the table
-   0002 created.
+   0002 created. Finally `migrations/0011_trusted_client_address.sql`, which
+   re-declares the limiter 0005 introduced and 0008 revoked from the client
+   roles, and takes the destructive table privileges back from both roles; it is
+   idempotent and ends with `notify pgrst, 'reload schema'`.
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
@@ -543,9 +547,12 @@ credential:
   It restores the library, not the practice history, because `start_session`
   dates an attempt server-side — an export of past attempts would move every one
   to today.
-- `functions/ai-proxy` has never been deployed, so the fourth extraction provider
-  the dialog offers only appears once Supabase is both configured and selected,
-  and has never answered a real request.
+- `functions/ai-proxy` **is deployed** and has answered a real signed-in request
+  (verified 2026-09-28: an unauthenticated call is refused `401`, and a request
+  carrying a session token reaches the provider). It is still not wired to the
+  studio — no frontend code calls it, so the extraction path in the browser keeps
+  using the reviewer's own key. Deploying it is necessary for that to change, not
+  sufficient.
 - Backups, PITR and the restore drill are written down in `OPERATIONS.md`, and
   the nightly workflow exists, but neither has run: the Free plan caps the
   database at a seven-day PITR window, and no dump has ever been restored.
@@ -555,7 +562,7 @@ credential:
   against a real project, and `backup.mjs` has never produced a snapshot. Until
   those two things happen the honest statement is "we can restore", not "we can
   recover".
-- Migrations 0001–0010 are **applied**. Verified 2026-09-27 by probing PostgREST
+- Migrations 0001–0011 are **applied**. Verified 2026-09-27 by probing PostgREST
   with the publishable key alone: `question`, `custom_session`,
   `reminder_settings` and `reminder_log` answer 401 (table exists, zero `anon`
   grants) while the dropped `ai_draft` answers 404 — which also proves 0005

@@ -10,19 +10,27 @@
 -- those files have been applied — 10 is meant to be run BEFORE 0004 as well.
 -- Number 11 is about 0006_reminders.sql. Number 12 is about
 -- 0008_helper_function_lockdown.sql, the lockdown of the reminder helpers and
--- the rate limiter that 0006's own blanket grant undid.
+-- the rate limiter that 0006's own blanket grant undid. Number 13 is about
+-- 0009_push_subscriptions.sql and number 14 about
+-- 0011_trusted_client_address.sql.
+--
+-- Run every number, not just the ones with a script behind them: item 11 carried
+-- a `column reference "attnum" is ambiguous` parse error from the day it was
+-- written, which hid two of its six assertions. A check nobody executes is not
+-- a check.
 
--- 1. Every table the app needs exists. Expected: 21 rows once 0001–0006 are all
+-- 1. Every table the app needs exists. Expected: 22 rows once 0001–0009 are all
 --    applied — 18 from 0001, minus the ai_draft 0005 drops, plus rate_limit and
---    custom_session from 0002, plus reminder_settings and reminder_log from 0006.
+--    custom_session from 0002, plus reminder_settings and reminder_log from 0006,
+--    plus push_subscriptions from 0009.
 --    (17 owner tables + abuse_report + rate_limit + custom_session + the two
---    reminder tables.)
+--    reminder tables + the one push table.)
 select table_name
   from information_schema.tables
  where table_schema = 'public'
  order by 1;
 
--- 2. RLS is on and enforced for the owner. Expected: the same 21 rows, both
+-- 2. RLS is on and enforced for the owner. Expected: the same 22 rows, both
 --    columns true.
 --    FORCE is what protects the owner's own writes: without it a row inserted by
 --    the table owner (postgres, the SQL editor) skips every policy.
@@ -163,7 +171,7 @@ select invariant, ok
       exists (select 1 from pg_constraint
                where conrelid = 'public.reminder_settings'::regclass
                  and contype = 'p'
-                 and (select string_agg(attname, ', ' order by attnum)
+                 and (select string_agg(a.attname, ', ' order by k.ord)
                         from unnest(conkey) with ordinality as k(attnum, ord)
                         join pg_attribute a on a.attrelid = conrelid and a.attnum = k.attnum)
                      = 'user_id')),
@@ -171,12 +179,14 @@ select invariant, ok
       exists (select 1 from pg_constraint
                where conrelid = 'public.reminder_settings'::regclass
                  and contype = 'c'
-                 and pg_get_constraintdef(oid) like '%time_of_day%~^([01][0-9]|2[0-3]):[0-5][0-9]$%')),
+                 and pg_get_constraintdef(oid)
+                     ~ 'time_of_day[ ]*~[ ]*''\^\(\[01\]\[0-9\]\|2\[0-3\]\):\[0-5\]\[0-9\]\$')),
     ('last_sent_on check is YYYY-MM-DD',
       exists (select 1 from pg_constraint
                where conrelid = 'public.reminder_settings'::regclass
                  and contype = 'c'
-                 and pg_get_constraintdef(oid) like '%last_sent_on%~^[0-9]{4}-[0-9]{2}-[0-9]{2}$%')),
+                 and pg_get_constraintdef(oid)
+                     ~ 'last_sent_on[ ]*~[ ]*''\^\[0-9\]\{4\}-\[0-9\]\{2\}-\[0-9\]\{2\}\$')),
     ('rls enabled and forced',
       exists (select 1 from pg_class
                where oid = 'public.reminder_settings'::regclass
@@ -262,5 +272,56 @@ select invariant, ok
                where schemaname = 'public'
                  and tablename = 'push_subscriptions'
                  and indexdef ilike '%unique%endpoint%'))
+  ) as checks(invariant, ok)
+ order by 1;
+
+-- 14. The client-address and privilege invariants 0011 promises, stated over the
+--     live schema. Both halves were measured failing before it ran: the limiter
+--     took the leftmost x-forwarded-for element (a caller-supplied address, so a
+--     burst with one invented IP per call was never throttled), and Supabase's
+--     own default privileges handed TRUNCATE — which RLS does not constrain — to
+--     every signed-in account.
+select invariant, ok
+  from (values
+    ('limiter reads cf-connecting-ip',
+      exists (select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public'
+                 and p.proname = 'enforce_rate_limit'
+                 and pg_get_functiondef(p.oid) like '%cf-connecting-ip%')),
+    ('limiter never takes the leftmost x-forwarded-for element',
+      not exists (select 1 from pg_proc p
+                    join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public'
+                     and p.proname = 'enforce_rate_limit'
+                     and pg_get_functiondef(p.oid)
+                         ~ 'split_part\([^)]*x-forwarded-for[^)]*,\s*1\s*\)')),
+    ('no client role may truncate, trigger or maintain a public table',
+      not exists (select 1 from pg_class c
+                    join pg_namespace n on n.oid = c.relnamespace
+                    cross join lateral aclexplode(c.relacl) a
+                    join pg_roles g on g.oid = a.grantee
+                   where n.nspname = 'public'
+                     and c.relkind in ('r', 'p')
+                     and g.rolname in ('anon', 'authenticated')
+                     and a.privilege_type in ('TRUNCATE', 'TRIGGER', 'MAINTAIN'))),
+    ('a table created next does not inherit those privileges',
+      not exists (select 1 from pg_default_acl d
+                    cross join lateral aclexplode(d.defaclacl) a
+                    join pg_roles g on g.oid = a.grantee
+                   where d.defaclnamespace = 'public'::regnamespace
+                     and d.defaclobjtype = 'r'
+                     and pg_get_userbyid(d.defaclrole) = 'postgres'
+                     and g.rolname in ('anon', 'authenticated')
+                     and a.privilege_type in ('TRUNCATE', 'TRIGGER', 'MAINTAIN'))),
+    ('signed-in clients keep their DML privileges',
+      exists (select 1 from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+                cross join lateral aclexplode(c.relacl) a
+                join pg_roles g on g.oid = a.grantee
+               where n.nspname = 'public'
+                 and c.relname = 'class'
+                 and g.rolname = 'authenticated'
+                 and a.privilege_type = 'INSERT'))
   ) as checks(invariant, ok)
  order by 1;

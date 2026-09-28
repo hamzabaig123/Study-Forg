@@ -41,6 +41,12 @@ const DROPPED_TABLES = ["ai_draft"];
 const SERVICE_ONLY_RPC = ["reminder_digest", "due_reminders"];
 /** One public token-addressed RPC with a small enough bucket to trip quickly. */
 const RATE_LIMITED_RPC = { name: "shared_content", arg: "p_token_hash", max: 120 };
+/**
+ * The smallest public bucket, and the one a forged address used to escape:
+ * `create_link` throttles at 20/min and validates nothing before it does, so an
+ * invalid URL costs one hit and writes no row.
+ */
+const FORGED_LIMIT = { name: "create_link", max: 20 };
 const DEMO_ID = "e078ff60-846c-46ef-8a7e-091138c66b44"; // demo@studyforge.test
 
 async function main() {
@@ -150,6 +156,47 @@ async function main() {
       `security: rate limiter trips at ${RATE_LIMITED_RPC.max}+1 on ${RATE_LIMITED_RPC.name}`,
       tripped && statuses.length <= RATE_LIMITED_RPC.max + 2,
       `${statuses.length} calls, statuses ${[...new Set(statuses)].join(",")}, last: ${last.slice(0, 100)}`,
+    );
+  }
+
+  {
+    // The limiter's address must be the one the edge vouches for, not the one
+    // the caller writes. Before 0011 it read the leftmost x-forwarded-for
+    // element, so a burst carrying a different invented address per call spread
+    // across as many buckets as it sent headers and nothing was ever limited —
+    // measured: 25 forged calls, 25 accepted, 0 throttled. This fires max+5
+    // calls, each with its own forged address, and insists the throttle still
+    // bites. A regression here reopens anonymous brute force of share codes.
+    const msToEdge = 60_000 - (Date.now() % 60_000) + 300;
+    await new Promise((resolve) => setTimeout(resolve, msToEdge));
+    let tripped = false;
+    let calls = 0;
+    let last = "";
+    for (let i = 0; i < FORGED_LIMIT.max + 5 && !tripped; i++) {
+      const r = await fetch(`${BASE}/rest/v1/rpc/${FORGED_LIMIT.name}`, {
+        method: "POST",
+        headers: {
+          apikey: KEY,
+          "Content-Type": "application/json",
+          // TEST-NET addresses, distinct per call: exactly what an attacker
+          // sends. The body is refused for being an invalid URL, after the
+          // limiter has already counted the hit.
+          "x-forwarded-for": `203.0.113.${(i % 250) + 1}`,
+        },
+        body: JSON.stringify({
+          p_target_url: "not a url",
+          p_code: "abcdefg",
+          p_edit_token: "x".repeat(30),
+        }),
+      });
+      last = await r.text();
+      calls++;
+      if (/rate.?limit/i.test(last)) tripped = true;
+    }
+    rec(
+      `security: a forged x-forwarded-for burst is still limited on ${FORGED_LIMIT.name}`,
+      tripped && calls <= FORGED_LIMIT.max + 5,
+      `${calls} calls with distinct forged addresses, last: ${last.slice(0, 100)}`,
     );
   }
 

@@ -351,3 +351,64 @@ describe("short-code entropy contract", () => {
     expect(Number(literal?.[2])).toBe(SHORT_CODE_LENGTH);
   });
 });
+
+/**
+ * The throttle is the only thing between an anonymous caller and a patient
+ * brute force of a public share code, and it is only as strong as the address it
+ * keys on. `x-forwarded-for` arrives as `caller-written…, real peer`, so the
+ * first element is attacker-chosen: measured on the live project, 25 calls
+ * carrying 25 invented addresses were 25 separate buckets and none was limited.
+ * 0011 reads `cf-connecting-ip`, which Cloudflare writes and refuses to pass
+ * through from a client. This is the guard that fails if a later migration
+ * re-declares the limiter and reaches for the leftmost element again.
+ */
+describe("client-address contract", () => {
+  /** The body of the newest `enforce_rate_limit` declaration — the live one. */
+  const limiterBody = (() => {
+    let found: string | null = null;
+    for (const file of migrations) {
+      const match = file.text.match(
+        /create or replace function public\.enforce_rate_limit[\s\S]*?\$body\$([\s\S]*?)\$body\$;/,
+      );
+      if (match?.[1]) found = match[1];
+    }
+    return found;
+  })();
+
+  it("has a limiter declaration to read at all", () => {
+    expect(
+      limiterBody,
+      "no $body$-delimited enforce_rate_limit in any migration",
+    ).not.toBeNull();
+  });
+
+  it("never keys a window on the caller-written leftmost x-forwarded-for element", () => {
+    expect(limiterBody).not.toMatch(
+      /split_part\([^)]*x-forwarded-for[^)]*,\s*1\s*\)/,
+    );
+  });
+
+  it("keys the window on the address the edge vouches for", () => {
+    expect(limiterBody).toContain("cf-connecting-ip");
+  });
+
+  it("keeps TRUNCATE out of the client roles, in stored grants and in defaults", () => {
+    // RLS does not constrain TRUNCATE, so a grant of it to `authenticated` is a
+    // cross-account wipe that no policy can stop. The statement is assembled —
+    // `%s` carries the privilege list, because MAINTAIN only exists on 17 and up
+    // — so the contract is that list plus both revoke targets, not one literal.
+    const lockdown = migrations
+      .filter((file) => /alter default privileges/i.test(code(file.text)))
+      .at(-1);
+    expect(
+      lockdown,
+      "no migration touches default table privileges",
+    ).toBeDefined();
+    const text = code(lockdown?.text ?? "");
+    expect(text).toMatch(/\btruncate\b/i);
+    expect(text).toMatch(/revoke[^;]*on table[^;]*from anon, authenticated/i);
+    expect(text).toMatch(
+      /alter default privileges[^;]*revoke[^;]*on tables from anon, authenticated/i,
+    );
+  });
+});
