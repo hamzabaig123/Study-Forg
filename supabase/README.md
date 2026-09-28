@@ -302,6 +302,22 @@ there:
   `PASSWORD_RECOVERY` auth event and holds that session at `/reset-password`
   until a new password is saved, so a link opened by a stranger who guessed the
   address cannot read the account's rows on the way past it.
+- **Password policy** — `password_min_length` was **6** (Supabase's own default)
+  until 2026-09-28, which is a five-minute dictionary job rather than a
+  password. It is now **10**, and `mailer_notifications_password_changed_enabled`
+  is **on**, so the owner of an account gets a mail when the password changes —
+  the one signal that tells a person their session was taken over. Both are
+  server-side: measured after the change, a 6-character signup is answered
+  `422 weak_password {"reasons":["length"]}` and the UI shows GoTrue's own
+  sentence, "Password should be at least 10 characters.", verbatim.
+  The leaked-password (Have I Been Pwned) check could **not** be enabled here:
+  `PATCH /config/auth` refuses the whole request with `402 Configuring leaked
+  password protection via HaveIBeenPwned.org is available on Pro Plans and up`,
+  which is also a warning about that endpoint — a rejected field rolls back the
+  rest, so send one change at a time. Existing accounts keep working through a
+  short password until they reset it; only new sign-ups and resets pay the
+  minimum. To undo either value: `PATCH /config/auth` with
+  `{"password_min_length": 6, "mailer_notifications_password_changed_enabled": false}`.
 
 ### Sending auth mail through an SMTP relay (Gmail)
 
