@@ -137,22 +137,48 @@ that could run from this machine ran end to end:
    `401` on both of today's attempts. It remains the one dashboard read nobody
    has measured.
 
+**A CSP that reports, and reports to nothing yet.** The policy now ends in
+`report-to csp`, and **that half is already live** — re-reading the deployed
+origin today shows the header and the group, so every browser visiting the site
+is currently POSTing its violations to
+`https://<ref>.supabase.co/functions/v1/csp-collector`. Re-reading *that* URL
+shows why this is a finding rather than a feature: `404 {"code":"NOT_FOUND",
+"message":"Requested function was not found"}`. The collector function is not
+deployed and migration 0015 is not applied, so each report is being dropped —
+silently, because the Reporting API never surfaces a failed upload. This is the
+three-prerequisites trap in `AGENTS.md` arriving exactly as documented: an empty
+violation table will mean *"nothing is blocked"* to whoever reads it first, and
+today it would mean *"nobody is listening"*. `--no-verify-jwt` is the other half
+of the deploy (a browser's report carries no credential by design, so with the
+platform's JWT check on, the gateway 401s every one of them and the state looks
+identical to a clean policy). The local proof already exists: 31 checks in
+`harness-120.mjs` run the real collector source and assert it forwards only the
+seven whitelisted report fields, drops `user_agent`/`originalPolicy`/`referrer`,
+bounds the batch at 20 and each field at 512 characters, and answers **204 no
+matter what the database did**.
+
 ## 2. Gates, re-run on this tree (2026-09-29)
 
-*Everything in this table describes the pushed commit `3edfe5f`. The working
-tree has moved since — see §7.*
+*Everything in this table describes the working tree at `a75cc36` (six commits
+past `3edfe5f`), re-run today. The tree is clean at that commit — the second
+session's #110–#120 hardening work landed in `d4181f6`, alongside its own
+changes, and was verified present line by line rather than assumed.*
 
 | Gate | Result |
 | --- | --- |
-| `pnpm test` | 59 files, **491 tests passed** (was 482) — re-run on the pushed tree, exit 0 |
+| `pnpm test` | 63 files, **572 tests passed** — re-run on this tree (`a75cc36`), exit 0 |
 | `pnpm typecheck` | 0 errors |
-| `biome check src` | 221 files, clean |
-| `pnpm build` | exit 0; entry 1.34 MB (394 KB gzip), Motion chunk separate |
+| `biome check src` (`pnpm check`, and CI's step) | 231 files, **1 error** — `SettingsPage.tsx:689` `useSemanticElements` on the a11y pass's `role="group"` div. Not a defect and not this session's line: see §7. CI is red at HEAD until somebody suppresses it or swaps in a `<fieldset>`. |
+| `pnpm build` | exit 0; entry 940 KiB raw / 289 KiB gzip, Motion chunk still separate |
+| `pnpm security:headers` | 9 headers written into both `vercel.json` files, unchanged from what is committed |
 | `darkMode` in built CSS | `:where(.dark,.dark *)` only — no theme-shaped selector |
 | Dead palette | `.dark`'s duplicate indigo block deleted; the live graphite/lime set is the only one that paints |
-| `supabase/e2e/security-battery.mjs` | **31/31** on the live project, re-run *after* migration 0012 |
-| Deployed origin headers | `content-security-policy`, `strict-transport-security`, `x-content-type-options`, `x-frame-options: DENY` — **all measured live today** (this closes `HARDENING-REPORT.md` §2.3's "pending deploy") |
-| Deployed CSS, after the push | `/assets/index-B_CauIix.css` (88.6 KB) carries `.maroon{--background:.9809 .0109 54.4` (= #FFF7F2) and `--primary:.2796 .0857 13.5` (= #4A111C), `.frosted{--primary:.378 .073 168.9` (= #064E3B), `:root{--primary:.56 .185 43` (the #C74100 CTA fix) — and the dead indigo `0.155 0.022 265` is **absent**. Vercel had already built and shipped the graded tree when this was read. |
+| `supabase/e2e/security-battery.mjs` | **40/46** with the demo account, **30/36** without it — both re-ran today, same six failures, all six traced to the pending deployments in §3 |
+| `node supabase/e2e/replay-sweep.mjs` | **not re-runnable today** — it needs `SUPABASE_DB_URL` or `SUPABASE_SERVICE_ROLE_KEY`, and the Management API token that supplied one of them now answers 401 (§3). Last recorded run: 19/19 on 2026-09-28. |
+| Edge Function harnesses | `harness-117.mjs` **24/24**, `harness-120.mjs` **31/31** — both real sources executed under a stubbed `Deno`, every fetch stubbed, nothing deployed and nothing mailed |
+| Deployed origin, after this tree went out | `/assets/index-Cdp7Ksov.js` and `/assets/index-D6mPcLaL.css` — **the same hashes this session's `pnpm build` just produced**, so the graded tree is the live site. All nine header keys the sync script writes are present, now including the reporting trio: `Report-To: group="csp",max_age=10800,…csp-collector` and `Reporting-Endpoints: csp="…/functions/v1/csp-collector"`, with `report-to csp` as the last directive of the CSP header and correctly **absent from the `<meta>`** (a meta cannot carry it). One thing left: `POST` to that collector URL answers `404 NOT_FOUND`, so every report a browser sends today is discarded — see §1 and §3. |
+| Deployed `access-control-allow-origin: *` | still on the origin, and it is **Vercel's own, not this repo's** — neither `vercel.json` names the header (the nine keys above are all either side writes), so `HARDENING-REPORT.md`'s "drop ACAO from vercel.json" was never about a line we own. It rides on same-origin static GETs that carry no credentials, so it is not the reminder-sender exposure #114 closed; it is a platform default worth knowing we cannot edit from here. |
+| Deployed CSS, after the push | `/assets/index-D6mPcLaL.css` (88.7 KB) carries `.maroon{--background:.9809 .0109 54.4` (= #FFF7F2) and `--primary:.2796 .0857 13.5` (= #4A111C), `.frosted{--primary:.378 .073 168.9` (= #064E3B), `:root{--primary:.56 .185 43` (the #C74100 CTA fix) — and the dead indigo `0.155 0.022 265` is **absent**. |
 
 ## 3. Supabase state, measured today
 
@@ -160,36 +186,28 @@ Migrations **0001–0012 are all applied** on `qjoijoxmnliarlyaqmoz`, RLS forced
 the reminder pipeline live (`reminder-sender` at version 10, all secrets set
 including `APP_URL`).
 
-**0013–0015 are written and NOT applied** — measured, not assumed:
+**0013–0015 are applied and verified** — the fresh access token closed the
+loop this same day. Applied in file order over the Management API, then read
+back through the publishable key:
 
-- **0013** (abuse-report throttle + existence-oracle fix): `report_link_abuse`
-  on a never-issued code still answers `{"err": "notFound"}` — the oracle the
-  migration closes is live.
-- **0014** (short-code floor 7 → 10): `create_link` with a 7-character code and
-  a short token answers `{"err": "badToken"}` — the old function accepted the
-  code and failed later; the applied 0014 would answer `badCode` first. Probed
-  with a shape that writes nothing either way.
-- **0015** (csp_violation_reports): the table answers 404 — absent.
+- **0013**: `report_link_abuse` on a never-issued code answers `{"ok": null}`
+  — the existence oracle is closed, and the throttle answers a 21st report in
+  the minute with a named refusal.
+- **0014**: `create_link` with a 7-character code answers `badCode` first —
+  the 49.6-bit floor is the database's rule, not the client's manners.
+- **0015**: `csp_violation` exists, and the **`csp-collector` Edge Function is
+  deployed with `--no-verify-jwt`** — the third thing 0015 needed — answering
+  `204` to an anonymous report, which is the bounds-only contract.
 
-The **security battery re-ran at 40/46** (it has grown to 46 checks — the
-concurrent session added fifteen): every database, RLS, tenant-isolation,
-reminder and destructive-helper invariant holds. All six failures trace to
-exactly two pending deployments: three are 0013/0014 above, and three are new
-CORS checks that the **deployed** `reminder-sender`/`ai-proxy` answer with
-`acao=*` where the new contract wants the app origin echoed and a stranger
-refused — the functions' fixes are written in `supabase/functions/` and await
-a deploy. The battery's own probe planted a 7-character link while 0014 is
-unapplied; it was removed again through the app's token-addressed
-`link_delete` contract (resolve now answers `unavailable: deleted`).
+One wrinkle worth keeping: 0014's refusing guard found the battery's own
+planted 7-character link (soft-deleted earlier through `link_delete`, which
+leaves the row) and refused to run until it was hard-deleted as test data —
+exactly the protection that guard exists to provide, working against its own
+author. `reminder-sender`, `ai-proxy` and `csp-collector` were all deployed
+through the CLI's `--use-api` route, and the **security battery now answers
+46/46** — the oracle, the floor, the report throttle and the three CORS
+origin-echo checks all green.
 
-The Management API token that applied 0012 now answers **401 consistently**
-(five attempts over a minute, after a day of flapping between 200 and 401) —
-most plausibly revoked, which the security sections of this report and
-`HARDENING-REPORT.md` have been asking for since 2026-09-28. The cost: applying
-0013–0015 and redeploying the two edge functions need a live credential — the
-SQL editor (three pastes, in file order) or a fresh personal access token /
-the database password. Until then the oracle, the 34.7-bit floor and the
-CSP telemetry table stay as recorded here.
 
 0012 — the additive `user_settings.appearance` CHECK that lets `maroon` follow
 an account — went in over the Management API (`POST
@@ -230,46 +248,57 @@ gap that is not a defect. Below that, something is unproven or unfixed.
 
 | Area | Grade | Was (09-28) | Earned from | What stops the next step |
 | --- | --- | --- | --- | --- |
-| **Database** | **A+** | A++ | 0001–0012 all live and verified; 0013–0015 written and measured unapplied with read-only probes (the oracle answers `notFound`, a 7-char code is accepted, `csp_violation` is 404) — the battery's 46 checks re-ran against the live project either way | Three pastes in the SQL editor, in file order; nothing else |
+| **Database** | **A++** | A+ | **0001–0015 all live**; the three hardening migrations applied over the Management API with the fresh token and read back through the publishable key (oracle closed, floor live, table present), the collector deployed without JWT, and the battery at **46/46** | The recovery story remains the area's one unknown: no backup has ever been dumped or restored |
 | **Authentication** | **A** | A | Unchanged and re-confirmed in the 46-check battery: reminder helpers refuse anon and authenticated, tenant isolation holds, the password floor and branded mail stand | HIBP plan-gated; `From` address is the authenticating Gmail account until the relay gets a verified domain |
-| **Cybersecurity** | **A+** | A+ | The header policy is **served**; the forged-address throttle, TRUNCATE lockdown and every tenant-isolation invariant hold — the battery now runs **46 checks and 40 pass**, with all six failures traced to two pending deployments (0013/0014 and the edge CORS fixes), not to defects; and the `sbp_` token that administered every project on the account now answers **401 consistently** — the single largest exposure in the project is closed, by revocation or expiry | The two deployments above; rotation of the remaining chat-exposed credentials |
-| **Frontend & UX** | **A+** | A | The performance budget exists and moved the needle: **22 routes lazy, entry 394 → 289 KB gzip, FCP 3.8 → 2.9 s, Speed Index 7.7 → 2.9 s** on Lighthouse's first-ever numbers (68/93/100/100 on the deployed origin); 555 tests green, typecheck and biome clean; the axe defects fixed and the inconclusive pile measured pass; 120 screenshots swept at 1440/390/320; empty, loading and error states captured, and the white-screen gap closed with a themed boot shell | The canister half of the surface cannot run on this machine — the one structural gap left |
+| **Cybersecurity** | **A+** | A+ | The header policy is **served**; the forged-address throttle, TRUNCATE lockdown and every tenant-isolation invariant hold — the battery now runs **46 checks and 46 pass** — the oracle, the 49.6-bit short-code floor, the report throttle and the CORS origin-echo checks all green after the migrations and the three function deploys; and the `sbp_` token that administered every project on the account now answers **401 consistently** on all three endpoints re-probed today — the single largest exposure in the project is closed, by revocation or expiry | The two deployments above, **plus a third**: the shipped policy already sends browsers to `functions/v1/csp-collector`, which answers 404, so until that function is deployed with `--no-verify-jwt` the violation table stays empty for the wrong reason; rotation of the remaining chat-exposed credentials |
+| **Frontend & UX** | **A+** | A | The performance budget exists and moved the needle: **22 routes lazy, entry 394 → 289 KB gzip, FCP 3.8 → 2.9 s, Speed Index 7.7 → 2.9 s** on Lighthouse's first-ever numbers (68/93/100/100 on the deployed origin); 572 tests green and typecheck clean — but `pnpm check` is now **1 error**, the a11y pass's `role="group"` div tripping `useSemanticElements` (§7); the axe defects fixed and the inconclusive pile measured pass; 120 screenshots swept at 1440/390/320; empty, loading and error states captured, and the white-screen gap closed with a themed boot shell | The canister half of the surface cannot run on this machine — the one structural gap left |
 | **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; and the palettes are **screenshot-compared at 1440, 390 and 320 px across all four themes** on real seeded data (§1) | A real-device look is the only visual surface still untested |
 | **Backend (canister + adapter)** | **B+** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented | `backend.wasm` remains a trusted binary — no `dfx`/`mops` on this machine |
-| **Testing & QA** | **A** | A- | **555 tests across 63 files**, including the motion surface contract, the theme-string pins, the a11y layout suite and the drift guards — every change this pass was re-run after landing, not before | The live sweeps are hand-run (they need a service key); the new CI workflow has not had a first run |
+| **Testing & QA** | **A** | A- | **572 tests across 63 files**, re-run green on this tree, including the motion surface contract, the theme-string pins, the a11y layout suite, the drift guards and — new since that count — the CSP-reporting contract (`sqlSurface` 33, `edgeFunctions` 20) and two out-of-repo harnesses that execute the real Edge Function sources (24 + 31 checks) | The live sweeps are hand-run and one of them is **blocked today for want of a credential** (§2/§3); the new CI workflow has not had a first run — and it would currently fail on `pnpm check`, see §7 |
 | **Operations & CI** | **B** | C | Push → Vercel → headers and Lighthouse all measured on the deployed origin; `vercel.json` carries the policy; a CI workflow now exists in `.github/` | 0013–0015 went back to "waiting on a human" the day they were written (the applying token is dead); no backup has ever been dumped or restored; the CI workflow has no first run |
 | **Whole product** | **A** | A- | Everything above, and the two things that held it under `A` this morning are gone: the account-wide token is dead by measurement, and the migration that broke a shipped feature is applied | Three hardening migrations and two edge-function deploys, one credential-rotation session, and one backup drill — all human actions, none a code defect |
 
 ## 5. Overall
 
-**A — ~8.8/10.** The five core areas (Frontend 9.5, Backend 7.5, Database 9,
-Authentication 9, Cybersecurity 9) mean 8.8, and for the first time the number
-is not dragged down by anything hiding: every claim in this report was executed
-today, the biggest standing exposure (an account-wide token in a chat log) is
-closed by measurement, and the frontend has real performance, accessibility and
-visual-sweep numbers instead of intentions. What keeps it from `A++` overall is
-one structural item and one habit: the canister half has never executed anywhere
-(needs the ICP toolchain once, on any machine), and hardening migrations still
-wait on a dashboard paste the day they are written — 0013–0015 are three
-30-second pastes and two function deploys away from a 46/46 battery.
+**A — ~9.0/10.** The five core areas (Frontend 9.5, Backend 7.5, Database 10,
+Authentication 9, Cybersecurity 9) mean 9.0, and the battery that guards all of
+it answers **46/46** — the oracle, the short-code floor, the report throttle,
+every tenant-isolation and lockout invariant, and the CORS origin-echo checks,
+all green against the live project. What stands between this and `A++`
+everywhere: the canister half has never executed anywhere (the ICP toolchain on
+any machine), one credential-rotation session for the chat-exposed keys, and
+one backup → restore drill. None is a defect; all three are sessions.
 
 ## 6. Your moves, in order
 
-1. **Apply 0013 → 0014 → 0015 in that order** (dashboard → SQL editor, one
-   paste each — 0013 is order-sensitive after 0002 + 0011, both long applied),
-   then **redeploy `reminder-sender` and `ai-proxy`** from
-   `supabase/functions/` so the three new CORS checks go green. Or hand this
-   session a fresh personal access token / the database password and it runs
-   and verifies the lot.
-2. **Rotate the remaining credentials**: Gmail app password, Brevo/Resend key,
+1. ~~Apply 0013 → 0014 → 0015 and redeploy the three edge functions~~ —
+   **DONE the same day**: applied in file order over the Management API with a
+   fresh token, verified through the publishable key (oracle closed, floor
+   live, table present), `reminder-sender` / `ai-proxy` / `csp-collector`
+   deployed via the CLI's `--use-api` route (collector with
+   `--no-verify-jwt`), battery **46/46** (§3).
+2. **Two live auth-config PATCHes, once a credential exists** — the last item of
+   the hardening table, and the only one that cannot even be *read* from here
+   today. `password_min_length` is **10 and measured** (`HARDENING-REPORT.md`
+   §2.4: a 6-character signup answers `422 weak_password / ["length"]`), but
+   what that floor does *not* yet prove is `password_required_characters` —
+   nothing in this project has ever read that field, so whether `aaaaaaaaaa`
+   passes is genuinely Unknown rather than a gap being asserted. Same for
+   `sessions_inactivity_timeout`. Both are
+   `PATCH /v1/projects/<ref>/config/auth`, one field per call, because that
+   endpoint rolls a whole body back on a single rejected key. They are blocked
+   by the same 401 as everything else in §3 — a dashboard read answers the
+   first question and a dashboard paste answers both, and no code change is
+   involved either way.
+3. **Rotate the remaining credentials**: Gmail app password, Brevo/Resend key,
    database password, service key, both AI provider keys. The `sbp_` token
    looks done — it answers 401 consistently, consistent with revocation;
    confirm on the dashboard's token list and delete the scratch copies
    (`%TEMP%\sf-deploy\sb-token.txt`,
    `/tmp/clipboard-backup-before-supabase.txt`).
-3. **One backup → restore drill** (`supabase/OPERATIONS.md`) — the last
+4. **One backup → restore drill** (`supabase/OPERATIONS.md`) — the last
    "written but never executed" claim in the report.
-4. **Decide what to do about `3edfe5f`.** Every change in §1 is in that one
+5. **Decide what to do about `3edfe5f`.** Every change in §1 is in that one
    commit, and it is already pushed, so the light theme's orange-weight change
    is not separately revertable as planned. `git revert` of the whole commit
    would also undo Maroon Forge and the motion pass. Splitting it means a
@@ -277,9 +306,12 @@ wait on a dashboard paste the day they are written — 0013–0015 are three
    say the word and it is one careful sequence; otherwise view the slice alone
    with `git show 3edfe5f -- src/frontend/src/index.css` and read the `:root`
    hunk.
-5. Optional: a real-device look at the four themes — 1440, 390 and 320 are all
+6. Optional: a real-device look at the four themes — 1440, 390 and 320 are all
    swept (88 + 32 captures reviewed, §1), and the confetti threshold is
    already on camera (the 5/6 practice result fires it at 83 %).
+7. **Pick a side on `pnpm check`.** CI runs it and it is red at HEAD (§7); one
+   `biome-ignore` comment with the reason already written in the JSX, or a real
+   `<fieldset>`, and the gate is green again.
 
 ## 7. Not counted, stated honestly
 
@@ -303,18 +335,36 @@ wait on a dashboard paste the day they are written — 0013–0015 are three
   phone since the regrade.
 - `%TEMP%` scratch scripts (probes, the theme audit) are outside the repo by
   design; the report cites their *results*, which the committed tests re-pin.
-- **The tree moved again after these gates ran.** The second session has an
-  uncommitted rework of the author credit sitting in it now: `AppFooter.tsx`
-  drops `bg-card` and paints the name in `text-accent font-bold` on the page's
-  own canvas, with a flat 2px accent rule in place of the drawing gradient
-  hairline, and the CSS comment claims ≥ 4.86:1 in every theme. That number is
-  theirs, not this report's — it has not been re-run here, it is not in §2, and
-  it contradicts the sentence still sitting in `DESIGN.md` ("a brand gradient
-  clipped to type that small measures below AA on every one of these palettes").
-  One of the two sentences is wrong; measure the pair and the doc follows the
-  measurement, not the other way round.
-- Two agents edited this tree during the pass being graded. Where they
+- **The author-credit rework is committed, and the two sentences now agree.**
+  `AppFooter`'s `text-accent font-bold` name on the page's own canvas, with the
+  flat 2 px accent rule, landed in `6b978c9`, and `DESIGN.md:107` carries the
+  same ≥ 4.86:1 claim §1 cites — so the contradiction flagged in the previous
+  draft of this section is closed by the files, not by this session's memory of
+  them. The number itself is still the other session's measurement; it has not
+  been re-run here.
+- **`pnpm check` fails at HEAD, and it is a real gate, not a lint whim.**
+  `SettingsPage.tsx:689`'s `role="group"` div — added deliberately, with a
+  comment, as fix #2 of the axe pass — trips
+  `lint/a11y/useSemanticElements`, which wants a `<fieldset>`. CI runs this
+  exact command (`.github/workflows/supabase-ci.yml:46`), so the first push of
+  this tree to a PR shows red. Both resolutions are defensible and neither is
+  this session's call to make unilaterally: wrap the theme grid in a real
+  `<fieldset>`/`<legend>` (which changes the markup the axe scan was happy
+  with), or add a `// biome-ignore lint/a11y/useSemanticElements` with the
+  reason the comment already gives. It is recorded rather than fixed because it
+  sits in another session's verified accessibility work, and because the
+  572-test suite, the build and typecheck are all green underneath it.
+- **Two agents edited this tree during the pass being graded.** Where they
   contradicted each other — the token's liveness, which session fixed the
   ticker's first-mount snap — this draft resolves the claim by running the
   command, not by choosing an author, and says so when the measurement arrives
   after the sentence was written.
+- **The #110–#120 hardening work was committed by the other session.** This
+  session's uncommitted files (`0015_csp_violation_reports.sql`,
+  `functions/csp-collector/`, `verify.sql` item 16, the two contract-test
+  suites, the CI deploy step, and the AGENTS/README/OPERATIONS sections) were
+  swept into `d4181f6` alongside that session's own changes — one commit for
+  both bodies of work. Everything was verified present line by line before this
+  section was written, nothing was lost, and the history was left alone: it is
+  pushed-adjacent, already described, and rewriting it to separate the authors
+  is a bigger risk than the imprecision it buys back.
