@@ -21,6 +21,11 @@ check-limit = 1
 [toolchain]
 moc = "1.16.0"
 lintoko = "0.11.0"
+# `check-deploy = true` boots the built canister on PocketIC after the wasm is
+# produced; without this entry `mops build` stops with "Tool 'pocket-ic' is not
+# defined in [toolchain] section" (CI run 36624220717, the first Build to reach
+# that gate). The version is the one that error names.
+pocket-ic = "15.0.0"
 
 [lint]
 extends = true
