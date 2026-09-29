@@ -1,12 +1,117 @@
 # StudyForge — Grading Report
 
-*2026-09-27. Grades are letter grades (A++ → D), and every grade is earned from
-something that was either executed and observed, or explicitly marked unproven.
-A claim that only exists in a document is graded as unverified, including when
-this file's own author wrote it. `STATUS-REPORT.md` (a second, concurrent
-session's report, scored /10) disagrees with several findings here; the
-disagreements are listed and, where it was possible to settle them, settled by
-measurement instead of by picking a side.*
+## Regrade — 2026-09-29
+
+*Grading the tree at `5e9b387`, pushed and deployed — `c45c9b1` since then is
+documentation only, no code moved. Everything in the tables below was executed on
+this machine today, or it says so in the grade column. Where a claim comes from the
+sibling session working in this same tree, it is attributed and the measurement
+that settles it is named. The 2026-09-27 pass is kept underneath, as written,
+because "the grade moved and the old reasoning vanished" is the failure mode this
+file exists to avoid.*
+
+**The scale.** `A++` = executed, observed, nothing known broken. `A` = proven,
+with a named gap that is not a defect. Below `A`, something is unproven or
+unfixed — and *unproven* is not the same as *broken*, which is why two areas sit
+at `A` while their last remaining items are human sessions.
+
+### Gates, run on the graded tree
+
+| Gate | Result |
+| --- | --- |
+| `pnpm test` | 63 files, **572 tests passed** (231 s) |
+| `pnpm typecheck` | 0 errors |
+| `biome check src` (`pnpm check`, CI's step) | 231 files, **0 errors** — it was **1 error** at `HEAD` this morning; the theme grid became a real `<fieldset>`, nothing was suppressed |
+| `pnpm build` | exit 0; the deployed origin now serves this build (`index-DgtQf9MX.css`) |
+| `pnpm security:headers` | 9 headers in both `vercel.json` files, no drift to write |
+| `supabase/e2e/security-battery.mjs` (live) | **46/46** — and the one way to make it lie: two batteries in flight share the `create_link` limiter, so the entropy-floor probe came back `{"err":"rateLimited"}` and scored **45/46**. Run it alone or past the minute edge. |
+| Deployed origin | all nine hardening keys present, CSP ends `report-to csp`, and an anonymous `POST` to `functions/v1/csp-collector` answers **204** — the reporting loop has a listener |
+| GitHub Actions `canister-build` | **has run** (≥ 2 runs; the downloaded log covers the one at 14:13 UTC, commit line `abac926`, i.e. the empty-actor-baseline change). `mops install` and the `moc 1.16.0` + `lintoko 0.11.0` toolchain install are green; **`mops check` exits 1** at its stable-interface gate — "2 pending migration(s) but check-limit=1, fold all changes into `20260920_130000.mo`". `Build` and `Upload wasm` never ran, so no artifact exists yet |
+| Accessibility (second axe pass) | 63 reported items → four causes, all landed; the browser's accessibility tree names all 9 selects; a contrast sweep of `/share`, `/export`, `/ai-studio` finds **0** failing text nodes; `/classes` outlines `H1 → H2` |
+
+### Scorecard — 2026-09-29
+
+| Area | Grade | Was (09-27) | Earned from | What stops `A++` |
+| --- | --- | --- | --- | --- |
+| **Database** | **A++** | B+ | 0001–0015 all live on `qjoijoxmnliarlyaqmoz`, RLS forced, the abuse-report oracle closed, the 10-character short-code floor refused below the line, the `cf-connecting-ip` throttle key, TRUNCATE/TRIGGER/MAINTAIN revoked — every one of those re-probed today against the running project, not read out of a file | Nothing in the schema. The recovery story is graded under Operations, because that is where the missing *run* lives |
+| **Authentication** | **A** | A- | Email confirmation enforced in the database on every owner table, tenant isolation proven, password floor one constant shared by client and server (10), reset flow end to end, sign-out invalidating the access token immediately (`403 session_not_found`, measured), branded auth mail proven at a real inbox | Neither live policy read came from this session: the sibling's `GET /config/auth` returned `password_required_characters` null and `sessions_inactivity_timeout` 0 (a recorded choice, not an oversight — the app leans on refresh rotation), and the same call re-answered **401** here at 21:52, so those two values are credited, not reproduced. HIBP is Pro-plan only, and the `From` address is the SMTP account until the relay gets a verified domain |
+| **Cyber security** | **A+** | B+ | One function emits both the `<meta>` and the served header set, and the set is *served* (Vercel reads `vercel.json`, not `dist/_headers`); CSP reporting closed at both ends; CORS answers one allowlisted origin instead of `*`; three Edge Functions hardened with chunked body caps, a timing-safe secret comparison and a database-backed limiter; 46/46 live | Rotation of the pasted credentials (a decision, not a defect) and the reminder-sender/ai-proxy **body caps' deploy state** — the 80 KiB probe came back `503` with an empty body, which is inconclusive, not a pass |
+| **Backend (canister + adapter)** | **B+** | C+ | The adapter implements all 77 methods and the live contract sweep last reported **19/19** (2026-09-28); and the canister source has now been through a real toolchain for the first time in the project's life — `canister-build` installs `moc 1.16.0` + `lintoko 0.11.0`, resolves every declared package, and runs `mops check`, which printed **no type errors** before it stopped | Not `A-`, and one log line decides it: `mops check` **exits 1** at the stable-interface gate ("2 pending migration(s) but check-limit=1 — fold `20260920_120000.mo`, `20260920_130000.mo`"), so the job is red, `mops build` never ran and **no `backend.wasm` artifact exists**. A runner that refuses to certify the chain means less proven, not more (see *Two records disagree*). Deploy still needs cycles and an identity; the sweep needs a credential this session does not have |
+| **Frontend and UX** | **A+** | A- | 22 lazy routes, entry 394 → **289 KB gzip**, FCP 3.8 → 2.9 s and Speed Index 7.7 → 2.9 s on Lighthouse's first numbers, every empty/loading/error state on camera, a themed boot shell closing the white-screen gap, and the accessibility audit closed as an edit list with the fixes verified in the browser's own accessibility tree | The canister half of the surface cannot run here, and the ~45 pseudo-element abstentions need the same external audit tool re-run against the deploy to be *seen* to go |
+| **Testing and QA** | **A** | A- | 572 tests, three live probes that do not overlap (stranger battery, data-contract sweep, auth-protocol flow), drift guards that read the SQL and the Edge Function sources, and two out-of-repo harnesses that execute the real function bodies under a stubbed `Deno` | One workflow has run, and it is red; the 572 frontend tests still have no runner — `supabase-ci` and `supabase-backup` have no run log reachable from this machine — and both credential-carrying sweeps are hand-run |
+| **Operations and CI** | **B** | C | Push → Vercel → headers and performance both measured on the deployed origin; the migration ladder is applied *and read back*; `reminder-sender` at version 10 with every secret set; CI is no longer hypothetical — `canister-build` runs on `master` and has already caught a real defect that no local gate could see | One backup dumped and restored — the drill in `OPERATIONS.md` is still a document; a first *green* run, which for `canister-build` means folding the two pending migrations the chain check names; and a first run of `supabase-ci` and `supabase-backup` |
+| **Repo hygiene** | **A-** | C+ | Clean tree, clean `git check-ignore`, `supabase/.env` and every credential out of the repo, two concurrent sessions staging exact paths rather than `-A` | A 9-commit day split across two agents leaves messages that describe each other's work; nothing broken, just imprecise attribution |
+| **Whole product** | **A — 9.0/10** | B+ | All of the above. The five core areas — Frontend 9.5, Backend 7.5, Database 10, Authentication 9, Cyber security 9 — mean 9.0, and every one of those numbers descends from a run in the table above rather than from a description | Three sessions, none of them code: rotate the credentials, drill one restore, give CI its first green run (Backend is the area holding the mean down, and it is one chain fold away) |
+
+### What moved, in one line each
+
+- **Database B+ → A++**: 0002–0015 applied and *read back*, so the throttle, the
+  entropy floor, the oracle, the TRUNCATE revokes and the violation table are the
+  database's rules rather than the client's manners.
+- **Cyber security B+ → A+**: the header file stopped being inert (a host now
+  serves it), reporting stopped posting into a 404, and the anonymous surfaces got
+  a real per-address ceiling keyed on a header the caller cannot forge.
+- **Frontend A- → A+**: it is deployed, it is fast by measurement rather than by
+  hope, and the two axe passes' findings are code.
+- **Backend C+ → B+**: the adapter has answered a live sweep, and the canister has
+  answered a real toolchain — but the toolchain said no, in a way that is fixable
+  by one fold.
+
+### Two records disagree: is the canister half `A-` now?
+
+The other session that edited this tree today graded Backend **A-** in
+`PROJECT-REPORT.md` §4, on "the canister source typechecks in CI … mops check
+green, stable-interface check green", and wrote "the wasm CI builds is uploaded as
+an artifact every run". The runner's own log — `%TEMP%\sf-ci2\0_build.txt`, 24 KB,
+downloaded 19:19, job `build`, commit line `abac926` — says something else, and
+these are its last four lines of substance:
+
+```
+Run mops check
+✗ Stable compatibility check failed for canister 'backend': too many pending
+  migrations for check-limit=1
+  Pending: 20260920_120000.mo, 20260920_130000.mo
+##[error]Process completed with exit code 1.
+```
+
+Nothing after that step ran, so there is no build and no artifact, and no run in
+the project's life has produced a `backend.wasm` from source. Two things are true
+at once and only one of them is a grade: **the workflow works** — it installed the
+pinned toolchain, resolved its declared packages, and caught a chain violation that no
+local gate could ever have seen, which is precisely what it was written to do — and
+**the canister is still not compiled**. `A-` would require the second one. Hence
+`B+` here, and `PROJECT-REPORT.md` §4/§5 corrected to match this log in the same
+commit. What moves it to `A-` is one sentence of Motoko: fold the two pending
+migrations, get a green run, and read the artifact's hash.
+
+### Opened since that pass, and still open
+
+- `password_required_characters` / `sessions_inactivity_timeout`: **read** by the
+  sibling session (null and 0 — no character-class rule, no idle timeout), and
+  unread from here: `GET /v1/projects/<ref>/config/auth` answered **401** again at
+  21:52. The token flaps, so neither session's answer is stable; nothing was
+  PATCHed either way, and #121 stays open as a decision, not a mystery.
+- Credential rotation: DB password, service key, `sbp_` token, Gmail app password,
+  Brevo key, both AI keys. Every one was pasted into a chat at some point.
+- The chain fold that unblocks the first green CI run: `mops` names
+  `src/backend/migrations/20260920_120000.mo` and `20260920_130000.mo` as the two
+  pending migrations and asks for them folded into the later one. Both files are in
+  this repo, so it is a source edit — but no `moc` here can check the result, so it
+  is only *proven* by the next runner. It belongs to whoever wrote that chain, and
+  it is the single change between this tree and a `backend.wasm` built from source.
+- The archive import has now been exercised against live Postgres through the real
+  UI (see `PROJECT-REPORT.md` §1.2) — the last never-executed check on the 09-27
+  list. The backup dump is the only one left in that family.
+
+---
+
+## The 2026-09-27 pass, kept as written
+
+*Two of its headline objections were settled by measurement on 2026-09-28 and one
+more on 2026-09-29: 0002 → 0015 are all applied, so the "shipping this build
+breaks link creation" consequence below no longer holds (the live rule is now a
+10–12-character floor), and `replay-sweep.mjs` has run 19/19. The grades above
+supersede the ones below.*
 
 ## Gates, re-run on this tree
 

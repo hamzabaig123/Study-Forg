@@ -202,7 +202,7 @@ changes, and was verified present line by line rather than assumed.*
 | --- | --- |
 | `pnpm test` | 63 files, **572 tests passed** — re-run on this tree (`a75cc36`), exit 0 |
 | `pnpm typecheck` | 0 errors |
-| `biome check src` (`pnpm check`, and CI's step) | 231 files, **0 errors** — re-run on this tree after the axe batch. The one error this row carried was `SettingsPage.tsx:689`'s `role="group"` div tripping `useSemanticElements`; the theme grid is now a real `<fieldset>` with an `sr-only` `<legend>`, which names the group the same way and satisfies the rule. CI is green on this gate. |
+| `biome check src` (`pnpm check`, and CI's step) | 231 files, **0 errors** — re-run on this tree after the axe batch. The one error this row carried was `SettingsPage.tsx:689`'s `role="group"` div tripping `useSemanticElements`; the theme grid is now a real `<fieldset>` with an `sr-only` `<legend>`, which names the group the same way and satisfies the rule. That is the gate `supabase-ci` runs, so a first run of that workflow is unblocked — no log of one is reachable from this machine, so it is stated as unblocked, not as green. |
 | `pnpm build` | exit 0; entry 940 KiB raw / 289 KiB gzip, Motion chunk still separate |
 | `pnpm security:headers` | 9 headers written into both `vercel.json` files, unchanged from what is committed |
 | `darkMode` in built CSS | `:where(.dark,.dark *)` only — no theme-shaped selector |
@@ -210,7 +210,8 @@ changes, and was verified present line by line rather than assumed.*
 | `supabase/e2e/security-battery.mjs` | **46/46** with the demo account — re-ran today against the live project after 0013/0014/0015 and the three function deploys landed (§3). The six failures recorded in the last draft were exactly those pending deployments; every one of them is now green, including the abuse-report oracle, the 10-character `badCode` floor and the three CORS origin-echo probes. |
 | `node supabase/e2e/replay-sweep.mjs` | **not re-runnable today** — it needs `SUPABASE_DB_URL` or `SUPABASE_SERVICE_ROLE_KEY`, and the Management API token that supplied one of them now answers 401 (§3). Last recorded run: 19/19 on 2026-09-28. |
 | Edge Function harnesses | `harness-117.mjs` **24/24**, `harness-120.mjs` **31/31** — both real sources executed under a stubbed `Deno`, every fetch stubbed, nothing deployed and nothing mailed |
-| Deployed origin, after this tree went out | `/assets/index-Cdp7Ksov.js` and `/assets/index-D6mPcLaL.css` — **the same hashes this session's `pnpm build` just produced**, so the graded tree is the live site. All nine header keys the sync script writes are present, now including the reporting trio: `Report-To: group="csp",max_age=10800,…csp-collector` and `Reporting-Endpoints: csp="…/functions/v1/csp-collector"`, with `report-to csp` as the last directive of the CSP header correctly **absent from the `<meta>`** (a meta cannot carry it). The loop closes at the far end too: `POST` to that collector URL answers **`204`** unauthenticated, so reports are being stored rather than dropped — see §1 and §3. |
+| Deployed origin, after this tree went out | `/assets/index-CL7wi-84.js` and `/assets/index-DgtQf9MX.css` (re-read from the live HTML at the end of this pass) — **the same hashes this tree's `pnpm build` produced**, so the graded tree is the live site. All nine header keys the sync script writes are present, now including the reporting trio: `Report-To: group="csp",max_age=10800,…csp-collector`, `Reporting-Endpoints: csp="…/functions/v1/csp-collector"`, and `report-to csp` as the last directive of the CSP header — correctly **absent from the `<meta>`** (a meta cannot carry it). The loop closes at the far end too, re-verified in this pass: an anonymous `POST` of a well-formed report to that collector URL answers **`204`**, so reports are being stored rather than dropped — see §1 and §3. |
+| GitHub Actions `canister-build` | **has run on `master`, and is red** — the downloaded job log ends `✗ Stable compatibility check failed for canister 'backend': … 2 pending migration(s) but check-limit=1` / `Process completed with exit code 1`. Steps 1–7 (checkout, node, `Install mops`, `Resolve packages`, the empty-actor baseline, `Typecheck`) all executed and `mops check` printed **no type errors** before the stable-compat gate refused; steps `Build` and `Upload wasm` are absent from the log, so **no `backend.wasm` has ever been produced from source**. That is a real gain — the canister is no longer an unexamined binary and the gate now has teeth — and a real gap, and `GRADING-REPORT.md` grades it `B+` on those four lines. |
 | Deployed `access-control-allow-origin: *` | still on the origin, and it is **Vercel's own, not this repo's** — neither `vercel.json` names the header (the nine keys above are all either side writes), so `HARDENING-REPORT.md`'s "drop ACAO from vercel.json" was never about a line we own. It rides on same-origin static GETs that carry no credentials, so it is not the reminder-sender exposure #114 closed; it is a platform default worth knowing we cannot edit from here. |
 | Deployed CSS, after the push | `/assets/index-D6mPcLaL.css` (88.7 KB) carries `.maroon{--background:.9809 .0109 54.4` (= #FFF7F2) and `--primary:.2796 .0857 13.5` (= #4A111C), `.frosted{--primary:.378 .073 168.9` (= #064E3B), `:root{--primary:.56 .185 43` (the #C74100 CTA fix) — and the dead indigo `0.155 0.022 265` is **absent**. |
 
@@ -287,25 +288,29 @@ gap that is not a defect. Below that, something is unproven or unfixed.
 | **Cybersecurity** | **A+** | A+ | The header policy is **served**; the forged-address throttle, TRUNCATE lockdown and every tenant-isolation invariant hold — the battery now runs **46 checks and 46 pass** — the oracle, the 49.6-bit short-code floor, the report throttle and the CORS origin-echo checks all green after the migrations and the three function deploys; and the CSP reporting loop is closed at both ends, the collector answering `204` unauthenticated; and the account-wide `sbp_` token answered **401 on all three endpoints re-probed today** — the other session measured it answer `200` an hour earlier, so the honest reading is *flapping, not revoked*, and rotation stays open (§6) | Two things this machine cannot see, both named rather than assumed: the reminder-sender/ai-proxy **body caps'** deploy state (an 80 KiB probe came back `503` with an empty body — inconclusive, not a pass), and the two GoTrue reads no credential here has ever returned — `password_required_characters` and `sessions_inactivity_timeout` (§6) |
 | **Frontend & UX** | **A+** | A | The performance budget exists and moved the needle: **22 routes lazy, entry 394 → 289 KB gzip, FCP 3.8 → 2.9 s, Speed Index 7.7 → 2.9 s** on Lighthouse's first-ever numbers (68/93/100/100 on the deployed origin); 572 tests green, typecheck clean and **`pnpm check` at 0 errors** — the red gate the last draft carried is gone, closed by the `<fieldset>` swap rather than a suppression; a second axe pass over four pages landed all 63 items (§1.6), leaving no known Critical or Major on the audited surface; the axe defects fixed and the inconclusive pile measured pass; 120 screenshots swept at 1440/390/320; empty, loading and error states captured, and the white-screen gap closed with a themed boot shell | The canister half of the surface cannot run on this machine — the one structural gap left; and the same 63-item audit re-run against the deploy is what would prove the ~45 pseudo-element abstentions are gone |
 | **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; the palettes are **screenshot-compared at 1440, 390 and 320 px across all four themes** on real seeded data (§1); and the card spotlight now builds its overlay only under `:hover`, so the idle page has no pseudo-element for a contrast audit to abstain on, with the entry fade carried by a keyframe the reduced-motion block disables | A real-device look is the only visual surface still untested; the spotlight's fade-*out* is gone with the transition, which is a design call nobody has eyeballed on a deploy |
-| **Backend (canister + adapter)** | **A-** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented — and the canister source **typechecks in CI for the first time in the project's life** (`canister-build` on GitHub Actions: mops check green at moc 1.16.0, stable-interface check green against the empty-actor baseline), with `Text.fromChar` deprecations cleaned | The migration chain has 2 pending migrations against `check-limit=1` — mops demands a fold, which belongs to the chain's author — and a deploy still needs cycles and an identity; the wasm CI builds is uploaded as an artifact every run |
-| **Testing & QA** | **A** | A- | **572 tests across 63 files**, re-run green on this tree, including the motion surface contract, the theme-string pins, the a11y layout suite, the drift guards and — new since that count — the CSP-reporting contract (`sqlSurface` 33, `edgeFunctions` 20) and two out-of-repo harnesses that execute the real Edge Function sources (24 + 31 checks) | The live sweeps are hand-run and one of them is **blocked today for want of a credential** (§2/§3); the new CI workflow has not had a first run — and its `pnpm check` step is green on this tree now, so a first run is unblocked |
-| **Operations & CI** | **B** | C | Push → Vercel → headers and Lighthouse all measured on the deployed origin; `vercel.json` carries the policy; a CI workflow now exists in `.github/` | 0013–0015 went back to "waiting on a human" the day they were written (the applying token is dead); no backup has ever been dumped or restored; the CI workflow has no first run |
+| **Backend (canister + adapter)** | **B+** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented — and the canister source has now been through a real `moc 1.16.0` toolchain for the first time in the project's life (`canister-build` on GitHub Actions installs mops, resolves every declared package, and runs `mops check`, which printed **no type errors**), with `Text.fromChar` deprecations cleaned | The runner's own log ends at `✗ Stable compatibility check failed … 2 pending migration(s) but check-limit=1`, so **the job is red, `mops build` never ran, and no `backend.wasm` has ever been produced from source** — which is why this is `B+` and not the `A-` an earlier draft of this row claimed; `GRADING-REPORT.md` carries the four log lines. Folding `20260920_120000.mo` into `20260920_130000.mo` is the chain author's edit, and a deploy still needs cycles and an identity |
+| **Testing & QA** | **A** | A- | **572 tests across 63 files**, re-run green on this tree, including the motion surface contract, the theme-string pins, the a11y layout suite, the drift guards and — new since that count — the CSP-reporting contract (`sqlSurface` 33, `edgeFunctions` 20) and two out-of-repo harnesses that execute the real Edge Function sources (24 + 31 checks) | The live sweeps are hand-run and one of them is **blocked today for want of a credential** (§2/§3); `canister-build` has run and is red at the chain gate, and `supabase-ci` — whose `pnpm check` step is green on this tree now — has no run log reachable from this machine |
+| **Operations & CI** | **B** | C | Push → Vercel → headers and Lighthouse all measured on the deployed origin; `vercel.json` carries the policy; CI runs on `master` and has already caught a real defect no local gate could see | No backup has ever been dumped or restored; no green CI run yet — the pending-migration fold is what blocks it — and `supabase-ci`/`supabase-backup` have never fired |
 | **Whole product** | **A** | A- | Everything above, and the two things that held it under `A` this morning are gone: the account-wide token is dead by measurement, and the migration that broke a shipped feature is applied | Three hardening migrations and two edge-function deploys, one credential-rotation session, and one backup drill — all human actions, none a code defect |
 
 ## 5. Overall
 
-**A — ~9.1/10.** The five core areas (Frontend 9.5, Backend 8, Database 10,
-Authentication 9, Cybersecurity 9) mean 9.1, and the battery that guards all of
+**A — ~9.0/10.** The five core areas (Frontend 9.5, Backend 7.5, Database 10,
+Authentication 9, Cybersecurity 9) mean 9.0, and the battery that guards all of
 it answers **46/46** — the oracle, the short-code floor, the report throttle,
 every tenant-isolation and lockout invariant, and the CORS origin-echo checks,
 all green against the live project. The auth-config Unknowns are settled too:
 `password_required_characters` is null (no character-class rule — a recorded
 product choice, not an oversight), `sessions_inactivity_timeout` is 0, the
-app leans on refresh-token rotation. What stands between this and `A++`
-everywhere: the canister has never been *deployed* with cycles (its source now
-typechecks in CI, and its migration chain needs a fold its author owns), one
-credential-rotation session for the chat-exposed keys, and one backup →
-restore drill. None is a defect; all three are sessions.
+app leans on refresh-token rotation — read by one session's token, which
+answered **401** for the same call an hour later, so treat the values as
+measured-elsewhere and re-checkable, not as this machine's own. What stands
+between this and `A++` everywhere: the canister has never been *built* or
+*deployed* from source in a runner that passed (`mops check` reaches the chain
+gate and refuses it — its log is in `GRADING-REPORT.md`, and the fold is the
+one edit between here and a first `backend.wasm`), one credential-rotation
+session for the chat-exposed keys, and one backup → restore drill. None is a
+defect; all three are sessions.
 
 ## 6. Your moves, in order
 
@@ -315,19 +320,18 @@ restore drill. None is a defect; all three are sessions.
    live, table present), `reminder-sender` / `ai-proxy` / `csp-collector`
    deployed via the CLI's `--use-api` route (collector with
    `--no-verify-jwt`), battery **46/46** (§3).
-2. **Two live auth-config PATCHes, once a credential exists** — the last item of
-   the hardening table, and the only one that cannot even be *read* from here
-   today. `password_min_length` is **10 and measured** (`HARDENING-REPORT.md`
-   §2.4: a 6-character signup answers `422 weak_password / ["length"]`), but
-   what that floor does *not* yet prove is `password_required_characters` —
-   nothing in this project has ever read that field, so whether `aaaaaaaaaa`
-   passes is genuinely Unknown rather than a gap being asserted. Same for
-   `sessions_inactivity_timeout`. Both are
-   `PATCH /v1/projects/<ref>/config/auth`, one field per call, because that
-   endpoint rolls a whole body back on a single rejected key. They are blocked
-   by the same 401 as everything else in §3 — a dashboard read answers the
-   first question and a dashboard paste answers both, and no code change is
-   involved either way.
+2. **Two live auth-config PATCHes, once a credential holds** — the last item of
+   the hardening table. `password_min_length` is **10 and measured**
+   (`HARDENING-REPORT.md` §2.4: a 6-character signup answers `422 weak_password /
+   ["length"]`). The two fields this row used to call unread are now **read**:
+   `password_required_characters` is null and `sessions_inactivity_timeout` is 0,
+   from one session's `GET /config/auth` — the identical call answered **401**
+   from the other session an hour later, so the values are recorded, not
+   reproducible on demand. Reading settled the *question*; it did not settle the
+   *choice* — if `aaaaaaaaaa` should not pass, or an idle tab should sign itself
+   out, both are `PATCH /v1/projects/<ref>/config/auth`, one field per call,
+   because that endpoint rolls a whole body back on a single rejected key. A
+   dashboard paste is the only thing missing; no code change is involved.
 3. **Rotate the remaining credentials**: Gmail app password, Brevo/Resend key,
    database password, service key, both AI provider keys. The `sbp_` token
    looks done — it answers 401 consistently, consistent with revocation;
