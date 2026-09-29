@@ -134,7 +134,7 @@ export function ProgressHero({
                   {streakDays}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                  best {bestStreakDays} · {attemptsToday}{" "}
+                  Best streak {bestStreakDays} · {attemptsToday}{" "}
                   {attemptsToday === 1 ? "test today" : "tests today"}
                 </p>
               </div>

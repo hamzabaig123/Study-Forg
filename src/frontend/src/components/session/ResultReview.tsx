@@ -23,13 +23,17 @@ const TYPE_LABELS: Record<QuestionType, string> = {
 /** Human-readable rendering of a stored answer payload. */
 function describeAnswer(
   answer: AnswerData | SubmittedAnswer | undefined,
+  /** The question's own option list, for turning a submitted option id into
+      its printed text — the submitted payload carries only the id. */
+  optionTextById?: Map<string, string>,
 ): string | null {
   if (!answer) return null;
   switch (answer.__kind__) {
     case "multipleChoice": {
       const payload = answer.multipleChoice;
       if ("optionId" in payload) {
-        return `Option ${payload.optionId.toString()}`;
+        const text = optionTextById?.get(payload.optionId.toString());
+        return text ?? `Option ${payload.optionId.toString()}`;
       }
       const correct = payload.options.find(
         (option) => option.id === payload.correctOptionId,
@@ -65,7 +69,20 @@ export function ResultReview({ results, marker }: ResultReviewProps) {
   return (
     <ol data-ocid={`${marker}.review_list`} className="stagger grid gap-3">
       {results.map((result, index) => {
-        const submitted = describeAnswer(result.submitted);
+        // The correct-answer payload carries the question's options; the
+        // submitted payload only names one by id. Sharing that list is what
+        // turns "Option 2" into the text the user actually chose — option ids
+        // are the same on both sides, however the options were shuffled.
+        const options =
+          result.correctAnswer.__kind__ === "multipleChoice"
+            ? result.correctAnswer.multipleChoice.options
+            : undefined;
+        const optionTextById = options
+          ? new Map(
+              options.map((option) => [option.id.toString(), option.text]),
+            )
+          : undefined;
+        const submitted = describeAnswer(result.submitted, optionTextById);
         const correctAnswer = describeAnswer(result.correctAnswer);
         const Icon = result.correct ? Check : X;
 

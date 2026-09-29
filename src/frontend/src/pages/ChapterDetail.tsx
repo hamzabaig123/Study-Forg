@@ -15,6 +15,7 @@ import {
   useCreateTopic,
   useDeleteTopic,
   useRenameTopic,
+  useSubject,
   useTopics,
 } from "@/hooks/useContent";
 import type { TopicSummary } from "@/types";
@@ -32,6 +33,8 @@ export default function ChapterDetail() {
   const createTopic = useCreateTopic();
   const renameTopic = useRenameTopic();
   const deleteTopic = useDeleteTopic();
+  // The chapter record carries only the subject id; the crumb wants the name.
+  const subjectQuery = useSubject(chapterQuery.data?.chapter.subjectId ?? null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<TopicSummary | null>(null);
@@ -110,7 +113,10 @@ export default function ChapterDetail() {
       <Breadcrumbs
         items={[
           { label: "Classes", to: "/classes" },
-          { label: "Subject", to: `/subjects/${chapter.subjectId.toString()}` },
+          {
+            label: subjectQuery.data?.subject.name ?? "Subject",
+            to: `/subjects/${chapter.subjectId.toString()}`,
+          },
           { label: chapter.name },
         ]}
       />

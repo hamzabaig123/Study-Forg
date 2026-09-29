@@ -24,3 +24,4 @@ e2e/package-lock.json
 # --reporter=jsonoutfile, and an empty one used to sit tracked in the repo.
 vitest-results.json
 supabase/.temp/
+gui-test-screenshots/

@@ -52,7 +52,7 @@ export function StatCard({
             {value}
           </p>
           {hint ? (
-            <p className="mt-2 truncate text-xs text-muted-foreground">
+            <p className="mt-2 text-xs leading-snug text-muted-foreground">
               {hint}
             </p>
           ) : null}

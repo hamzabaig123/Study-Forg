@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   useChapters,
+  useClass,
   useCreateChapter,
   useDeleteChapter,
   useRenameChapter,
@@ -32,6 +33,8 @@ export default function SubjectDetail() {
   const createChapter = useCreateChapter();
   const renameChapter = useRenameChapter();
   const deleteChapter = useDeleteChapter();
+  // The subject record carries only the class id; the crumb wants the name.
+  const classQuery = useClass(subjectQuery.data?.subject.classId ?? null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ChapterSummary | null>(null);
@@ -112,7 +115,10 @@ export default function SubjectDetail() {
       <Breadcrumbs
         items={[
           { label: "Classes", to: "/classes" },
-          { label: "Class", to: `/classes/${subject.classId.toString()}` },
+          {
+            label: classQuery.data?.class.name ?? "Class",
+            to: `/classes/${subject.classId.toString()}`,
+          },
           { label: subject.name },
         ]}
       />
