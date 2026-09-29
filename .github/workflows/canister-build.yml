@@ -34,6 +34,17 @@ jobs:
       - name: Resolve packages
         run: mops install
 
+      # mops check's stable-interface step compares the new interface against a
+      # previous .most snapshot at .old/src/backend/dist/ — the caffeine
+      # platform provides that file at build time, so CI replicates it from the
+      # committed interface: the check then answers "would this upgrade break
+      # stable variables against what is deployed?", which is the only version
+      # of the question worth asking.
+      - name: Provide the committed interface as the stable baseline
+        run: |
+          mkdir -p .old/src/backend/dist
+          cp src/backend/dist/backend.most .old/src/backend/dist/backend.most
+
       - name: Typecheck
         run: mops check
 

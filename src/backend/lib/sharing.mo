@@ -34,7 +34,7 @@ module {
     var i = 0;
     while (i < tokenLength) {
       let index = await Random.natRange(0, alphabet.size());
-      token := token # Text.fromChar(alphabet[index]);
+      token := token # Char.toText(alphabet[index]);
       i += 1;
     };
     token;

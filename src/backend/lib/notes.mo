@@ -48,7 +48,7 @@ module {
     var i = 0;
     while (i < tokenLength) {
       let index = await Random.natRange(0, alphabet.size());
-      token := token # Text.fromChar(alphabet[index]);
+      token := token # Char.toText(alphabet[index]);
       i += 1;
     };
     token;
@@ -493,7 +493,7 @@ module {
         case ('\n') { out := out # "\\n" };
         case ('\r') { out := out # "\\r" };
         case ('\t') { out := out # "\\t" };
-        case (_) { out := out # Text.fromChar(c) };
+        case (_) { out := out # Char.toText(c) };
       };
     };
     out;
