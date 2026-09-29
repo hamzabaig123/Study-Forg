@@ -20,7 +20,11 @@ the localStorage archive the app used when there was no server.
 `migrations/0011_trusted_client_address.sql` | Re-declares `enforce_rate_limit` so a window is keyed on the address the edge vouches for — `cf-connecting-ip`, which Cloudflare writes and refuses to pass through from a client — instead of the leftmost `x-forwarded-for` element, which the caller writes. The old key was measured live: 25 `create_link` calls carrying 25 invented addresses produced 25 accepted requests and 25 separate limiter rows, i.e. every public throttle was decorative. Falls back to the proxy-appended last `x-forwarded-for` element, then `x-real-ip`, then `unknown`. The file also takes back `TRUNCATE`, `TRIGGER` and (on 17 and up) `MAINTAIN` from `anon` and `authenticated` on every public table and from the `postgres` default privileges, because RLS does not apply to TRUNCATE and a signed-in account could otherwise wipe a table another account's rows live in. `REFERENCES` is deliberately left alone — the client roles' own FK inserts need it. **Applied 2026-09-28.** Measured after: the same forged-address burst is answered `20 accepted / 5 limited` with one limiter row keyed on the real address, and the battery's `shared_content` probe still trips at 121 on the honest path.
 `migrations/0012_maroon_appearance.sql` | Widens the `user_settings.appearance` CHECK from three values to four so the fourth theme (Maroon Forge) can sync to an account. The client already stores `maroon` device-locally and the adapter validates it; without this the row is refused on insert and the preference never follows the account. No table is created, no row is rewritten, and the three existing values keep working — dropping and re-adding the same constraint is what makes a second run a no-op. **Applied 2026-09-29.** Read back over the Management API: the constraint is `CHECK (appearance = ANY (ARRAY['light','dark','frosted','maroon']))` with `convalidated = true`.
 `functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by its `CRON_SECRET` bearer or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. It reads its body under a 16 KiB streaming cap, compares the tick bearer without a timing signal, and caps each account at five "send one now" presses an hour from the log those presses already write. Deploying it is three commands and a secret — see its file header — and the full setup, including the Resend sender restriction and the optional tick, is in [The reminder pipeline](#the-reminder-pipeline) below. On the mock backend the digest is a browser notification instead.
-`verify.sql` | Fourteen read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter, and 14 the client-address and privilege invariants `0011` promises: the limiter reads `cf-connecting-ip`, never the caller-written leftmost `x-forwarded-for` element, and no client role holds TRUNCATE/TRIGGER/MAINTAIN on any public table or in the stored default privileges
+`migrations/0013_abuse_report_throttle_and_oracle.sql` | Two fixes to the public abuse report. `report_link_abuse` had no throttle, so an anonymous caller could post as fast as a page reloaded; it now calls `enforce_rate_limit` on the 0011 key and answers a refused window the way the other public RPCs do. Its reply also separated a real short code from a guessed one — the `notFound` variant — which made a form meant for reports into an enumeration oracle over every issued link; every refused code now gets the identical body. A row is still filed only for a code that exists, so the table holds reports rather than probes. **Written, not yet applied.**
+`migrations/0014_short_code_floor.sql` | Raises the effective `link.code` CHECK from `{7,12}` to `{10,12}` so a printed URL cannot be addressed by a ~35-bit code, and re-declares `create_link` to validate the widened range. Follows 0003 (whose pair it replaces) and 0004 (whose `create_link` is the newest declaration until this one). It **counts before it alters**: any live code shorter than ten characters makes the file raise and name them, because quietly invalidating somebody's printed QR is not a repair. **Written, not yet applied.**
+`migrations/0015_csp_violation_reports.sql` | The sink for CSP violation reports: one `csp_violation` row per distinct `(directive, blocked_host, route, disposition)`, with `hits` counting arrivals, plus `record_csp_violations(jsonb)` — `security definer`, `service_role` only, no policies on the table at all, so nothing a client holds can read it. Three things it is on purpose: **aggregate** (a page reload must not add a row), **anonysed** (no `user_agent`, no full blocked URL, no copy of the policy; a route is stored with its capability segment replaced), and **bounded** (field-length CHECKs, a 5 000-tuple ceiling after which only known keys still count, and the limiter's 30 batches a minute). Ends with the revokes and `notify pgrst, 'reload schema'`. **Written, not yet applied** — see [Reading the violation table](#reading-the-violation-table).
+`functions/csp-collector/` | Where the shipped policy's `report-to` points. Deliberately unauthenticated, because a violation is reported by whoever meets it — including a signed-out visitor on `/r/:code` — so its defence is the table's bounds, not a session: a 32 KiB streaming body cap, twenty reports per batch, 512 characters per field, a whitelist of forwarded fields, and a `204` that says nothing about what happened. Deployed with `--no-verify-jwt` (the browser sends no credential, so with the platform check on the gateway 401s every report). Origins answer from `APP_ORIGINS` or the same four defaults; a foreign `Origin` is refused before the body is read
+`verify.sql` | Sixteen read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter, 14 the client-address and privilege invariants `0011` promises: the limiter reads `cf-connecting-ip`, never the caller-written leftmost `x-forwarded-for` element, and no client role holds TRUNCATE/TRIGGER/MAINTAIN on any public table or in the stored default privileges, 15 the abuse-report invariants `0013` promises, and 16 the violation-table invariants `0015` promises. Checks 1 and 2 count **23** tables once 0015 is applied, and 3 excludes `csp_violation` alongside the other three write-through-a-definer tables. Item 16 wraps every privilege test in a `CASE` over `to_regclass`/`to_regfunction`, because `has_*_privilege` raises rather than answering false for a name that resolves to nothing and CI runs this file with `ON_ERROR_STOP` — a project without 0015 reads `f`, not an error page
 `email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
 `tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the later migrations are pasted by hand until a runner that knows about all of them exists
@@ -139,7 +143,11 @@ zip does not). `tests/rls_cross_tenant.sql` has still never been run through
    file's `{7,12}` pair) and 0004 (whose `create_link` is the newest declaration
    until this one). It **counts before it alters**: if any live `link.code` is
    shorter than ten characters the file raises and names them, because silently
-   taking away somebody's printed URL is not a repair.
+   taking away somebody's printed URL is not a repair. Then
+   `migrations/0015_csp_violation_reports.sql`, which is additive — one new table,
+   one new function, no object another file declares — so its position only
+   matters in that it must precede the `csp-collector` deploy and the rebuild
+   that stamps `report-to` into the shipped headers.
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
@@ -236,6 +244,65 @@ The function decides who is due (`due_reminders()` from 0006 compares each
 account's local send time), so the tick can safely run every 10 minutes in UTC.
 Confirm afterwards with `select * from cron.job`, and remove it again with
 `select cron.unschedule('studyforge-reminder-tick')`.
+
+## Reading the violation table
+
+`csp_violation` is the only table in this schema that describes other people's
+browsing, so it is worth being exact about what it can and cannot tell you.
+
+Three things have to be true before a single row arrives, and a gap in any of
+them looks identical to "the policy blocks nothing":
+
+1. `migrations/0015_csp_violation_reports.sql` applied — without it the RPC the
+   collector calls 404s, and the collector answers `204` anyway.
+2. `functions/csp-collector` deployed **with `--no-verify-jwt`** — a browser's
+   report carries no credential at all, so the platform's default JWT check makes
+   the gateway answer 401 before the function ever sees the request.
+3. A build whose `VITE_SUPABASE_URL` names the project you are reading, shipped
+   with the reporting headers: `pnpm build && pnpm security:headers`, then
+   `curl -I https://<origin>/` and look for `report-to csp`,
+   `Reporting-Endpoints: csp="…"` and a `Content-Security-Policy` ending
+   `; report-to csp`. A `<meta>` policy carries none of the three, which is why
+   the header set is the half that reports.
+
+Then:
+
+```sql
+select directive, blocked_host, route, hits, last_seen
+  from csp_violation
+ order by last_seen desc
+ limit 50;
+```
+
+Read `hits` as **arrivals**, not as affected people: one reload of one page can
+send several reports, and one broken deploy can send thousands a minute up to the
+limiter's 30 batches. The table has no visitor, account, session or IP column —
+the `(directive, blocked_host, route, disposition)` tuple is the whole identity
+of a row by design, and `route` keeps at most two path segments with `/r/…`,
+`/manage/…` and `/shared/…` collapsed to `/r/(id)` and friends, so a row says
+*which kind of page* broke, not *whose document* it was showing.
+
+What each part is good for:
+
+- A `script-src` or `connect-src` row naming a host the policy no longer allows
+  is the actual signal — a CDN that left the allowlist, or a project URL that
+  moved between the build and `vercel.json`.
+- `(none)` in `blocked_host` means the report carried no blocked address (a
+  `frame-ancestors` refusal, an inline-script refusal). It is normal, not a
+  parsing bug.
+- Nothing deduplicates across deployments: a tab still running an old build keeps
+  posting to whichever collector that build named.
+
+To clear it after working through a finding — the table is not PII, but it is
+traffic patterns on a shared deployment, so an occasional reset is reasonable:
+
+```sql
+delete from csp_violation;   -- as postgres, in the SQL editor
+```
+
+A client cannot run that statement, or a `select`: the table has no policies and
+execute on `record_csp_violations(jsonb)` belongs to `service_role` alone, which
+is what `verify.sql` item 16 checks.
 
 ## Gmail as the auth mailer (custom SMTP)
 
@@ -586,6 +653,16 @@ secret and the `reminder-sender` redeploy — went through the Management API on
   a real code gets and files a row for only the real one. (That last pair is what
   0013 changes; the run recorded below was made against 0012, where the RPC still
   returned `notFound`.)
+- **0013, 0014 and 0015 are written and not applied**, and
+  `functions/csp-collector` is written and not deployed. Nothing in this folder
+  claims otherwise: the throttle and the existence-oracle fix (#15), the ten-
+  character code floor (#16), the violation table (#16) and the collector itself
+  are all inert until they run on the project and the two changed functions are
+  redeployed. Read the live state before believing any of it —
+  `select count(*) from information_schema.tables where table_schema='public'`
+  answers **22** today and 23 once 0015 has run, and
+  `supabase/e2e/security-battery.mjs` is the fastest way to see which fixes are
+  actually on the wire.
 - The app writes real rows: `POST /rest/v1/class` and `/rest/v1/activity` both
   return 201 with `owner_id` set to the signed-in `auth.uid()`, and
   `dashboard_stats`, `class_rows` and `attempt_history` answer 200, so the

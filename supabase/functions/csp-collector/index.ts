@@ -9,7 +9,14 @@
 // `csp_violation` that the owner can read in the SQL editor.
 //
 // Deploy (needs the Supabase CLI, run from the repo root):
-//   supabase functions deploy csp-collector --project-ref <ref>
+//   supabase functions deploy csp-collector --project-ref <ref> --no-verify-jwt
+//   `--no-verify-jwt` is not a shortcut here: the browser's report POST carries no
+//   Authorization header at all — the Reporting API sends a CORS-safelisted
+//   request with no credentials — so with the platform's JWT check left on, the
+//   gateway answers 401 before this handler runs and every real violation is lost
+//   while the table still reads as "nothing is blocked". The other two functions
+//   are deployed the same way and verify the caller themselves; this one has no
+//   caller to verify, which is why its bounds live in migration 0015 instead.
 //   migration 0015_csp_violation_reports.sql must be applied first — without it
 //   the RPC below 404s and every report is dropped, which looks identical to a
 //   policy that blocks nothing.

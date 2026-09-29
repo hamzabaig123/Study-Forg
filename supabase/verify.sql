@@ -11,26 +11,27 @@
 -- Number 11 is about 0006_reminders.sql. Number 12 is about
 -- 0008_helper_function_lockdown.sql, the lockdown of the reminder helpers and
 -- the rate limiter that 0006's own blanket grant undid. Number 13 is about
--- 0009_push_subscriptions.sql and number 14 about
--- 0011_trusted_client_address.sql.
+-- 0009_push_subscriptions.sql, number 14 about
+-- 0011_trusted_client_address.sql, number 15 about 0013_abuse_report_throttle.sql
+-- and number 16 about 0015_csp_violation_reports.sql.
 --
 -- Run every number, not just the ones with a script behind them: item 11 carried
 -- a `column reference "attnum" is ambiguous` parse error from the day it was
 -- written, which hid two of its six assertions. A check nobody executes is not
 -- a check.
 
--- 1. Every table the app needs exists. Expected: 22 rows once 0001–0009 are all
+-- 1. Every table the app needs exists. Expected: 23 rows once 0001–0015 are all
 --    applied — 18 from 0001, minus the ai_draft 0005 drops, plus rate_limit and
 --    custom_session from 0002, plus reminder_settings and reminder_log from 0006,
---    plus push_subscriptions from 0009.
+--    plus push_subscriptions from 0009, plus csp_violation from 0015.
 --    (17 owner tables + abuse_report + rate_limit + custom_session + the two
---    reminder tables + the one push table.)
+--    reminder tables + the one push table + the one violation table.)
 select table_name
   from information_schema.tables
  where table_schema = 'public'
  order by 1;
 
--- 2. RLS is on and enforced for the owner. Expected: the same 22 rows, both
+-- 2. RLS is on and enforced for the owner. Expected: the same 23 rows, both
 --    columns true.
 --    FORCE is what protects the owner's own writes: without it a row inserted by
 --    the table owner (postgres, the SQL editor) skips every policy.
@@ -38,7 +39,7 @@ select table_name
 --    role reaches a row directly, and report_link_abuse still writes through its
 --    definer function. (A missing row here means abuse_report reads are open to
 --    every signed-in user -- see migration step "deny-by-default for the report
---    table".)
+--    table".) csp_violation is the same shape for the same reason — item 16.
 select c.relname, c.relrowsecurity, c.relforcerowsecurity
   from pg_class c
   join pg_namespace n on n.oid = c.relnamespace
@@ -52,13 +53,15 @@ select c.relname, c.relrowsecurity, c.relforcerowsecurity
 --    check from 0006 onward: it carries the same four per-command policies as
 --    the owner tables. reminder_log is excluded on purpose — it is read-only for
 --    its owner and writable only by the delivery function, so a client can never
---    claim a send it did not make.
+--    claim a send it did not make. csp_violation is excluded on the same grounds:
+--    it has no policies at all, and only the delivery function's definer half
+--    writes it.
 with required(role) as (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'))
 select t.tablename, r.role
   from pg_tables t
  cross join required r
  where t.schemaname = 'public'
-   and t.tablename not in ('abuse_report', 'rate_limit', 'reminder_log')
+   and t.tablename not in ('abuse_report', 'rate_limit', 'reminder_log', 'csp_violation')
    and not exists (
      select 1 from pg_policies p
       where p.schemaname = 'public'
@@ -358,5 +361,82 @@ select invariant, ok
                  and pg_get_functiondef(p.oid) like '%insert into abuse_report%')),
     ('and the report form is still reachable without signing in',
       has_function_privilege('anon', 'report_link_abuse(text, text)', 'EXECUTE'))
+  ) as checks(invariant, ok)
+ order by 1;
+
+-- 16. The CSP-violation invariants 0015 promises. This table is the one place in
+--     the schema that holds data about *other people's* browsing, written by a
+--     function with no session behind it, so the two things worth checking are
+--     that no client can read it and that the caller cannot make it grow without
+--     bound. Read every row as `t`. The two that matter most are "no client role
+--     holds any table privilege on it" and "only the delivery function executes
+--     the writer": an `f` there means a signed-in visitor can enumerate which
+--     pages break on other people's browsers.
+--
+--     Every privilege test is wrapped in a CASE over `to_regclass`/
+--     `to_regfunction`, because `has_*_privilege` with a name that resolves to
+--     nothing does not answer false — it raises, and CI runs this file with
+--     ON_ERROR_STOP. A project that has not applied 0015 yet therefore reports
+--     `f (0015 not applied)` and keeps checking, which is the honest answer and
+--     not an error page.
+select invariant, ok
+  from (values
+    ('the violation table is a table, and RLS is forced on it',
+      exists (select 1 from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+               where n.nspname = 'public' and c.relkind = 'r'
+                 and c.relname = 'csp_violation'
+                 and c.relrowsecurity and c.relforcerowsecurity)),
+    ('it has no policies, so no role can read or write it directly',
+      (select count(*) from pg_policies
+        where schemaname = 'public' and tablename = 'csp_violation') = 0),
+    ('no client role holds any table privilege on it',
+      case when to_regclass('public.csp_violation') is null then false
+           else not exists (select 1
+                   from unnest(array['anon', 'authenticated']) as client_role(name)
+                  where has_table_privilege(client_role.name, 'public.csp_violation', 'SELECT')
+                     or has_table_privilege(client_role.name, 'public.csp_violation', 'INSERT')
+                     or has_table_privilege(client_role.name, 'public.csp_violation', 'UPDATE')
+                     or has_table_privilege(client_role.name, 'public.csp_violation', 'DELETE'))
+      end),
+    ('only the delivery function executes the writer',
+      case when to_regfunction('public.record_csp_violations(jsonb)') is null then false
+           else has_function_privilege('service_role', 'record_csp_violations(jsonb)', 'EXECUTE')
+                and not has_function_privilege('anon', 'record_csp_violations(jsonb)', 'EXECUTE')
+                and not has_function_privilege('authenticated', 'record_csp_violations(jsonb)', 'EXECUTE')
+      end),
+    ('the writer is a definer with a pinned search_path',
+      exists (select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public'
+                 and p.proname = 'record_csp_violations'
+                 and p.prosecdef
+                 and exists (select 1 from unnest(p.proconfig) as cfg(x)
+                              where cfg.x like 'search_path=%'))),
+    ('it counts through the durable limiter rather than its own memory',
+      exists (select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public'
+                 and p.proname = 'record_csp_violations'
+                 and pg_get_functiondef(p.oid) like '%enforce_rate_limit%')),
+    ('one row per violation, so a reload adds a count not a row',
+      exists (select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public'
+                 and p.proname = 'record_csp_violations'
+                 and pg_get_functiondef(p.oid) like '%on conflict%do update%')),
+    ('the columns are bounded, so a batch cannot arrive with a policy inside it',
+      exists (select 1 from pg_constraint
+               where conname = 'csp_violation_fields_bounded'
+                 and pg_get_constraintdef(oid) like '%char_length(directive)%'
+                 and pg_get_constraintdef(oid) like '%char_length(blocked_host)%'
+                 and pg_get_constraintdef(oid) like '%char_length(route)%'
+                 and pg_get_constraintdef(oid) like '%char_length(disposition)%')),
+    ('a route is stored as a path shape, never as a full document address',
+      exists (select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public'
+                 and p.proname = 'record_csp_violations'
+                 and pg_get_functiondef(p.oid) like '%r|manage|shared%'))
   ) as checks(invariant, ok)
  order by 1;

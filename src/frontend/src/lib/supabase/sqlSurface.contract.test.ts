@@ -452,7 +452,10 @@ describe("abuse report contract", () => {
   const body = abuseBody(code(sql));
 
   it("has an abuse declaration to read at all", () => {
-    expect(body, "no $$-delimited report_link_abuse in any migration").not.toBeNull();
+    expect(
+      body,
+      "no $$-delimited report_link_abuse in any migration",
+    ).not.toBeNull();
   });
 
   it("gives a caller no reply that distinguishes an issued code from a guess", () => {
@@ -516,13 +519,20 @@ describe("csp violation contract", () => {
   )?.[0];
 
   it("has a violation declaration to read at all", () => {
-    expect(body, "no $$-delimited record_csp_violations in any migration").not.toBeNull();
+    expect(
+      body,
+      "no $$-delimited record_csp_violations in any migration",
+    ).not.toBeNull();
   });
 
   it("is executable by the delivery function and by nobody else", () => {
     // The 0006 mistake restated: a helper that only a service caller should use,
     // handed to `authenticated` by a blanket grant, becomes a public endpoint.
-    const grants = [...code(sql).matchAll(/on function record_csp_violations\(jsonb\)\s+to\s+([a-z_,\s]+)/gi)]
+    const grants = [
+      ...code(sql).matchAll(
+        /on function record_csp_violations\(jsonb\)\s+to\s+([a-z_,\s]+)/gi,
+      ),
+    ]
       .flatMap((match) => (match[1] ?? "").split(","))
       .map((role) => role.trim())
       .filter((role) => role !== "");

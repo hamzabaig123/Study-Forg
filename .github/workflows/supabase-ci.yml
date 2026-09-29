@@ -115,13 +115,18 @@ jobs:
           version: latest
 
       - name: Deploy Edge Functions to staging
-        # Both, because the reminder path is the one that holds the cross-account
-        # helpers: a staging project that cannot deploy it cannot rehearse the
-        # production change. `--no-verify-jwt` because each function does its own
-        # bearer check (a pg_cron tick presents CRON_SECRET, not a user JWT).
+        # All three, because the reminder path is the one that holds the
+        # cross-account helpers: a staging project that cannot deploy it cannot
+        # rehearse the production change. `--no-verify-jwt` for the first two
+        # because each does its own bearer check (a pg_cron tick presents
+        # CRON_SECRET, not a user JWT), and for the third because a browser's CSP
+        # report carries no credential of any kind — with the platform check on,
+        # the gateway 401s the report before the function ever sees it, and the
+        # violation table stays empty in a way that looks like a clean policy.
         run: |
           supabase functions deploy ai-proxy --project-ref "$PROJECT_REF" --no-verify-jwt
           supabase functions deploy reminder-sender --project-ref "$PROJECT_REF" --no-verify-jwt
+          supabase functions deploy csp-collector --project-ref "$PROJECT_REF" --no-verify-jwt
 
   replay-sweep:
     needs: migration

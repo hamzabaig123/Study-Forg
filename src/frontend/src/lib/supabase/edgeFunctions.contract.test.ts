@@ -1,5 +1,5 @@
 /**
- * The drift guard for the two Edge Functions.
+ * The drift guard for the three Edge Functions.
  *
  * `supabase/functions/` is Deno, outside every frontend gate: nothing in
  * `pnpm test` reads it, and this machine has no Deno, so a regression there is
@@ -29,6 +29,34 @@ function source(name: string): string {
 
 const proxy = source("ai-proxy");
 const sender = source("reminder-sender");
+const collector = source("csp-collector");
+
+/**
+ * The report fields the collector is allowed to forward.
+ *
+ * A CSP report also carries `user_agent` (a fingerprint), `originalPolicy` (a
+ * copy of a policy this repository already has), `referrer` and `sampleSize`, and
+ * the full blocked/document URLs whose paths are somebody's study pages. The
+ * whitelist is asserted as a list rather than as "no forbidden name appears",
+ * because the second kind of guard passes on a field nobody thought to forbid.
+ */
+const FORWARDED_REPORT_FIELDS = [
+  "effectiveDirective",
+  "violatedDirective",
+  "blockedURL",
+  "originalURL",
+  "url",
+  "documentURL",
+  "disposition",
+];
+
+/** The string literal list inside `toForwarded`. */
+function forwardedFieldList(text: string): string[] {
+  const list = /for \(const field of \[([\s\S]*?)\]\)/.exec(text)?.[1] ?? "";
+  // `_` is in the class because the fields a leak would use — `user_agent`,
+  // `original_policy` — are the snake_case ones the Reporting API itself names.
+  return [...list.matchAll(/"([A-Za-z_]+)"/g)].map((match) => match[1] ?? "");
+}
 
 /**
  * Every shape this file cares about, as a predicate. Each takes a source string
@@ -66,6 +94,31 @@ const rules = {
     /if \(!isCron && !wantsDaily\)/.test(text),
   wildcardCors: (text: string) =>
     /"Access-Control-Allow-Origin":\s*"\*"/.test(text),
+  /** The batch is truncated, so one caller cannot make 20 000 rows in a minute. */
+  capsTheBatch: (text: string) =>
+    /reports\.slice\(0, MAX_REPORTS_PER_BATCH\)/.test(text),
+  /** Every forwarded string is clamped before it leaves the isolate. */
+  clampsEachField: (text: string) =>
+    /value\.slice\(0, MAX_FIELD_CHARS\)/.test(text),
+  /**
+   * The RPC's outcome never moves the status.
+   *
+   * A forged batch that learns "that one was dropped by the ceiling" has learned
+   * the shape of the table, which is the thing the endpoint has no reason to
+   * hand out. So the reply is `204` whether the RPC answered 200, 404 (0015 not
+   * applied) or threw.
+   */
+  replyNeverReflectsTheUpstream: (text: string) =>
+    /status: 204/.test(text) && !/status: res\.status/.test(text),
+  /**
+   * No inbound content-type gate.
+   *
+   * The Reporting API posts a CORS-safelisted `text/plain` body, so a function
+   * that demanded `application/json` would reject every real violation and the
+   * owner would read an empty table.
+   */
+  refusesNoContentType: (text: string) =>
+    !/headers\.get\(\s*"content-type"\s*\)/.test(text),
 };
 
 describe("ai-proxy request cap", () => {
@@ -156,11 +209,84 @@ describe("reminder-sender request handling", () => {
   });
 });
 
-describe("both functions on the wire", () => {
+describe("csp-collector reporting surface", () => {
+  it("forwards exactly the fields worth recording", () => {
+    expect(forwardedFieldList(collector)).toEqual(FORWARDED_REPORT_FIELDS);
+    // The control: a field added to the whitelist has to be caught by this test,
+    // not by whoever notices a fingerprint column later.
+    const leaked = collector.replace(
+      '"documentURL",',
+      '"documentURL", "user_agent",',
+    );
+    expect(leaked).not.toBe(collector);
+    expect(forwardedFieldList(leaked)).toContain("user_agent");
+  });
+
+  it("bounds the batch and every string in it", () => {
+    expect(rules.capsTheBatch(collector)).toBe(true);
+    expect(rules.clampsEachField(collector)).toBe(true);
+    const unclamped = collector.replace(
+      /value\.slice\(0, MAX_FIELD_CHARS\)/,
+      "value",
+    );
+    expect(rules.clampsEachField(unclamped)).toBe(false);
+  });
+
+  it("caps the body while reading it", () => {
+    expect(rules.streamingBodyCap(collector)).toBe(true);
+  });
+
+  it("refuses a foreign origin before it reads the body", () => {
+    expect(
+      collector.indexOf("!allowedOrigins().has(origin)"),
+    ).toBeGreaterThanOrEqual(0);
+    expect(collector.indexOf("!allowedOrigins().has(origin)")).toBeLessThan(
+      collector.indexOf("await readCappedText(request)"),
+    );
+  });
+
+  it("says nothing about what it did with the reports", () => {
+    expect(rules.replyNeverReflectsTheUpstream(collector)).toBe(true);
+    const honest = collector.replace(
+      /return new Response\(null, \{ status: 204, headers: cors \}\);/,
+      "return new Response(null, { status: res.status, headers: cors });",
+    );
+    expect(honest).not.toBe(collector);
+    expect(rules.replyNeverReflectsTheUpstream(honest)).toBe(false);
+  });
+
+  it("accepts the body the Reporting API actually sends", () => {
+    expect(rules.refusesNoContentType(collector)).toBe(true);
+    const jsonOnly = collector.replace(
+      "const read = await readCappedText(request);",
+      'if (!request.headers.get("content-type")?.includes("application/json")) {\n    return new Response(null, { status: 415, headers: cors });\n  }\n  const read = await readCappedText(request);',
+    );
+    expect(jsonOnly).not.toBe(collector);
+    expect(rules.refusesNoContentType(jsonOnly)).toBe(false);
+  });
+
+  it("holds the service key for one call, and never puts it in a reply", () => {
+    expect([
+      ...collector.matchAll(/Deno\.env\.get\("SUPABASE_SERVICE_ROLE_KEY"\)/g),
+    ]).toHaveLength(1);
+    expect(collector).toMatch(/rest\/v1\/rpc\/record_csp_violations/);
+    expect(collector).toMatch(/p_reports:/);
+  });
+
+  it("names the migration that owns the table it writes", () => {
+    // The collector 404s against a project without 0015, and an empty table then
+    // reads as "nothing is blocked" — so the deploy order is documented, not
+    // inferred from the RPC name alone.
+    expect(collector).toMatch(/0015_csp_violation_reports\.sql/);
+  });
+});
+
+describe("every function on the wire", () => {
   it("never answers with a wildcard origin", () => {
     for (const [name, text] of [
       ["ai-proxy", proxy],
       ["reminder-sender", sender],
+      ["csp-collector", collector],
     ]) {
       expect(rules.wildcardCors(text), name).toBe(false);
     }
@@ -170,6 +296,7 @@ describe("both functions on the wire", () => {
     for (const [name, text] of [
       ["ai-proxy", proxy],
       ["reminder-sender", sender],
+      ["csp-collector", collector],
     ]) {
       expect(/^\s*import .* from ["']https?:/m.test(text), name).toBe(false);
     }

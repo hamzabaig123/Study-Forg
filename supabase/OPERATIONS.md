@@ -198,16 +198,18 @@ tables without FORCE, `anon` table grants — and prints `DRILL PASS` or
 Deploy and rotate:
 
 ```bash
-supabase functions deploy ai-proxy --project-ref <ref>
+supabase functions deploy ai-proxy --project-ref <ref> --no-verify-jwt
 supabase secrets set GEMINI_API_KEY=... OPENROUTER_API_KEY=... --project-ref <ref>
 ```
 
 The function is `--no-verify-jwt` at the platform level because it verifies the
 bearer token itself through `supabase.auth.getUser()`, which also catches a
-token whose account was deleted since it was minted. It holds a **sliding
-window rate limit of 20 requests per minute per account**, which is per-instance
-(in-memory) — good enough to stop one tab hammering a free-tier key, not a
-distributed throttle.
+token whose account was deleted since it was minted. It holds a **per-account cap
+of 20 requests a minute counted in Postgres** (`enforce_rate_limit('ai_proxy:<uid>',
+20, 60)`, so the window survives a cold start and reads the same in every
+region); the in-memory `Map` it replaced was per-instance, which on Supabase means
+N isolates admitted N× the cap and every deploy reset the count. It fails open —
+a broken counter is not a full window.
 
 Rotating a provider key means: set the new secret, redeploy nothing (secrets are
 read at request time), then confirm one extraction from the app. The old key
@@ -217,6 +219,42 @@ not invalidate anything upstream.
 The browser only offers this provider when Supabase is both configured and
 selected (`SERVER_PROXY_AVAILABLE` in `lib/ai/providers.ts`), so an
 unconfigured project shows the same three providers as it always did.
+
+## Edge Function: `csp-collector`
+
+```bash
+supabase functions deploy csp-collector --project-ref <ref> --no-verify-jwt
+```
+
+`--no-verify-jwt` is required, not a relaxation: the Reporting API sends a
+CORS-safelisted `no-cors` POST carrying no `Authorization` and no `apikey`, so
+with the platform's JWT check on, the gateway answers 401 to every report and the
+`csp_violation` table stays empty in exactly the way a clean policy does. It is
+in CI's staging deploy step, so the flag cannot go missing quietly.
+
+It needs **0015 applied first** — the RPC it calls does not exist before that,
+and the collector answers `204` regardless, so the failure is invisible. No
+secret is required: `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are injected,
+and the service key is used for that one RPC call and nothing else. `APP_ORIGINS`
+behaves as it does for the other two.
+
+Proving it end to end, in a real tab on the deployed origin (a report never
+comes from an iframe, and `frame-ancestors 'none'` refuses one anyway):
+
+```js
+// DevTools on the deployed app — the policy refuses this, so it should arrive
+// as a `script-src` row within a few seconds.
+fetch('https://example.invalid/payload.js').catch(() => {});
+const s = document.createElement('script');
+s.src = 'https://example.invalid/payload.js';
+document.head.append(s);
+```
+
+then, in the SQL editor, `select * from csp_violation order by last_seen desc
+limit 10;`. If nothing lands, work the three prerequisites above in order — the
+headers are the usual culprit, and `curl -I` on the origin is the fastest read.
+`hits` is a count of arriving reports, not of people; see
+README.md → Reading the violation table.
 
 ## Staging → production
 

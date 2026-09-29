@@ -165,8 +165,8 @@ describe("securityHeaders", () => {
     // collector on a different project, which every report would fail to reach.
     const connectSrc =
       text
-        .match(/Content-Security-Policy: (.+)/)
-        ?.[1].match(/connect-src ([^;]+)/)?.[1] ?? "";
+        .match(/Content-Security-Policy: (.+)/)?.[1]
+        .match(/connect-src ([^;]+)/)?.[1] ?? "";
     expect(connectSrc).toContain("https://demo_project.supabase.co");
     expect(endpoint.startsWith(connectSrc.split(" ")[1])).toBe(true);
   });
@@ -181,9 +181,9 @@ describe("securityHeaders", () => {
       .split("\n")
       .filter((line) => line.trim() !== "" && !line.startsWith("#"));
     expect(rules.some((line) => /^ {2}Report-To:/u.test(line))).toBe(false);
-    expect(
-      rules.some((line) => /^ {2}Reporting-Endpoints:/u.test(line)),
-    ).toBe(false);
+    expect(rules.some((line) => /^ {2}Reporting-Endpoints:/u.test(line))).toBe(
+      false,
+    );
     expect(
       rules.find((line) => line.startsWith("  Content-Security-Policy:")),
     ).not.toContain("report-to");

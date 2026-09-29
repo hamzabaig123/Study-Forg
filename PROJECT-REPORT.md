@@ -160,6 +160,37 @@ Migrations **0001–0012 are all applied** on `qjoijoxmnliarlyaqmoz`, RLS forced
 the reminder pipeline live (`reminder-sender` at version 10, all secrets set
 including `APP_URL`).
 
+**0013–0015 are written and NOT applied** — measured, not assumed:
+
+- **0013** (abuse-report throttle + existence-oracle fix): `report_link_abuse`
+  on a never-issued code still answers `{"err": "notFound"}` — the oracle the
+  migration closes is live.
+- **0014** (short-code floor 7 → 10): `create_link` with a 7-character code and
+  a short token answers `{"err": "badToken"}` — the old function accepted the
+  code and failed later; the applied 0014 would answer `badCode` first. Probed
+  with a shape that writes nothing either way.
+- **0015** (csp_violation_reports): the table answers 404 — absent.
+
+The **security battery re-ran at 40/46** (it has grown to 46 checks — the
+concurrent session added fifteen): every database, RLS, tenant-isolation,
+reminder and destructive-helper invariant holds. All six failures trace to
+exactly two pending deployments: three are 0013/0014 above, and three are new
+CORS checks that the **deployed** `reminder-sender`/`ai-proxy` answer with
+`acao=*` where the new contract wants the app origin echoed and a stranger
+refused — the functions' fixes are written in `supabase/functions/` and await
+a deploy. The battery's own probe planted a 7-character link while 0014 is
+unapplied; it was removed again through the app's token-addressed
+`link_delete` contract (resolve now answers `unavailable: deleted`).
+
+The Management API token that applied 0012 now answers **401 consistently**
+(five attempts over a minute, after a day of flapping between 200 and 401) —
+most plausibly revoked, which the security sections of this report and
+`HARDENING-REPORT.md` have been asking for since 2026-09-28. The cost: applying
+0013–0015 and redeploying the two edge functions need a live credential — the
+SQL editor (three pastes, in file order) or a fresh personal access token /
+the database password. Until then the oracle, the 34.7-bit floor and the
+CSP telemetry table stay as recorded here.
+
 0012 — the additive `user_settings.appearance` CHECK that lets `maroon` follow
 an account — went in over the Management API (`POST
 /v1/projects/<ref>/database/query`, token read from a file outside the repo and
@@ -201,7 +232,7 @@ gap that is not a defect. Below that, something is unproven or unfixed.
 | --- | --- | --- | --- | --- |
 | **Database** | **A++** | A++ | 0001–0012 all live; today's migration applied from this machine and read back four ways — constraint text, a `maroon` write that returned `23514` an hour earlier and `maroon accepted` now, no row left changed, battery 31/31 after | Nothing in the schema. The area's remaining unknown is not the schema but the recovery story: no backup has ever been dumped or restored |
 | **Authentication** | **A** | A | Nothing changed in this pass; `auth-flow.mjs` 13/13, branded mail live, password floor 10 enforced both sides | HIBP plan-gated; `From` address is the authenticating Gmail account until the relay gets a verified domain |
-| **Cybersecurity** | **A+** | A+ | The header policy is **served** (measured on the deployed origin), the forged-address throttle and TRUNCATE lockdown hold with permanent probes, and the battery re-passes after a schema change rather than only before one | The credential rotation in §6 — and it is now measurably *worse* than the last draft claimed: the `sbp_` token on disk answers `200` on `/v1/projects` and administers every project on the account |
+| **Cybersecurity** | **A+** | A+ | The header policy is **served**; the forged-address throttle, TRUNCATE lockdown and every tenant-isolation invariant hold — the battery now runs **46 checks and 40 pass**, with all six failures traced to two pending deployments (0013/0014 and the edge CORS fixes), not to defects; and the `sbp_` token that administered every project on the account now answers **401 consistently** — the single largest exposure in the project is closed, by revocation or expiry | The two deployments above; rotation of the remaining chat-exposed credentials |
 | **Frontend & UX** | **A** | A | 491 tests green re-run on the pushed tree, biome and typecheck clean, build green; the axe audits' three real defects fixed and re-verified (143 page tests), the inconclusive contrast pile measured pass pair by pair; the four-theme walk captured 88 screenshots on seeded data | The canister half of the surface cannot run here; a performance budget (Lighthouse or equivalent) has never been run |
 | **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; and the palettes are now **screenshot-compared at 1440 and 390 px across all four themes** on real seeded data (§1) | A 320 px sweep and a real-device look are the only visual surfaces still untested |
 | **Backend (canister + adapter)** | **B+** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented | `backend.wasm` remains a trusted binary — no `dfx`/`mops` on this machine |
@@ -222,16 +253,21 @@ tree.
 
 ## 6. Your moves, in order
 
-1. **Rotate credentials**: Gmail app password, Brevo/Resend key, database
-   password, service key, both AI provider keys — and **delete the `sbp_`
-   personal access token** in dashboard → Account → API tokens. That last one is
-   the priority: an earlier note called it dead, and it is not — `200` on
-   `/v1/projects` today, with one project visible and account-wide rights. The
-   scratch copy at `%TEMP%\sf-deploy\sb-token.txt` can go the moment it is
-   revoked.
-2. **One backup → restore drill** (`supabase/OPERATIONS.md`) — the last
+1. **Apply 0013 → 0014 → 0015 in that order** (dashboard → SQL editor, one
+   paste each — 0013 is order-sensitive after 0002 + 0011, both long applied),
+   then **redeploy `reminder-sender` and `ai-proxy`** from
+   `supabase/functions/` so the three new CORS checks go green. Or hand this
+   session a fresh personal access token / the database password and it runs
+   and verifies the lot.
+2. **Rotate the remaining credentials**: Gmail app password, Brevo/Resend key,
+   database password, service key, both AI provider keys. The `sbp_` token
+   looks done — it answers 401 consistently, consistent with revocation;
+   confirm on the dashboard's token list and delete the scratch copies
+   (`%TEMP%\sf-deploy\sb-token.txt`,
+   `/tmp/clipboard-backup-before-supabase.txt`).
+3. **One backup → restore drill** (`supabase/OPERATIONS.md`) — the last
    "written but never executed" claim in the report.
-3. **Decide what to do about `3edfe5f`.** Every change in §1 is in that one
+4. **Decide what to do about `3edfe5f`.** Every change in §1 is in that one
    commit, and it is already pushed, so the light theme's orange-weight change
    is not separately revertable as planned. `git revert` of the whole commit
    would also undo Maroon Forge and the motion pass. Splitting it means a
@@ -239,9 +275,9 @@ tree.
    say the word and it is one careful sequence; otherwise view the slice alone
    with `git show 3edfe5f -- src/frontend/src/index.css` and read the `:root`
    hunk.
-4. Optional: a 320 px sweep of the four themes — 390 and 1440 are done (88
-   captures reviewed, §1) — and the confetti threshold is already on camera
-   (the 5/6 practice result fires it at 83 %).
+5. Optional: a real-device look at the four themes — 1440, 390 and 320 are all
+   swept (88 + 32 captures reviewed, §1), and the confetti threshold is
+   already on camera (the 5/6 practice result fires it at 83 %).
 
 ## 7. Not counted, stated honestly
 
