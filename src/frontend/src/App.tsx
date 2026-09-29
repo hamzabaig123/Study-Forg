@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { useAccountCacheScope } from "@/hooks/useAccountCacheScope";
 import { router } from "@/router";
 import { RouterProvider } from "@tanstack/react-router";
+import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
 /**
@@ -28,6 +29,7 @@ function AppShell() {
     <ThemeProvider>
       <MotionProvider>
         <RouterProvider router={router} />
+        <Analytics />
         <SpeedInsights />
         <Toaster position="top-right" richColors closeButton />
       </MotionProvider>
