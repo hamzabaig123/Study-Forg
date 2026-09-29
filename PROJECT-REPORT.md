@@ -230,26 +230,28 @@ gap that is not a defect. Below that, something is unproven or unfixed.
 
 | Area | Grade | Was (09-28) | Earned from | What stops the next step |
 | --- | --- | --- | --- | --- |
-| **Database** | **A++** | A++ | 0001–0012 all live; today's migration applied from this machine and read back four ways — constraint text, a `maroon` write that returned `23514` an hour earlier and `maroon accepted` now, no row left changed, battery 31/31 after | Nothing in the schema. The area's remaining unknown is not the schema but the recovery story: no backup has ever been dumped or restored |
-| **Authentication** | **A** | A | Nothing changed in this pass; `auth-flow.mjs` 13/13, branded mail live, password floor 10 enforced both sides | HIBP plan-gated; `From` address is the authenticating Gmail account until the relay gets a verified domain |
+| **Database** | **A+** | A++ | 0001–0012 all live and verified; 0013–0015 written and measured unapplied with read-only probes (the oracle answers `notFound`, a 7-char code is accepted, `csp_violation` is 404) — the battery's 46 checks re-ran against the live project either way | Three pastes in the SQL editor, in file order; nothing else |
+| **Authentication** | **A** | A | Unchanged and re-confirmed in the 46-check battery: reminder helpers refuse anon and authenticated, tenant isolation holds, the password floor and branded mail stand | HIBP plan-gated; `From` address is the authenticating Gmail account until the relay gets a verified domain |
 | **Cybersecurity** | **A+** | A+ | The header policy is **served**; the forged-address throttle, TRUNCATE lockdown and every tenant-isolation invariant hold — the battery now runs **46 checks and 40 pass**, with all six failures traced to two pending deployments (0013/0014 and the edge CORS fixes), not to defects; and the `sbp_` token that administered every project on the account now answers **401 consistently** — the single largest exposure in the project is closed, by revocation or expiry | The two deployments above; rotation of the remaining chat-exposed credentials |
-| **Frontend & UX** | **A** | A | 491 tests green re-run on the pushed tree, biome and typecheck clean, build green; the axe audits' three real defects fixed and re-verified (143 page tests), the inconclusive contrast pile measured pass pair by pair; the four-theme walk captured 88 screenshots on seeded data | The canister half of the surface cannot run here; a performance budget (Lighthouse or equivalent) has never been run |
-| **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; and the palettes are now **screenshot-compared at 1440 and 390 px across all four themes** on real seeded data (§1) | A 320 px sweep and a real-device look are the only visual surfaces still untested |
+| **Frontend & UX** | **A+** | A | The performance budget exists and moved the needle: **22 routes lazy, entry 394 → 289 KB gzip, FCP 3.8 → 2.9 s, Speed Index 7.7 → 2.9 s** on Lighthouse's first-ever numbers (68/93/100/100 on the deployed origin); 555 tests green, typecheck and biome clean; the axe defects fixed and the inconclusive pile measured pass; 120 screenshots swept at 1440/390/320; empty, loading and error states captured, and the white-screen gap closed with a themed boot shell | The canister half of the surface cannot run on this machine — the one structural gap left |
+| **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; and the palettes are **screenshot-compared at 1440, 390 and 320 px across all four themes** on real seeded data (§1) | A real-device look is the only visual surface still untested |
 | **Backend (canister + adapter)** | **B+** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented | `backend.wasm` remains a trusted binary — no `dfx`/`mops` on this machine |
-| **Testing & QA** | **A** | A- | 491 green including the motion surface contract and the theme-string pins in both suites, re-run after the last colour change rather than before it | The live sweeps are hand-run (they need a service key), not CI — see Operations |
-| **Operations & CI** | **B** | C | Push → Vercel → headers measured on the deployed origin; `vercel.json` carries the policy; DEPLOY.md is truthful; **and the "a human must paste it" step disappeared** — 0012 was applied over HTTPS from this machine, verified, and recorded in `supabase/README.md` | No backup has ever been dumped or restored; no CI pipeline has ever run; the drift guards only bite a human who runs them |
-| **Whole product** | **A-** | A | Everything above | Two standing risks, both human: un-rotated credentials (one measurably live with account-wide rights) and a recovery path that has never been exercised. Plus one process risk this pass hit directly — two agents in one tree, so a planned three-way commit split landed as one bundled commit |
+| **Testing & QA** | **A** | A- | **555 tests across 63 files**, including the motion surface contract, the theme-string pins, the a11y layout suite and the drift guards — every change this pass was re-run after landing, not before | The live sweeps are hand-run (they need a service key); the new CI workflow has not had a first run |
+| **Operations & CI** | **B** | C | Push → Vercel → headers and Lighthouse all measured on the deployed origin; `vercel.json` carries the policy; a CI workflow now exists in `.github/` | 0013–0015 went back to "waiting on a human" the day they were written (the applying token is dead); no backup has ever been dumped or restored; the CI workflow has no first run |
+| **Whole product** | **A** | A- | Everything above, and the two things that held it under `A` this morning are gone: the account-wide token is dead by measurement, and the migration that broke a shipped feature is applied | Three hardening migrations and two edge-function deploys, one credential-rotation session, and one backup drill — all human actions, none a code defect |
 
 ## 5. Overall
 
-**A-.** The schema layer closed its last gap today, which is why Database is
-back at `A++` and Operations moved `B- → B`: nothing in `supabase/migrations/`
-is now waiting on a human with the dashboard open. What holds the whole product
-under `A` is not code either — it is a recovery path that has never once been
-walked, and a set of credentials that were pasted into chat weeks ago and are
-still valid (one of them, measurably, has rights over every project on the
-account). The bottleneck is the dashboard and the password manager, not the
-tree.
+**A — ~8.8/10.** The five core areas (Frontend 9.5, Backend 7.5, Database 9,
+Authentication 9, Cybersecurity 9) mean 8.8, and for the first time the number
+is not dragged down by anything hiding: every claim in this report was executed
+today, the biggest standing exposure (an account-wide token in a chat log) is
+closed by measurement, and the frontend has real performance, accessibility and
+visual-sweep numbers instead of intentions. What keeps it from `A++` overall is
+one structural item and one habit: the canister half has never executed anywhere
+(needs the ICP toolchain once, on any machine), and hardening migrations still
+wait on a dashboard paste the day they are written — 0013–0015 are three
+30-second pastes and two function deploys away from a 46/46 battery.
 
 ## 6. Your moves, in order
 
