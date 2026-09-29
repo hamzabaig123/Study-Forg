@@ -20,6 +20,7 @@ const { chromium } = require("playwright-core");
 const os = require("node:os");
 const path = require("node:path");
 const seed = require("./seed.local.cjs");
+const surfaces = require("./surfaces.local.cjs");
 
 const BASE = process.env.BASE_URL ?? "http://localhost:5173";
 const SEED_LOCAL = process.env.SEED_LOCAL === "1";
@@ -172,6 +173,20 @@ async function main() {
   }
   check(errors.length === 0, `zero page errors across the tour (saw ${errors.length})`);
   for (const e of errors) console.log("  pageerror:", e.slice(0, 200));
+
+  if (SEED_LOCAL) {
+    // The feature surfaces a tour cannot exercise: notes autosaving, share
+    // links that actually open, the short-link lifecycle, real downloaded files,
+    // and a setting that survives a reload. Needs the seed's content, so it runs
+    // only on a seeded profile.
+    const beforeSurfaces = errors.length;
+    await surfaces.checkSurfaces(page, BASE, check, seed, process.env.SURFACE ?? "all");
+    check(
+      errors.length === beforeSurfaces,
+      `zero page errors across the feature surfaces (saw ${errors.length - beforeSurfaces})`,
+    );
+    for (const e of errors.slice(beforeSurfaces)) console.log("  pageerror:", e.slice(0, 200));
+  }
 
   await page.screenshot({ path: path.join(os.tmpdir(), "e2e-last.png"), fullPage: false });
   await browser.close();
