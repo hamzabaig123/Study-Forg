@@ -30,7 +30,9 @@ export function StatCard({
     <Card
       data-ocid={`dashboard.stat_card.${index}`}
       className={cn(
-        "group relative gap-0 overflow-hidden rounded-lg border-border/70 py-0 shadow-none transition-smooth hover:-translate-y-0.5 hover:shadow-elevated",
+        // The lift, shadow and hover wash come from the global card hover
+        // rules in index.css — this card only adds its featured accent.
+        "group relative gap-0 overflow-hidden rounded-lg border-border/70 py-0 shadow-none transition-smooth",
         featured && "border-primary/40",
       )}
     >

@@ -21,7 +21,7 @@ export function TopicCard({
   return (
     <Card
       data-ocid={`topics.item.${index}`}
-      className="group relative gap-0 overflow-hidden rounded-lg border-border/70 py-0 shadow-none transition-smooth hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md"
+      className="group relative gap-0 overflow-hidden rounded-lg border-border/70 py-0 shadow-none transition-smooth hover:border-primary/40"
     >
       <span
         aria-hidden="true"

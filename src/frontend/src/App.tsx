@@ -5,6 +5,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { useAccountCacheScope } from "@/hooks/useAccountCacheScope";
 import { router } from "@/router";
 import { RouterProvider } from "@tanstack/react-router";
+// The `/react` entry, not `/next`: this is a Vite app, and the Next build of the
+// same package imports `next/navigation` for its route signal, which resolves to
+// nothing here.
+import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 
 /**
@@ -28,6 +32,13 @@ function AppShell() {
     <ThemeProvider>
       <MotionProvider>
         <RouterProvider router={router} />
+        {/* `mode` is named rather than left on the package's `auto`, which reads
+            `process.env.NODE_ENV` — a Node global a Vite browser bundle has no
+            reason to define, so it falls back to "production" and every `pnpm
+            dev` and every seeded E2E run would land in the analytics dashboard
+            as real traffic. `PROD` is the one flag that means "this came out of
+            `vite build`". */}
+        <Analytics mode={import.meta.env.PROD ? "production" : "development"} />
         <SpeedInsights />
         <Toaster position="top-right" richColors closeButton />
       </MotionProvider>

@@ -85,11 +85,15 @@ export default {
         sm: "calc(var(--radius) - 4px)",
       },
       boxShadow: {
-        xs: "0 1px 2px 0 rgba(0,0,0,0.05)",
-        subtle: "0 1px 3px -1px oklch(0.2 0.025 265 / 0.1), 0 1px 2px -1px oklch(0.2 0.025 265 / 0.06)",
-        elevated:
-          "0 12px 32px -12px oklch(0.2 0.025 265 / 0.22), 0 4px 10px -6px oklch(0.2 0.025 265 / 0.12)",
-        "inset-soft": "inset 0 1px 0 0 oklch(1 0 0 / 0.45)",
+        // Each value is a custom property the theme blocks in index.css set in
+        // their own ink. They used to be one hardcoded blue-ink shadow —
+        // `oklch(0.2 0.025 265 / …)` — which is a cool shadow under warm
+        // burnt-orange actions on the vanilla canvas and invisible on graphite.
+        // 43 call sites pick up their theme's tint from this change alone.
+        xs: "var(--shadow-xs)",
+        subtle: "var(--shadow-subtle)",
+        elevated: "var(--shadow-elevated)",
+        "inset-soft": "var(--shadow-inset)",
       },
       keyframes: {
         "fade-up": {

@@ -44,6 +44,8 @@ const OUTBOUND_ORIGINS = [
   "https://api.pwnedpasswords.com",
   // Vercel Speed Insights collects performance metrics and sends vitals.
   "https://vitals.vercel-insights.com",
+  // Vercel Web Analytics: the same host both serves the pageview script (it is in
+  // `script-src` too) and receives the events, so one origin covers both halves.
   "https://va.vercel-scripts.com",
 ];
 

@@ -99,6 +99,31 @@
     /* Pointer spotlight on cards — a warm ember-tinted light on vanilla. */
     --spotlight: 0.97 0.07 60 / 0.14;
 
+    /* Card hover: a warmer, slightly deeper vanilla with an ember-toned
+       shadow — the accent hue again, not a new colour. */
+    --card-hover-bg: 0.992 0.024 75;
+    --card-hover-shadow: 0 18px 40px -18px oklch(0.45 0.09 55 / 0.4);
+
+    /* Elevation, in the theme's own ink. Tailwind's `shadow-subtle` and
+       `shadow-elevated` were hardcoded to one blue-ink shadow for all four
+       themes — a cool shadow under warm burnt-orange actions on a vanilla
+       canvas. Every `shadow-*` call site now resolves through these. */
+    --shadow-xs: 0 1px 2px 0 oklch(0.45 0.09 55 / 0.06);
+    --shadow-subtle: 0 1px 3px -1px oklch(0.45 0.09 55 / 0.12), 0 1px 2px -1px
+      oklch(0.45 0.09 55 / 0.08);
+    --shadow-elevated: 0 12px 32px -12px oklch(0.42 0.1 55 / 0.24), 0 4px 10px
+      -6px oklch(0.42 0.1 55 / 0.14);
+    --shadow-inset: inset 0 1px 0 0 oklch(1 0 0 / 0.55);
+    /* A primary action's lifted aura, and the active tab's under-glow. */
+    --action-aura: 0 10px 26px -10px oklch(0.5 0.17 43 / 0.5), 0 0 0 1px
+      oklch(0.5 0.17 43 / 0.22);
+    --tab-glow: 0 4px 14px -8px oklch(0.56 0.185 43 / 0.45);
+    /* Ambient light: two drifting warm orbs behind the vanilla canvas. They
+       brighten rather than darken the page, so every measured contrast floor
+       can only go up. */
+    --ambient-a: oklch(0.985 0.055 62 / 0.7);
+    --ambient-b: oklch(0.945 0.075 45 / 0.55);
+
     --gradient-primary: linear-gradient(
       135deg,
       oklch(0.62 0.185 43),
@@ -176,6 +201,31 @@
     /* Pointer spotlight on cards — lime-tinged candlelight on graphite. */
     --spotlight: 0.9 0.13 130 / 0.09;
 
+    /* Card hover: graphite brightens a step toward the lime; on a dark
+       surface the shadow is a depth cue and the lime glow ring is the light.
+       L 0.30 is the ceiling, not a taste: muted-foreground on it measures
+       4.67:1 and every higher step dips under 4.5. */
+    --card-hover-bg: 0.3 0.026 235;
+    --card-hover-shadow: 0 18px 40px -18px oklch(0 0 0 / 0.65), 0 0 24px -6px
+      oklch(0.9 0.2 130 / 0.14);
+
+    /* Elevation on graphite is depth rather than tint: black under the pane,
+       with the lime only ever at the edges where it reads as candlelight. */
+    --shadow-xs: 0 1px 2px 0 oklch(0 0 0 / 0.45);
+    --shadow-subtle: 0 1px 3px -1px oklch(0 0 0 / 0.6), 0 1px 2px -1px
+      oklch(0 0 0 / 0.45);
+    --shadow-elevated: 0 12px 32px -12px oklch(0 0 0 / 0.85), 0 4px 10px -6px
+      oklch(0 0 0 / 0.6);
+    --shadow-inset: inset 0 1px 0 0 oklch(0.94 0.012 120 / 0.1);
+    --action-aura: 0 10px 26px -10px oklch(0.86 0.19 128 / 0.4), 0 0 0 1px
+      oklch(0.86 0.19 128 / 0.26);
+    --tab-glow: 0 4px 16px -8px oklch(0.9 0.2 130 / 0.4);
+    /* Ambient light on graphite: a deep lime-tinted candle and a cool violet
+       corner. Both sit near the background's own lightness (0.24), so they
+       read as depth in the dark rather than as text-dulling haze. */
+    --ambient-a: oklch(0.28 0.05 145 / 0.7);
+    --ambient-b: oklch(0.22 0.045 275 / 0.75);
+
     --gradient-primary: linear-gradient(
       135deg,
       oklch(0.9 0.2 128),
@@ -251,6 +301,29 @@
 
     /* Pointer spotlight on cards — champagne leaf-light. */
     --spotlight: 0.95 0.08 110 / 0.15;
+
+    /* Card hover wash for the glass panes — the lift and shadow live in the
+       frosted card rules below; this deepens the mint under the pointer. */
+    --card-hover-bg: 0.992 0.028 148 / 0.86;
+
+    /* Elevation for the glass panes: a leaf-green ink, never grey, so a lifted
+       card stays part of the meadow. The card hover shadow itself is written by
+       `.frosted [data-slot="card"]:hover` (a more specific selector than the
+       global card rule, so it wins there) — no `--card-hover-shadow` is
+       declared here on purpose. */
+    --shadow-xs: 0 1px 2px 0 oklch(0.35 0.06 160 / 0.08);
+    --shadow-subtle: 0 1px 3px -1px oklch(0.35 0.06 160 / 0.16), 0 1px 2px -1px
+      oklch(0.35 0.06 160 / 0.1);
+    --shadow-elevated: 0 12px 32px -12px oklch(0.3 0.06 158 / 0.3), 0 4px 10px
+      -6px oklch(0.3 0.06 158 / 0.18);
+    --shadow-inset: inset 0 1px 0 0 oklch(1 0 0 / 0.7);
+    --action-aura: 0 10px 26px -10px oklch(0.46 0.09 112 / 0.45), 0 0 0 1px
+      oklch(0.46 0.09 112 / 0.3);
+    --tab-glow: 0 4px 16px -8px oklch(0.62 0.11 148 / 0.35);
+    /* The meadow's own two orbs — the same values the drift animation has
+       always used here, now named so one shared rule lights all four themes. */
+    --ambient-a: oklch(0.76 0.15 152 / 0.5);
+    --ambient-b: oklch(0.74 0.1 108 / 0.4);
 
     /* Emerald ink band: no champagne inside — this gradient is clipped to
        headline text, and champagne on mint glass measures ~1.2:1. Champagne
@@ -331,6 +404,27 @@
 
     /* Pointer spotlight on cards — a warm rose light. */
     --spotlight: 0.96 0.05 30 / 0.13;
+
+    /* Card hover: warm white warmed further toward the forge rose, with an
+       ember shadow instead of a grey one. */
+    --card-hover-bg: 0.992 0.014 35;
+    --card-hover-shadow: 0 18px 40px -18px oklch(0.4 0.09 25 / 0.38);
+
+    /* Elevation in forge-maroon ink: a lifted pane is lit by the forge, not by
+       a neutral grey. */
+    --shadow-xs: 0 1px 2px 0 oklch(0.32 0.09 22 / 0.07);
+    --shadow-subtle: 0 1px 3px -1px oklch(0.32 0.09 22 / 0.14), 0 1px 2px -1px
+      oklch(0.32 0.09 22 / 0.1);
+    --shadow-elevated: 0 12px 32px -12px oklch(0.3 0.1 22 / 0.28), 0 4px 10px
+      -6px oklch(0.3 0.1 22 / 0.16);
+    --shadow-inset: inset 0 1px 0 0 oklch(1 0 0 / 0.5);
+    --action-aura: 0 10px 26px -10px oklch(0.55 0.19 25 / 0.48), 0 0 0 1px
+      oklch(0.55 0.19 25 / 0.24);
+    --tab-glow: 0 4px 16px -8px oklch(0.6 0.17 27 / 0.4);
+    /* Ambient light: forge-ember glow in one corner, a cool champagne wash in
+       the other, both just deep enough against the warm white to be seen. */
+    --ambient-a: oklch(0.93 0.05 30 / 0.6);
+    --ambient-b: oklch(0.955 0.035 85 / 0.55);
 
     /* Forge gradient: #791F2D down into the #4A111C action colour. */
     --gradient-primary: linear-gradient(
@@ -436,12 +530,14 @@
     background-attachment: fixed;
   }
 
-  /* Drifting light: two soft green/olive orbs that slowly cross behind the
-     glass so the workspace feels lit from a window. Purely decorative. */
-  .frosted body::before,
-  .frosted body::after,
-  body.frosted::before,
-  body.frosted::after {
+  /* Drifting light: two soft orbs that slowly cross behind the page, so the
+     workspace reads as lit from a window rather than as panels on a flat fill.
+     Written once and driven by --ambient-a/--ambient-b, which each theme sets
+     in its own accent; the frosted panes keep the exact colours they had when
+     this block was `.frosted`-only. Purely decorative, and the orbs only
+     transform (never paint), so the drift stays on the compositor. */
+  body::before,
+  body::after {
     content: "";
     position: fixed;
     z-index: -1;
@@ -450,31 +546,21 @@
     filter: blur(70px);
   }
 
-  .frosted body::before,
-  body.frosted::before {
+  body::before {
     width: 48vw;
     height: 48vw;
     top: -14vw;
     left: -8vw;
-    background: radial-gradient(
-      circle,
-      oklch(0.76 0.15 152 / 0.5) 0%,
-      transparent 70%
-    );
+    background: radial-gradient(circle, var(--ambient-a) 0%, transparent 70%);
     animation: aurora-drift-a 26s ease-in-out infinite;
   }
 
-  .frosted body::after,
-  body.frosted::after {
+  body::after {
     width: 40vw;
     height: 40vw;
     right: -12vw;
     bottom: -16vw;
-    background: radial-gradient(
-      circle,
-      oklch(0.74 0.1 108 / 0.4) 0%,
-      transparent 70%
-    );
+    background: radial-gradient(circle, var(--ambient-b) 0%, transparent 70%);
     animation: aurora-drift-b 34s ease-in-out infinite;
   }
 
@@ -578,7 +664,7 @@
     -webkit-backdrop-filter: blur(14px) saturate(140%);
     box-shadow: var(--glass-shadow), inset 0 1px 0 0 oklch(1 0 0 / 0.7);
     transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color
-      0.22s ease, box-shadow 0.22s ease;
+      0.22s ease, box-shadow 0.22s ease, background-color 0.22s ease;
   }
 
   .frosted [data-slot="card"]:hover {
@@ -588,8 +674,14 @@
       oklch(0.62 0.12 148 / 0.14), inset 0 1px 0 0 oklch(1 0 0 / 0.8);
   }
 
-  /* Primary actions carry a leaf aura that breathes on hover. */
-  .frosted [data-slot="button"] {
+  /* Actions answer the pointer. The transition list and the lifted aura were
+     written for the glass theme alone; they now run on every theme through
+     --action-aura, so a button glows in its own theme's colour — burnt orange,
+     candle-lime, leaf, forge ember — instead of shipping one theme's polish and
+     three flat ones. `brightness()` stays frosted-only: on the light theme the
+     fill already carries near-white text at 4.7:1, and lifting it further is
+     how a hover state becomes an AA miss. */
+  [data-slot="button"] {
     transition:
       color 0.24s ease,
       background-color 0.24s ease,
@@ -600,18 +692,31 @@
       transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   }
 
-  .frosted [data-slot="button"].bg-primary:hover {
-    filter: brightness(1.05);
-    box-shadow: 0 8px 24px -8px oklch(0.46 0.09 112 / 0.45), 0 0 0 1px
-      oklch(0.46 0.09 112 / 0.3);
-    transform: translateY(-1px);
+  @media (hover: hover) {
+    [data-slot="button"].bg-primary:hover {
+      box-shadow: var(--action-aura);
+      transform: translateY(-1px);
+    }
   }
 
-  .frosted [data-slot="button"].bg-primary:active {
+  [data-slot="button"].bg-primary:active {
     transform: translateY(0);
   }
 
-  /* Segmented controls: the active tab glows leaf green. */
+  .frosted [data-slot="button"].bg-primary:hover {
+    filter: brightness(1.05);
+  }
+
+  /* Segmented controls: the active tab is lit from underneath in the theme's
+     action colour. Only shadows are added — shadcn's own active-state ink
+     already clears the contrast floor on all four themes, and a glow cannot
+     fail a ratio, so this is the safe half of the effect. */
+  [data-slot="tabs-trigger"][data-state="active"] {
+    box-shadow: inset 0 0 0 1px oklch(var(--primary) / 0.2), var(--tab-glow);
+  }
+
+  /* Segmented controls: the active tab glows leaf green, and takes the pane's
+     own champagne fill in this theme. */
   .frosted [data-slot="tabs-trigger"][data-state="active"] {
     background-color: oklch(0.99 0.01 150 / 0.8);
     color: oklch(0.3 0.05 152);
@@ -619,15 +724,30 @@
       oklch(0.62 0.11 148 / 0.35);
   }
 
-  /* Inputs come alive with a soft green focus bloom. */
-  .frosted [data-slot="input"]:focus-visible,
-  .frosted [data-slot="textarea"]:focus-visible {
-    box-shadow: 0 0 0 2px oklch(0.6 0.12 148 / 0.18), 0 4px 16px -8px
-      oklch(0.6 0.12 148 / 0.2);
+  /* Focus keeps Tailwind's ring and adds an accent bloom under it. The ring
+     longhands are composed, not replaced: dropping them here would take the
+     visible focus indicator away from every keyboard user, which is the one
+     thing a focus style is not allowed to do. */
+  [data-slot="input"]:focus-visible,
+  [data-slot="textarea"]:focus-visible,
+  [data-slot="select-trigger"]:focus-visible {
+    box-shadow:
+      var(--tw-ring-offset-shadow, 0 0 #0000),
+      var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000),
+      0 0 0 3px oklch(var(--primary) / 0.12), 0 6px 20px -10px
+        oklch(var(--primary) / 0.35);
   }
 
-  /* The heading progress rule runs leaf → olive here. */
-  .frosted .bg-gradient-primary {
+  /* The primary action's gradient pans between its own two stops, so the button
+     reads as lit rather than printed. Scoped to buttons on purpose: this rule
+     used to be `.frosted .bg-gradient-primary`, which also animated every 1px
+     hairline and 40px icon chip in the glass theme — dozens of always-on
+     animations for shapes that look steadier still. Both stops of every
+     theme's --gradient-primary already carry that theme's foreground text at
+     AA, and panning moves the paint between them rather than lightening either.
+     `.gradient-pan` opts any other surface in, one element at a time. */
+  [data-slot="button"].bg-gradient-primary,
+  .gradient-pan {
     background-size: 180% 180%;
     animation: gradient-pan 9s ease infinite;
   }
@@ -973,6 +1093,29 @@
   @media (hover: none) {
     [data-slot="card"]::after {
       display: none;
+    }
+  }
+
+  /* Hover life for every card in every theme: the pane lifts, the shadow
+     deepens in the theme's own hue, and the surface takes a faint accent
+     wash (--card-hover-bg / --card-hover-shadow, tokens set per theme).
+     Idle cards carry no overlay of any kind — the axe contrast audit must be
+     able to measure every text node, which is why the spotlight's ::after
+     above also only exists under the pointer. Border colour is deliberately
+     NOT touched here: success/destructive review cards get their meaning
+     from the border, and cards that want a border tint (the landing, the
+     frosted glass) set their own. The reduced-motion block collapses the
+     transitions, so the state simply applies without travel. */
+  [data-slot="card"] {
+    transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.24s
+      ease, background-color 0.24s ease, border-color 0.24s ease;
+  }
+
+  @media (hover: hover) {
+    [data-slot="card"]:hover {
+      transform: translateY(-3px);
+      background-color: oklch(var(--card-hover-bg));
+      box-shadow: var(--card-hover-shadow);
     }
   }
 
