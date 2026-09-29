@@ -1,5 +1,76 @@
 # StudyForge — Grading Report
 
+## Regrade — 2026-09-30
+
+*Grading the tree at `4509f9e`. This section exists because one gate changed
+state overnight — CI went from red to green for the first time in the project's
+life — and the tables underneath would otherwise keep asserting the opposite.
+The 2026-09-29 pass stays exactly as written, below, including its log lines;
+the rows that moved are restated here with the run that moved them.*
+
+### Gates, run on this tree
+
+| Gate | Result |
+| --- | --- |
+| `pnpm test` | 63 files, **572 tests passed** (874 s wall, 158 s of test time) |
+| `pnpm typecheck` | 0 errors |
+| `pnpm check` (biome) | 231 files, no fixes applied, 0 errors |
+| `pnpm build` | exit 0 |
+| `node test/pocketic/run-backend-lane.mjs` | `backend test lane skipped: stale_backend_wasm`, exit 0 — the lane declines rather than failing, because a Motoko edit cannot rebuild the wasm here |
+| GitHub Actions `canister-build` @ `4509f9e` | **success, all ten steps**: `mops check` typecheck green, `mops build` green, `Upload wasm` green. Artifact `backend-wasm` — 364,419 bytes, `sha256:3e8e3f098c3d2ae8298c3be83f9a48020525a067fe262874835a0571e6587c18`. **The first `backend.wasm` this project has ever produced from source** |
+| GitHub Actions `supabase-ci` @ `4509f9e` | **success** — `frontend` job ran install, 572 tests, typecheck, biome and build on the runner; `migration` and `replay-sweep` are `skipped`, not failed, because `SUPABASE_STAGING_PROJECT_REF` is unset. So the 572 tests now have a runner, which the row below said they lacked |
+
+### What the red was, and who closed it
+
+Two independent causes, found by two sessions in one tree, and **both** were
+needed before the build step could pass:
+
+1. `mops check` refused the chain ("2 pending migrations for check-limit=1"),
+   fixed by folding `20260920_120000.mo` into `20260920_130000.mo` (`c0178a2`) —
+   the migration `mops` itself names, done as a source edit since no canister was
+   ever deployed and the split protected no state.
+2. `mops build` then failed at its own `check-deploy` gate, "Tool 'pocket-ic' is
+   not defined in [toolchain]" (`6c3d4ca` added `pocket-ic = "15.0.0"`, which is
+   what that gate boots the built canister on).
+
+Neither was visible locally, and the *second* one was not even readable: GitHub's
+job-log endpoint answers **403 "Must have admin rights to Repository"** even on a
+public repo, and the failed step's only annotation was "exit code 1". `540cba7`
+made the workflow re-emit the compiler's last 40 lines as `::error::`
+annotations, which the REST annotations API does expose without a token — the
+reason cause 2 could be named at all.
+
+A third cause, unrelated to Motoko, was found in the same sweep: **`supabase-ci`
+has failed at step 3 of every run it ever had**, before installing anything, on
+`pnpm/action-setup@v4` refusing to choose between the workflow's `version: 9` and
+`package.json`'s `packageManager: pnpm@9.15.9` (`415361c` removed the input). The
+gates that were green on this machine have now been green on a runner too.
+
+### Rows that moved
+
+| Area | Was (09-29) | Now | Why, and what still stops the next step |
+| --- | --- | --- | --- |
+| **Backend (canister + adapter)** | B+ | **A-** | The source now clears typecheck, build **and** a PocketIC boot in CI, and the wasm artifact exists with a readable digest — the thing that made `A-` impossible on 09-29 is measured, not claimed. **Not `A`**: no deploy. `mops build` producing a wasm is not the canister running; that still needs cycles, an Internet Identity registration, and `pnpm bindgen` on a machine with the toolchain |
+| **Testing and QA** | A | **A+** | The 572 tests have a runner — `supabase-ci`'s `frontend` job is green on `4509f9e`, and `canister-build` compiles the backend half. **Not `A++`**: `migration` and `replay-sweep` skip for want of a staging project, so the ladder and the live sweep are still hand-run, and `supabase-backup` has still never fired |
+| **Operations and CI** | B | **B+** | Two workflows, first green runs, on the same commit, with the artifact hash recorded above. **Not `A-`**: one backup dumped and restored is still a document, the staging project that would make the skipped jobs run does not exist, and the canister artifact is produced but never shipped |
+| **Whole product** | A — 9.0/10 | **A — 9.1/10** | The five core areas are now Frontend 9.5, **Backend 8.5**, Database 10, Authentication 9, Cyber security 9; mean 9.1. The remaining gap is human sessions, not code: rotate the pasted credentials, drill one restore, deploy the canister CI now builds |
+
+### One correction about this machine, measured today
+
+`AGENTS.md` says the `mops` commands "fail with 'command not found'" here. That
+was imprecise, and the imprecision matters because it hid a fixable step. What is
+true, measured at 01:13 today: the **CLI installs and runs** on Windows
+(`npm install ic-mops` in a scratch folder outside the repo → `mops --version`
+answers `CLI 3.4.1`), and it stops one step later with its own sentence —
+**"moc has no Windows build. Please use WSL."** `wsl -l -v` then reports no
+installed distribution. So the toolchain is not missing because this machine
+cannot host a Node CLI; it is missing because `moc` ships no Windows binary and
+there is no Linux runtime installed to run the Linux one. Do not re-attempt
+`mops check`/`mops build` here on the strength of the CLI working — the failure is
+the compiler, and CI remains the only place this canister compiles.
+
+---
+
 ## Regrade — 2026-09-29
 
 *Grading the tree at `5e9b387`, pushed and deployed — `c45c9b1` since then is

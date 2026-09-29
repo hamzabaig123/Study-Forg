@@ -13,7 +13,7 @@
 - **lint fix**: `pnpm fix`
 - **build**: `pnpm build`
 
-**Backend** (run from `src/backend/`; see Learnings — these need `mops`, which does not run on the development machine used for this project):
+**Backend** (run from `src/backend/`; see Learnings — these need `moc`, which ships no Windows binary, so on this machine `canister-build` in CI is the only place they actually run):
 
 - **install**: `mops install`
 - **typecheck**: `mops check --fix`
@@ -63,10 +63,19 @@ When editing `index.html` (e.g. changing the title or favicon):
 
 The development machine has no virtualization (no WSL2, Docker, or Hyper-V), so `dfx`, `mops`, and the Rust toolchain cannot be installed and no local replica can be started. Consequences:
 
-- The `mops` commands above are the correct commands for a machine that has the platform toolchain; on this machine they fail with "command not found". Do not spend time trying to make them run.
+- The `mops` commands above are the correct commands for a machine that has the platform toolchain; on this machine they cannot compile. Measured 2026-09-30 rather than assumed: the **CLI itself installs and runs** here (`npm install ic-mops` in a scratch folder outside the repo → `mops --version` answers `CLI 3.4.1`), and the very next step refuses — `mops build` stops with **"moc has no Windows build. Please use WSL."**, and `wsl -l -v` reports **no installed distribution**. So "mops does not run here" means *the compiler has no Windows binary and there is no Linux runtime to run the Linux one*, not that the Node CLI is missing. Do not spend time re-deriving that: `moc` is unavailable here, so Motoko edits are proven only by `canister-build`.
 - `src/backend/dist/` is gitignored — no wasm or `.most` snapshot is committed (the "ships in the repo" wasm was removed from the index when CI arrived). The canister is typechecked, built and PocketIC-booted by `.github/workflows/canister-build.yml` instead; Motoko edits here can be reviewed and reasoned about, but they cannot be compiled locally, and they do not reach the running app.
 - `pnpm bindgen` likewise needs the platform toolchain. The committed bindings in `src/frontend/src/backend.ts` are the contract the frontend builds against.
 - **What to do instead**: run the frontend against the localStorage mock backend (`src/frontend/src/mocks/backend.ts`), which implements the full 77-method canister interface. `pnpm dev` already does this because `.env.development` sets `VITE_USE_MOCK=true`. Data persists in the browser under the `studyforge.mock-backend.v1` key. Production builds (`pnpm build`) do not set the flag, so deployed output still targets the real canister.
+
+### CI is the only compiler, and its log is not readable
+
+Both workflows are green as of `4509f9e` — the project's first green runs. Getting there is a procedure, not a story, because none of it is visible from a local run:
+
+- **The job log 403s; the annotations do not.** `GET /repos/…/actions/jobs/{job_id}/logs` answers `403 Must have admin rights to Repository` **even on a public repo**, so a red step whose only annotation is "Process completed with exit code 1" is undiagnosable here. `canister-build` therefore pipes the build through `tee` (under `set -o pipefail`, so the step still fails) and re-emits the last 40 lines as `::error::` annotations on a `if: failure()` step — the annotations endpoint is reachable with no token, which is how the missing `pocket-ic` toolchain entry was ever named. Keep that step; a workflow whose failure you cannot read is a gate you cannot use.
+- **`gh` is not installed here.** Drive Actions with plain `curl` against the public API and parse with `node`: `/actions/runs?per_page=N` for status, `/actions/runs/{id}/jobs` for per-step conclusions, `/check-runs/{job_id}/annotations` for messages, `/actions/runs/{id}/artifacts` for the wasm's `size_in_bytes` and `digest` (that `digest` is the artifact hash the reports quote — no download, no token).
+- **Two gates, two causes.** `mops check` counts *pending* migrations against `[canisters.backend.migrations] check-limit = 1`, and an undeployed chain with two files fails it — fold them into the later one, taking `{}`, which matches the empty-actor baseline the workflow writes to `.old/`. Do not freeze a first step with a non-empty `OldActor` instead: `run-backend-lane.mjs`'s `isConvertedProject` reads exactly that and the PocketIC lane declines the whole project. Then `mops build` with `check-deploy = true` boots the wasm and needs `pocket-ic = "<version>"` under `[toolchain]` — the version is what its own error names.
+- **`pnpm/action-setup@v4` takes the version from `package.json`'s `packageManager` and fails if the workflow also passes `version:`** ("Multiple versions of pnpm specified"). That single conflict had been failing `supabase-ci` at step 3 — before install, before tests — on every run it ever had, which is why "CI has no green run" and "CI's gates are red" are very different statements worth checking separately.
 
 ### Three backends, one flag
 

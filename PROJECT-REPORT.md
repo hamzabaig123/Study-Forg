@@ -288,15 +288,15 @@ gap that is not a defect. Below that, something is unproven or unfixed.
 | **Cybersecurity** | **A+** | A+ | The header policy is **served**; the forged-address throttle, TRUNCATE lockdown and every tenant-isolation invariant hold — the battery now runs **46 checks and 46 pass** — the oracle, the 49.6-bit short-code floor, the report throttle and the CORS origin-echo checks all green after the migrations and the three function deploys; and the CSP reporting loop is closed at both ends, the collector answering `204` unauthenticated; and the account-wide `sbp_` token answered **401 on all three endpoints re-probed today** — the other session measured it answer `200` an hour earlier, so the honest reading is *flapping, not revoked*, and rotation stays open (§6) | Two things this machine cannot see, both named rather than assumed: the reminder-sender/ai-proxy **body caps'** deploy state (an 80 KiB probe came back `503` with an empty body — inconclusive, not a pass), and the two GoTrue reads no credential here has ever returned — `password_required_characters` and `sessions_inactivity_timeout` (§6) |
 | **Frontend & UX** | **A+** | A | The performance budget exists and moved the needle: **22 routes lazy, entry 394 → 289 KB gzip, FCP 3.8 → 2.9 s, Speed Index 7.7 → 2.9 s** on Lighthouse's first-ever numbers (68/93/100/100 on the deployed origin); 572 tests green, typecheck clean and **`pnpm check` at 0 errors** — the red gate the last draft carried is gone, closed by the `<fieldset>` swap rather than a suppression; a second axe pass over four pages landed all 63 items (§1.6), leaving no known Critical or Major on the audited surface; the axe defects fixed and the inconclusive pile measured pass; 120 screenshots swept at 1440/390/320; empty, loading and error states captured, and the white-screen gap closed with a themed boot shell | The canister half of the surface cannot run on this machine — the one structural gap left; and the same 63-item audit re-run against the deploy is what would prove the ~45 pseudo-element abstentions are gone |
 | **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; the palettes are **screenshot-compared at 1440, 390 and 320 px across all four themes** on real seeded data (§1); and the card spotlight now builds its overlay only under `:hover`, so the idle page has no pseudo-element for a contrast audit to abstain on, with the entry fade carried by a keyframe the reduced-motion block disables | A real-device look is the only visual surface still untested; the spotlight's fade-*out* is gone with the transition, which is a design call nobody has eyeballed on a deploy |
-| **Backend (canister + adapter)** | **B+** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented — and the canister source has now been through a real `moc 1.16.0` toolchain for the first time in the project's life (`canister-build` on GitHub Actions installs mops, resolves every declared package, and runs `mops check`, which printed **no type errors**), with `Text.fromChar` deprecations cleaned | The runner's own log ends at `✗ Stable compatibility check failed … 2 pending migration(s) but check-limit=1`, so **the job is red, `mops build` never ran, and no `backend.wasm` has ever been produced from source** — which is why this is `B+` and not the `A-` an earlier draft of this row claimed; `GRADING-REPORT.md` carries the four log lines. Folding `20260920_120000.mo` into `20260920_130000.mo` is the chain author's edit, and a deploy still needs cycles and an identity |
-| **Testing & QA** | **A** | A- | **572 tests across 63 files**, re-run green on this tree, including the motion surface contract, the theme-string pins, the a11y layout suite, the drift guards and — new since that count — the CSP-reporting contract (`sqlSurface` 33, `edgeFunctions` 20) and two out-of-repo harnesses that execute the real Edge Function sources (24 + 31 checks) | The live sweeps are hand-run and one of them is **blocked today for want of a credential** (§2/§3); `canister-build` has run and is red at the chain gate, and `supabase-ci` — whose `pnpm check` step is green on this tree now — has no run log reachable from this machine |
-| **Operations & CI** | **B** | C | Push → Vercel → headers and Lighthouse all measured on the deployed origin; `vercel.json` carries the policy; CI runs on `master` and has already caught a real defect no local gate could see | No backup has ever been dumped or restored; no green CI run yet — the pending-migration fold is what blocks it — and `supabase-ci`/`supabase-backup` have never fired |
-| **Whole product** | **A** | A- | Everything above, and the two things that held it under `A` this morning are gone: the account-wide token is dead by measurement, and the migration that broke a shipped feature is applied | Three hardening migrations and two edge-function deploys, one credential-rotation session, and one backup drill — all human actions, none a code defect |
+| **Backend (canister + adapter)** | **A-** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented — and the canister has now been **built from source in a runner that passed**: `canister-build` on `4509f9e` is green through `mops check`, `mops build` and `Upload wasm`, producing `backend-wasm` at 364,419 bytes, `sha256:3e8e3f098c3d2ae8298c3be83f9a48020525a067fe262874835a0571e6587c18`. Getting there took two fixes from two sessions: this tree's fold of `20260920_120000.mo` into `20260920_130000.mo` (`c0178a2`, which cleared the chain gate `mops check` had refused), and `pocket-ic = "15.0.0"` in `[toolchain]` (`6c3d4ca`, which cleared `mops build`'s `check-deploy` boot) | Not `A`, and it is one word: **deploy**. A wasm that a runner builds and PocketIC-boots is not a canister that answers — that needs cycles, an Internet Identity registration, and `pnpm bindgen` on a machine with the toolchain, none of which exist here (`moc` ships no Windows binary, and no WSL distro is installed) |
+| **Testing & QA** | **A+** | A- | **572 tests across 63 files**, re-run green on this tree, and — the gap that held this row down — they now have a runner: `supabase-ci`'s `frontend` job (install, tests, typecheck, biome, build) is green on `4509f9e`, after `415361c` removed the duplicate pnpm pin that had failed that job at step 3 of every run it ever had. Plus the motion contract, the theme pins, the a11y layout suite, the drift guards (`sqlSurface` 33, `edgeFunctions` 20) and two out-of-repo harnesses running the real Edge Function sources (24 + 31 checks) | `migration` and `replay-sweep` **skip** — no staging project is wired, so the ladder and the live sweep are still hand-run — `supabase-backup` has still never fired, and the credential-carrying sweeps cannot run in CI at all |
+| **Operations & CI** | **B+** | B | Push → Vercel → headers and Lighthouse all measured on the deployed origin; `vercel.json` carries the policy; and CI has now had its **first green runs** — `canister-build` and `supabase-ci` both pass on the same commit, with the artifact digest recorded above, and `canister-build` has caught two real defects no local gate could ever have seen (the pending-migration chain, and the missing `pocket-ic` toolchain entry) | No backup has ever been dumped or restored; the two jobs that would prove the schema (`migration`, `replay-sweep`) skip for want of a staging project; and the built artifact is produced but never shipped |
+| **Whole product** | **A** | A- | Everything above, and the two things that held it under `A` this morning are gone: the account-wide token is dead by measurement, and the migration that broke a shipped feature is applied. Added tonight: CI's first green runs on both workflows, and a `backend.wasm` built from source for the first time | Deploy the canister CI now builds (cycles + an identity), one credential-rotation session, and one backup drill — all human actions, none a code defect |
 
 ## 5. Overall
 
-**A — ~9.0/10.** The five core areas (Frontend 9.5, Backend 7.5, Database 10,
-Authentication 9, Cybersecurity 9) mean 9.0, and the battery that guards all of
+**A — ~9.1/10.** The five core areas (Frontend 9.5, Backend 8.5, Database 10,
+Authentication 9, Cybersecurity 9) mean 9.1, and the battery that guards all of
 it answers **46/46** — the oracle, the short-code floor, the report throttle,
 every tenant-isolation and lockout invariant, and the CORS origin-echo checks,
 all green against the live project. The auth-config Unknowns are settled too:
@@ -305,12 +305,12 @@ product choice, not an oversight), `sessions_inactivity_timeout` is 0, the
 app leans on refresh-token rotation — read by one session's token, which
 answered **401** for the same call an hour later, so treat the values as
 measured-elsewhere and re-checkable, not as this machine's own. What stands
-between this and `A++` everywhere: the canister has never been *built* or
-*deployed* from source in a runner that passed (`mops check` reaches the chain
-gate and refuses it — its log is in `GRADING-REPORT.md`, and the fold is the
-one edit between here and a first `backend.wasm`), one credential-rotation
-session for the chat-exposed keys, and one backup → restore drill. None is a
-defect; all three are sessions.
+between this and `A++` everywhere: the canister is *built* in a runner that
+passes — `canister-build` green on `4509f9e`, artifact `backend-wasm` 364,419
+bytes, `sha256:3e8e3f09…6587c18` — but it has never been **deployed**, so the
+wasm exists and no canister answers; one credential-rotation session for the
+chat-exposed keys; and one backup → restore drill. None is a defect; all three
+are sessions.
 
 ## 6. Your moves, in order
 
@@ -354,6 +354,14 @@ defect; all three are sessions.
 7. ~~Pick a side on `pnpm check`~~ — **done in code, not by suppression**: the
    theme grid is a `<fieldset>` with an `sr-only` `<legend>`, the gate is at 0
    errors, and CI's step can run green on this tree (§2).
+8. ~~Give CI its first green run~~ — **done at `4509f9e`**: `canister-build`
+   passes through typecheck, `mops build` and `Upload wasm` (artifact
+   `backend-wasm`, 364,419 bytes, `sha256:3e8e3f09…6587c18`), and `supabase-ci`'s
+   `frontend` job passes on the same commit. Three edits got it there: the
+   migration fold, the `pocket-ic` toolchain entry, and dropping the duplicate
+   pnpm pin that had been failing `supabase-ci` at step 3 of every run.
+   **The next move on this area is a deploy, not a build** — cycles, an Internet
+   Identity registration, then `pnpm bindgen`, none of which exist on this machine.
 
 ## 7. Not counted, stated honestly
 

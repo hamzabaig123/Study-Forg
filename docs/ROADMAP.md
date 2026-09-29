@@ -7,13 +7,17 @@ can be.*
 
 ## 1. Finish the current grade (small, mostly operational)
 
-1. **Deploy the canister** — the source now typechecks and the stable check is
-   green in CI (`.github/workflows/canister-build.yml` produces the wasm
-   artifact); a deploy needs cycles and an Internet Identity on a machine with
-   the toolchain. Then `pnpm bindgen` and the canister path becomes runnable.
-2. **Fold the two pending canister migrations** (`20260920_120000.mo` into
-   `20260920_130000.mo`, per mops) — the one edit between CI and its first
-   green run + wasm artifact.
+1. **Deploy the canister** — the source now typechecks, builds and boots on
+   PocketIC in CI (`.github/workflows/canister-build.yml` is green on `4509f9e`
+   and uploads the wasm artifact: 364,419 bytes,
+   `sha256:3e8e3f098c3d2ae8298c3be83f9a48020525a067fe262874835a0571e6587c18`); a
+   deploy still needs cycles and an Internet Identity on a machine with the
+   toolchain. Then `pnpm bindgen` and the canister path becomes runnable.
+2. ~~**Fold the two pending canister migrations**~~ — **done** (`c0178a2`:
+   `20260920_120000.mo` folded into `20260920_130000.mo`, which is what `mops
+   check`'s chain gate asked for). The run then stopped on a second cause —
+   `mops build`'s `check-deploy` gate needing `pocket-ic` in `[toolchain]`
+   (`6c3d4ca`) — and CI has been green since.
 3. **Rotate the chat-exposed credentials** — Gmail app password, Brevo/Resend
    key, database password, service key, both AI keys; delete the two used
    `sbp_` tokens from the dashboard list.
@@ -35,9 +39,13 @@ can be.*
   k-anonymity check already exists in `passwordPolicy.ts`.
 - **Backups/PITR on a schedule** + the restore drill above; `supabase-backup`
   workflow is written but has never fired.
-- **First green runs of CI**: `supabase-ci` (its gates are green locally) and
-  `canister-build` (after the fold); wire the wasm artifact hash into release
-  notes.
+- ~~**First green runs of CI**~~ — **done**: `canister-build` and `supabase-ci`
+   both passed on `4509f9e` (and `supabase-ci` had a defect of its own to fix
+   first — the workflow and `package.json` both named a pnpm, which failed the
+   job before it installed anything). `supabase-ci`'s `migration` and
+   `replay-sweep` jobs still **skip** until a staging project exists, and
+   `supabase-backup` has never fired. Remaining: wire the wasm artifact hash
+   into release notes.
 - **Deploy `ai-proxy` wiring or delete it** — the function is deployed and
   hardened, but the AI Studio still uses the reviewer's own key in the browser;
   routing it through the proxy would keep provider keys off the client
