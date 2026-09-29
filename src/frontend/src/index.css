@@ -121,8 +121,8 @@
     /* Ambient light: two drifting warm orbs behind the vanilla canvas. They
        brighten rather than darken the page, so every measured contrast floor
        can only go up. */
-    --ambient-a: oklch(0.985 0.055 62 / 0.7);
-    --ambient-b: oklch(0.945 0.075 45 / 0.55);
+    --ambient-a: oklch(0.985 0.075 72 / 0.9);
+    --ambient-b: oklch(0.935 0.1 42 / 0.7);
 
     --gradient-primary: linear-gradient(
       135deg,
@@ -731,11 +731,10 @@
   [data-slot="input"]:focus-visible,
   [data-slot="textarea"]:focus-visible,
   [data-slot="select-trigger"]:focus-visible {
-    box-shadow:
-      var(--tw-ring-offset-shadow, 0 0 #0000),
-      var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000),
-      0 0 0 3px oklch(var(--primary) / 0.12), 0 6px 20px -10px
-        oklch(var(--primary) / 0.35);
+    box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000),
+      var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow, 0 0 #0000), 0 0 0 3px
+      oklch(var(--primary) / 0.12), 0 6px 20px -10px
+      oklch(var(--primary) / 0.35);
   }
 
   /* The primary action's gradient pans between its own two stops, so the button
@@ -1020,17 +1019,21 @@
     }
   }
 
-  /* Clickable cards: lift on hover, settle on press. Paired with the card
-     border so the lift reads as the surface coming forward, not a jump. */
+  /* Clickable surfaces that are not `data-slot="card"` — the theme choosers in
+     Settings, a note row, an attempt row — lift on hover and settle on press,
+     through the same elevation token the card hover uses so a page never shows
+     two different shadows for the same gesture. (This rule carried the old
+     hardcoded blue-ink shadow.) */
   .card-interactive {
-    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s
-      ease, border-color 0.22s ease;
+    transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.24s
+      ease, background-color 0.24s ease, border-color 0.24s ease;
   }
 
-  .card-interactive:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 12px 32px -12px oklch(0.2 0.025 265 / 0.22), 0 4px 10px -6px
-      oklch(0.2 0.025 265 / 0.12);
+  @media (hover: hover) {
+    .card-interactive:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-elevated);
+    }
   }
 
   .card-interactive:active {
