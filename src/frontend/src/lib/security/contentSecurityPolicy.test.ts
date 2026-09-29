@@ -47,6 +47,10 @@ describe("contentSecurityPolicy", () => {
       "https://openrouter.ai",
       "https://cdnjs.cloudflare.com",
       "http://localhost:11434",
+      // `breachReason()` in `lib/passwordPolicy.ts` sends a hash prefix here.
+      // Without it the pwned-passwords check fails as a CSP violation that
+      // looks like a network error, and every sign-up loses the check.
+      "https://api.pwnedpasswords.com",
       "https://vitals.vercel-insights.com",
       "https://va.vercel-scripts.com",
     ]) {

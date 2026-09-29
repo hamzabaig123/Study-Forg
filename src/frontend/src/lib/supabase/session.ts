@@ -14,6 +14,7 @@
  * worth showing. `client.auth` is not called anywhere else.
  */
 import { passwordLengthError } from "@/lib/passwordPolicy";
+import { breachReason } from "@/lib/passwordPolicy";
 import { SUPABASE_URL } from "@/lib/supabase/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -38,8 +39,33 @@ interface AuthUser {
   user_metadata?: Record<string, unknown> | null;
 }
 
-function accountOf(user: AuthUser): SupabaseAccount {
-  const email = user.email ?? "";
+/**
+ * Validate a new password before any request is made.
+ *
+ * Refused locally rather than by the server: a mismatch or an under-floor
+ * password would otherwise cost a round trip (GoTrue answers under the floor
+ * with `422 weak_password`, measured live), and a breached password should
+ * never travel at all — the breach lookup leaves the browser either way
+ * (k-anonymity range query, see `breachReason`).
+ */
+async function assertNewPassword(
+  password: string,
+  confirmation: string,
+): Promise<void> {
+  if (password !== confirmation) {
+    throw new Error("The two passwords do not match.");
+  }
+  const tooShort = passwordLengthError(password);
+  if (tooShort) {
+    throw new Error(tooShort);
+  }
+  const breached = await breachReason(password);
+  if (breached) {
+    throw new Error(breached);
+  }
+}
+
+function accountOf(user: AuthUser): SupabaseAccount {  const email = user.email ?? "";
   const metadata = user.user_metadata;
   const full = metadata?.full_name;
   const name = typeof full === "string" ? full.trim() : "";
@@ -94,6 +120,20 @@ export interface SessionStore {
    * purpose is this call, and `updateUser` refuses any other token.
    */
   updatePassword(
+    password: string,
+    confirmation: string,
+  ): Promise<SupabaseAccount>;
+  /**
+   * Change the password of the signed-in account.
+   *
+   * Unlike `updatePassword`, possession of the current password is required
+   * first: without that check, anyone who reaches an unlocked session — a
+   * shared computer, a stolen laptop, a tab left open — can lock the real
+   * owner out by rotating the password. The proof is a password grant, which
+   * also refreshes the session; a wrong answer never touches it.
+   */
+  changePassword(
+    currentPassword: string,
     password: string,
     confirmation: string,
   ): Promise<SupabaseAccount>;
@@ -283,9 +323,7 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
     },
 
     async register({ name, email, password, passwordConfirmation }) {
-      if (password !== passwordConfirmation) {
-        throw new Error("The two passwords do not match.");
-      }
+      await assertNewPassword(password, passwordConfirmation);
       const { data, error } = await client.auth.signUp({
         email,
         password,
@@ -333,23 +371,38 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
     },
 
     async updatePassword(password, confirmation) {
-      if (password !== confirmation) {
-        throw new Error("The two passwords do not match.");
-      }
-      // Refused before the request rather than after it: an empty password would
-      // be accepted by `updateUser` if the project's policy allowed it, and the
-      // visitor would find out only when the next sign-in fails. The floor is
-      // the deployed project's own — GoTrue answers under it with
-      // `422 weak_password`, measured live.
-      const tooShort = passwordLengthError(password);
-      if (tooShort) {
-        throw new Error(tooShort);
-      }
+      await assertNewPassword(password, confirmation);
       const { data, error } = await client.auth.updateUser({ password });
       const account = unwrap(data.user, error);
       setRecovery(false);
       apply(account);
       return account;
+    },
+
+    async changePassword(currentPassword, password, confirmation) {
+      await assertNewPassword(password, confirmation);
+      const account = current;
+      if (!account) {
+        throw new Error("There is no signed-in account to change.");
+      }
+      // Possession proof before the change: a wrong current password must
+      // leave the session exactly as it was. GoTrue answers a bad grant with
+      // `invalid_login_credentials`; anything else (network, unconfirmed)
+      // keeps the store's own wording.
+      const proof = await client.auth.signInWithPassword({
+        email: account.email,
+        password: currentPassword,
+      });
+      if (proof.error) {
+        if (/invalid/i.test(proof.error.message)) {
+          throw new Error("The current password is incorrect.");
+        }
+        throw new Error(authMessage(proof.error.message));
+      }
+      const { data, error } = await client.auth.updateUser({ password });
+      const next = unwrap(data.user, error);
+      apply(next);
+      return next;
     },
 
     awaitsNewPassword: () => recovering,

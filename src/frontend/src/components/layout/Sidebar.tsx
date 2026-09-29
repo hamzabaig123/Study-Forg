@@ -107,7 +107,11 @@ export function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-5">
-          <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/50">
+          {/* /70 is the measured floor, not a style whim: the group labels are
+              real 11px text, and /50 measured 2.88:1 (light), 2.81:1 (green)
+              and 3.06:1 (maroon) — below every WCAG bar. /70 clears 4.5:1 in
+              all four themes (worst 4.76:1). */}
+          <p className="px-3 pb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/70">
             Study
           </p>
           <ul className="space-y-1">
@@ -116,7 +120,7 @@ export function Sidebar({ open, onClose }: SidebarProps) {
             ))}
           </ul>
 
-          <p className="px-3 pb-2 pt-6 text-[11px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/50">
+          <p className="px-3 pb-2 pt-6 text-[11px] font-semibold uppercase tracking-[0.18em] text-sidebar-foreground/70">
             Distribute
           </p>
           <ul className="space-y-1">

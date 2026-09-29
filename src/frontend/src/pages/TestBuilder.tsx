@@ -365,7 +365,10 @@ export default function TestBuilder() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="min-w-0 space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                <Label
+                  htmlFor="builder-class"
+                  className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+                >
                   Class
                 </Label>
                 <Select
@@ -376,6 +379,7 @@ export default function TestBuilder() {
                   }}
                 >
                   <SelectTrigger
+                    id="builder-class"
                     className="w-full rounded-lg"
                     data-ocid={`${MARKER}.class_select`}
                   >
@@ -394,7 +398,10 @@ export default function TestBuilder() {
                 </Select>
               </div>
               <div className="min-w-0 space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                <Label
+                  htmlFor="builder-subject"
+                  className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+                >
                   Subject
                 </Label>
                 <Select
@@ -403,6 +410,7 @@ export default function TestBuilder() {
                   onValueChange={(next) => setSubjectId(BigInt(next))}
                 >
                   <SelectTrigger
+                    id="builder-subject"
                     className="w-full rounded-lg"
                     data-ocid={`${MARKER}.subject_select`}
                   >

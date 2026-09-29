@@ -96,6 +96,21 @@ export interface EmailPasswordAuthState extends AuthState {
   updatePassword:
     | ((password: string, confirmation: string) => Promise<void>)
     | null;
+  /**
+   * Change the password of the signed-in account.
+   *
+   * `null` where there is nothing to change it against — the dev mock keeps
+   * its accounts in this browser, and Internet Identity has no password. The
+   * implementation proves possession of the current password first, so a
+   * session alone is never enough to rotate someone out of their account.
+   */
+  changePassword:
+    | ((
+        currentPassword: string,
+        password: string,
+        confirmation: string,
+      ) => Promise<void>)
+    | null;
 }
 
 /** Internet Identity session: the identity itself is the credential. */
@@ -167,6 +182,7 @@ export function useLocalAccountAuth(): EmailPasswordAuthState {
     awaitsNewPassword: false,
     requestPasswordReset: null,
     updatePassword: null,
+    changePassword: null,
     signIn: useCallback(
       async (email: string, password: string) =>
         emailAccountOf(await loginAccount(email, password)),
@@ -306,6 +322,20 @@ export function useSupabaseAuth(): EmailPasswordAuthState {
     updatePassword: useCallback(
       async (password: string, confirmation: string) => {
         await sessionStore().updatePassword(password, confirmation);
+      },
+      [],
+    ),
+    changePassword: useCallback(
+      async (
+        currentPassword: string,
+        password: string,
+        confirmation: string,
+      ) => {
+        await sessionStore().changePassword(
+          currentPassword,
+          password,
+          confirmation,
+        );
       },
       [],
     ),

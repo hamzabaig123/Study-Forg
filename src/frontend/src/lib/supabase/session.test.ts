@@ -8,7 +8,7 @@ import { MIN_PASSWORD_LENGTH } from "@/lib/passwordPolicy";
  * changes, and what a refusal looks like.
  */
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createSessionStore } from "./session";
 
 interface FakeUser {
@@ -159,6 +159,37 @@ function fakeClient(options: { session?: unknown } = {}) {
     },
   };
 }
+
+/**
+ * The breach corpus that `assertNewPassword` consults is the one call the store
+ * makes which does not go to the project, so it is answered here rather than
+ * reached: an empty range is the corpus saying "not seen".
+ */
+function corpusAnsweredWith(...lines: string[]) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => ({ ok: true, text: async () => lines.join("\n") })),
+  );
+}
+
+/** The line the corpus carries for a password it already knows. */
+async function breachLine(password: string): Promise<string> {
+  const bytes = new Uint8Array(
+    await crypto.subtle.digest("SHA-1", new TextEncoder().encode(password)),
+  );
+  const digest = [...bytes]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+  return `${digest.slice(5).toUpperCase()}:1234`;
+}
+
+beforeEach(() => {
+  corpusAnsweredWith();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("restoring the stored session", () => {
   it("reports the account supabase-js persisted", async () => {
@@ -329,7 +360,7 @@ describe("registering", () => {
       store.register({
         name: "Ada",
         email: "ada@example.com",
-        password: "aaaaaaaa",
+        password: "studyforge-ada",
         passwordConfirmation: "bbbbbbbb",
       }),
     ).rejects.toThrow(/do not match/i);
@@ -342,14 +373,14 @@ describe("registering", () => {
     await store.register({
       name: "Ada",
       email: "ada@example.com",
-      password: "aaaaaaaa",
-      passwordConfirmation: "aaaaaaaa",
+      password: "studyforge-ada",
+      passwordConfirmation: "studyforge-ada",
     });
     expect(fake.calls).toContainEqual({
       name: "signUp",
       args: {
         email: "ada@example.com",
-        password: "aaaaaaaa",
+        password: "studyforge-ada",
         options: {
           data: { full_name: "Ada" },
           emailRedirectTo: `${window.location.origin}/verify-email?email=ada%40example.com`,
@@ -369,8 +400,8 @@ describe("registering", () => {
     await store.register({
       name: "Ada",
       email: "Ada@Example.com",
-      password: "aaaaaaaa",
-      passwordConfirmation: "aaaaaaaa",
+      password: "studyforge-ada",
+      passwordConfirmation: "studyforge-ada",
     });
     await store.resendConfirmation("Ada@Example.com");
 
@@ -392,8 +423,8 @@ describe("registering", () => {
     const account = await store.register({
       name: "Ada",
       email: "ada@example.com",
-      password: "aaaaaaaa",
-      passwordConfirmation: "aaaaaaaa",
+      password: "studyforge-ada",
+      passwordConfirmation: "studyforge-ada",
     });
     expect(account).toBe(null);
     expect(store.snapshot()).toBe("null");
@@ -407,8 +438,8 @@ describe("registering", () => {
       store.register({
         name: "Ada",
         email: "ada@example.com",
-        password: "aaaaaaaa",
-        passwordConfirmation: "aaaaaaaa",
+        password: "studyforge-ada",
+        passwordConfirmation: "studyforge-ada",
       }),
     ).rejects.toThrow("User already registered");
   });
@@ -421,10 +452,29 @@ describe("registering", () => {
       store.register({
         name: "Ada",
         email: "ada@example.com",
-        password: "aaaaaaaa",
-        passwordConfirmation: "aaaaaaaa",
+        password: "studyforge-ada",
+        passwordConfirmation: "studyforge-ada",
       }),
     ).rejects.toThrow(/Could not reach the Supabase project/);
+  });
+
+  it("refuses a password the breach corpus already has, before asking the project", async () => {
+    // GoTrue's own HIBP switch is plan-gated on this project, so the browser is
+    // the only thing between a visitor and a password that is already public.
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    const password = "studyforge-ada";
+    corpusAnsweredWith(await breachLine(password));
+
+    await expect(
+      store.register({
+        name: "Ada",
+        email: "ada@example.com",
+        password,
+        passwordConfirmation: password,
+      }),
+    ).rejects.toThrow(/already public/);
+    expect(fake.calls).toEqual([]);
   });
 });
 
@@ -559,6 +609,96 @@ describe("resetting a password", () => {
 
     expect(store.awaitsNewPassword()).toBe(false);
     expect(store.account()).toBe(null);
+  });
+});
+
+/**
+ * The signed-in change is the one password path where the session itself is the
+ * attack surface: whoever holds an unlocked tab can otherwise write the real
+ * owner out of the account. So the current password has to be proved before the
+ * new one travels, and a form that leaves the proof out must not be able to
+ * skip it.
+ */
+describe("changing a password while signed in", () => {
+  it("proves the current password before it sends the new one", async () => {
+    const fake = fakeClient({ session: { user: user() } });
+    const store = createSessionStore(fake.client);
+    await store.restore();
+
+    await store.changePassword(
+      "the old secret",
+      "a brand new secret",
+      "a brand new secret",
+    );
+
+    // The order is the whole guarantee: a grant attempt with the old password,
+    // and only then the update. `updateUser` never sees the old one.
+    expect(fake.calls).toEqual([
+      { name: "getSession", args: null },
+      {
+        name: "signInWithPassword",
+        args: { email: "ada@example.com", password: "the old secret" },
+      },
+      { name: "updateUser", args: { password: "a brand new secret" } },
+    ]);
+  });
+
+  it("leaves the account alone when the current password is wrong", async () => {
+    const fake = fakeClient({ session: { user: user() } });
+    fake.reply.signIn = refused("Invalid login credentials");
+    const store = createSessionStore(fake.client);
+    await store.restore();
+
+    await expect(
+      store.changePassword(
+        "not the old secret",
+        "a brand new secret",
+        "a brand new secret",
+      ),
+    ).rejects.toThrow("The current password is incorrect.");
+    expect(fake.calls.map((call) => call.name)).not.toContain("updateUser");
+    expect(store.account()?.email).toBe("ada@example.com");
+  });
+
+  it("refuses an unusable new password without spending the grant attempt", async () => {
+    const fake = fakeClient({ session: { user: user() } });
+    const store = createSessionStore(fake.client);
+    await store.restore();
+
+    await expect(
+      store.changePassword("the old secret", "one secret", "another secret"),
+    ).rejects.toThrow(/do not match/i);
+    await expect(
+      store.changePassword("the old secret", "too short", "too short"),
+    ).rejects.toThrow(/between 10 and 128/i);
+    expect(fake.calls.map((call) => call.name)).toEqual(["getSession"]);
+  });
+
+  it("refuses a breached new password before it touches the project", async () => {
+    const fake = fakeClient({ session: { user: user() } });
+    const store = createSessionStore(fake.client);
+    await store.restore();
+    const password = "a brand new secret";
+    corpusAnsweredWith(await breachLine(password));
+
+    await expect(
+      store.changePassword("the old secret", password, password),
+    ).rejects.toThrow(/already public/);
+    expect(fake.calls.map((call) => call.name)).toEqual(["getSession"]);
+  });
+
+  it("says there is no account to change when nothing is signed in", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+
+    await expect(
+      store.changePassword(
+        "the old secret",
+        "a brand new secret",
+        "a brand new secret",
+      ),
+    ).rejects.toThrow(/no signed-in account/);
+    expect(fake.calls).toEqual([]);
   });
 });
 

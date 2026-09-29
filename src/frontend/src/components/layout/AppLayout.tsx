@@ -4,6 +4,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { StorageHealthBanner } from "@/components/layout/StorageHealthBanner";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useCardSpotlight } from "@/hooks/useCardSpotlight";
+import { useIdleSignOut } from "@/hooks/useIdleSignOut";
 import { useReminderScheduler } from "@/hooks/useReminders";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { AnimatePresence, m } from "motion/react";
@@ -18,6 +19,8 @@ export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Daily email/notification digest, checked once a minute while signed in.
   useReminderScheduler();
+  // Thirty quiet minutes end the session (Supabase mode only).
+  useIdleSignOut();
   // Pointer-tracked highlight behind every card surface (desktop only).
   useCardSpotlight();
   // Re-keying the page body on every navigation replays its entrance, which

@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { ArchiveImport } from "@/components/settings/ArchiveImport";
 import { InstallRow } from "@/components/settings/InstallRow";
 import { RemindersSection } from "@/components/settings/RemindersSection";
+import { ChangePasswordSection } from "@/components/settings/ChangePasswordSection";
 import { useTheme } from "@/components/theme/ThemeProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -682,7 +683,14 @@ export default function SettingsPage() {
               description="Pick the surface you study on. Changes apply immediately."
             />
 
-            <div aria-label="Theme" className="mt-5 grid gap-3 sm:grid-cols-3">
+            {/* role="group" is what makes aria-label legal here — a bare div
+                with aria-label is dropped by the accessibility tree, which is
+                the one finding the audits raised on this page's structure. */}
+            <div
+              role="group"
+              aria-label="Theme"
+              className="mt-5 grid gap-3 sm:grid-cols-3"
+            >
               {THEME_CARDS.map(({ name, label, hint, Icon, swatch }) => {
                 const selected = appearanceDraft === name;
                 const applied = theme === name;
@@ -854,6 +862,8 @@ export default function SettingsPage() {
                 Sign out
               </Button>
             </div>
+
+            <ChangePasswordSection />
 
             {/* Danger zone */}
             <div

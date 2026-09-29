@@ -57,6 +57,43 @@ the loop was scheduled, so the first frame ran with negative progress and
 painted **−39 %** on a score of 88. The progress fraction is now clamped to
 `[0, 1]`, and headless Edge measured the fix — 49 paints, monotone 0 → 88.
 
+**The accessibility audits, settled by measurement.** Four axe-core scans of the
+deployed origin (landing 34, dashboard 49, test-builder 36, settings 80 items,
+WCAG 2.2 AA) were read item by item, and they split cleanly: almost everything
+is axe's contrast rule answering *"could not be determined"* because a gradient,
+a pseudo-element or the sidebar's own markup stands behind the text —
+inconclusive, not failed — and **three findings were real defects, all fixed**:
+
+1. The test-builder's class and subject `SelectTrigger`s had **no accessible
+   name** (Critical, WCAG 4.1.2): the visible `<Label>` carried no `htmlFor`,
+   so nothing named the combobox button. Fixed with the idiom `QrGenerator`
+   already uses — `htmlFor` + matching `id` on the trigger.
+2. Settings' theme grid carried `aria-label="Theme"` on a role-less `div`,
+   which assistive tech drops. Now `role="group"` so the label is legal and
+   spoken.
+3. The sidebar's section labels ("Study", "Distribute") are real 11px text at
+   `text-sidebar-foreground/50`, and that measured **2.88:1 (light), 2.81:1
+   (Green), 3.06:1 (maroon)** — below every WCAG bar; only dark passed
+   (4.59:1). Raised to `/70`, measured **≥ 4.76:1 in all four themes**.
+
+The inconclusive pile was then settled rather than waved away: each flagged
+pair reduced to a token pair, measured from the canvas-audit hexes (alpha
+already flattened over its real backdrop). Result — every other pair passes AA
+with room: muted-foreground on card ≥ 5.10:1 (that includes the recharts axis
+ticks, which draw with `--muted-foreground`), foreground on card ≥ 12.25:1,
+primary on card ≥ 4.95:1, accent on card ≥ 5.04:1, warning on card ≥ 5.08:1,
+primary on the light canvas 4.63:1 (the tightest pass in the app). Axe cannot
+see through gradients; the canvas can.
+
+**The four-theme walk.** 88 screenshots — 4 themes × 14 routes at 1440 px plus
+8 key routes at 390 px — against the mock backend with a seeded account, class
+tree, six questions and a completed 5/6 practice run, so every page shows real
+data. Twelve key captures reviewed: all four themes coherent end to end, the
+results page composes ring-draw + count-up + confetti mid-flight, and the one
+blank capture (light landing, first page of the cold run) was disproven as a
+Vite cold-transform artifact — re-probed with a warm server, the content is in
+the DOM with zero console errors and renders.
+
 ## 2. Gates, re-run on this tree (2026-09-29)
 
 *Everything in this table describes the pushed commit `3edfe5f`. The working
@@ -122,8 +159,8 @@ gap that is not a defect. Below that, something is unproven or unfixed.
 | **Database** | **A++** | A++ | 0001–0012 all live; today's migration applied from this machine and read back four ways — constraint text, a `maroon` write that returned `23514` an hour earlier and `maroon accepted` now, no row left changed, battery 31/31 after | Nothing in the schema. The area's remaining unknown is not the schema but the recovery story: no backup has ever been dumped or restored |
 | **Authentication** | **A** | A | Nothing changed in this pass; `auth-flow.mjs` 13/13, branded mail live, password floor 10 enforced both sides | HIBP plan-gated; `From` address is the authenticating Gmail account until the relay gets a verified domain |
 | **Cybersecurity** | **A+** | A+ | The header policy is **served** (measured on the deployed origin), the forged-address throttle and TRUNCATE lockdown hold with permanent probes, and the battery re-passes after a schema change rather than only before one | The credential rotation in §6 — and it is now measurably *worse* than the last draft claimed: the `sbp_` token on disk answers `200` on `/v1/projects` and administers every project on the account |
-| **Frontend & UX** | **A** | A | 491 tests green re-run on the pushed tree, biome and typecheck clean, build green, the four themes and the motion pass all inside the suite's reach | The canister half of the surface cannot run here; the ticker fix was measured in headless Edge, the `blur={false}` change was not re-measured in a browser |
-| **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; `--scrim` gained a real consumer and the dead duplicate palette is gone; the count-up is now measured monotone 0 → 88 | 0012 was this area's blocker and it is closed. What is left is a real-device walk: the palettes are canvas-audited on the running app, not screenshot-compared at 320/390 px since the regrade |
+| **Frontend & UX** | **A** | A | 491 tests green re-run on the pushed tree, biome and typecheck clean, build green; the axe audits' three real defects fixed and re-verified (143 page tests), the inconclusive contrast pile measured pass pair by pair; the four-theme walk captured 88 screenshots on seeded data | The canister half of the surface cannot run here; a performance budget (Lighthouse or equivalent) has never been run |
+| **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; and the palettes are now **screenshot-compared at 1440 and 390 px across all four themes** on real seeded data (§1) | A 320 px sweep and a real-device look are the only visual surfaces still untested |
 | **Backend (canister + adapter)** | **B+** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented | `backend.wasm` remains a trusted binary — no `dfx`/`mops` on this machine |
 | **Testing & QA** | **A** | A- | 491 green including the motion surface contract and the theme-string pins in both suites, re-run after the last colour change rather than before it | The live sweeps are hand-run (they need a service key), not CI — see Operations |
 | **Operations & CI** | **B** | C | Push → Vercel → headers measured on the deployed origin; `vercel.json` carries the policy; DEPLOY.md is truthful; **and the "a human must paste it" step disappeared** — 0012 was applied over HTTPS from this machine, verified, and recorded in `supabase/README.md` | No backup has ever been dumped or restored; no CI pipeline has ever run; the drift guards only bite a human who runs them |
@@ -159,8 +196,9 @@ tree.
    say the word and it is one careful sequence; otherwise view the slice alone
    with `git show 3edfe5f -- src/frontend/src/index.css` and read the `:root`
    hunk.
-4. Optional: a browser walk of the four themes at 320 and 390 px, and the
-   results page at exactly 75 % to see the confetti threshold.
+4. Optional: a 320 px sweep of the four themes — 390 and 1440 are done (88
+   captures reviewed, §1) — and the confetti threshold is already on camera
+   (the 5/6 practice result fires it at 83 %).
 
 ## 7. Not counted, stated honestly
 

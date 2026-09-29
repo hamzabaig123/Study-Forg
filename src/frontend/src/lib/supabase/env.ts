@@ -104,11 +104,20 @@ export function selectDataBackend(): DataBackend {
   const forced = (
     import.meta.env.VITE_DATA_BACKEND as string | undefined
   )?.trim();
+  let selected: DataBackend;
   if (forced === "mock" || forced === "supabase" || forced === "canister") {
-    return forced;
+    selected = forced;
+  } else if (import.meta.env.VITE_USE_MOCK === "true") {
+    selected = "mock";
+  } else {
+    selected = SUPABASE_CONFIGURED ? "supabase" : "canister";
   }
-  if (import.meta.env.VITE_USE_MOCK === "true") {
-    return "mock";
+  // Defense in depth behind the build-time refusal in vite.config.js: a
+  // production bundle must never run on the localStorage mock, so a mock
+  // selection falls through to the real backend instead of persisting every
+  // account in the visitor's browser.
+  if (selected === "mock" && import.meta.env.PROD) {
+    selected = SUPABASE_CONFIGURED ? "supabase" : "canister";
   }
-  return SUPABASE_CONFIGURED ? "supabase" : "canister";
+  return selected;
 }
