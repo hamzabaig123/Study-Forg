@@ -35,15 +35,15 @@ jobs:
         run: mops install
 
       # mops check's stable-interface step compares the new interface against a
-      # previous .most snapshot at .old/src/backend/dist/ — the caffeine
-      # platform provides that file at build time, so CI replicates it from the
-      # committed interface: the check then answers "would this upgrade break
-      # stable variables against what is deployed?", which is the only version
-      # of the question worth asking.
-      - name: Provide the committed interface as the stable baseline
+      # previous .most snapshot at .old/src/backend/dist/. No dist artifact is
+      # committed (dist/ is gitignored), so CI uses mops's own documented
+      # empty-actor baseline: the check then proves the interface is valid as a
+      # first deploy. The upgrade-compare against the actually-deployed
+      # interface happens where the deployment happens.
+      - name: Provide the empty-actor stable baseline
         run: |
           mkdir -p .old/src/backend/dist
-          cp src/backend/dist/backend.most .old/src/backend/dist/backend.most
+          printf '// Version: 1.0.0\nactor { }\n' > .old/src/backend/dist/backend.most
 
       - name: Typecheck
         run: mops check
