@@ -48,8 +48,31 @@ jobs:
       - name: Typecheck
         run: mops check
 
+      # `tee` rather than a bare run, and the error step below, exist because
+      # the job log itself is not readable from outside GitHub: the API's log
+      # endpoint answers 403 "Must have admin rights to Repository" even on a
+      # public repo, so a red step that only prints "Process completed with
+      # exit code 1" in its annotation is undiagnosable from where this project
+      # is developed (no moc on Windows, no WSL distro, so no local compile
+      # either). A `::error::` annotation is the one channel that does reach
+      # the REST API, so the compiler's own words go through it.
       - name: Build
-        run: mops build
+        shell: bash
+        run: set -o pipefail && mops build 2>&1 | tee /tmp/mops-build.log
+
+      - name: Surface the build error
+        if: failure()
+        shell: bash
+        run: |
+          [ -s /tmp/mops-build.log ] || { echo "::error::mops build produced no output"; exit 0; }
+          # One annotation per line, with the characters workflow commands use
+          # as their own delimiters escaped back, so the message survives.
+          tail -n 40 /tmp/mops-build.log | while IFS= read -r line; do
+            line="${line//%/%25}"
+            line="${line//$'\r'/%0D}"
+            line="${line//$'\n'/%0A}"
+            echo "::error::${line}"
+          done
 
       - name: Upload wasm
         uses: actions/upload-artifact@v4
