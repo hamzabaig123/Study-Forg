@@ -384,7 +384,7 @@ export function ProviderDialog({
               </p>
             ) : null}
             {current && !current.vision ? (
-              <p className="text-[11px] leading-relaxed text-amber-600 dark:text-amber-500">
+              <p className="text-[11px] leading-relaxed text-amber-800 dark:text-amber-500">
                 This model reads text only, so it cannot see an image or a
                 scanned page.
               </p>

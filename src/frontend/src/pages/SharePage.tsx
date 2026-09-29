@@ -161,7 +161,14 @@ export default function SharePage() {
         <CardContent className="space-y-5 p-5">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              {/* A role="combobox" button takes no name from its own content, so
+                  the placeholder text is not an accessible name. Pairing the
+                  visible Label to the trigger by id is the shape used across the
+                  app (SessionSetupDialog); an aria-label would duplicate it. */}
+              <Label
+                htmlFor="share-class"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Class
               </Label>
               <Select
@@ -174,6 +181,7 @@ export default function SharePage() {
                 }}
               >
                 <SelectTrigger
+                  id="share-class"
                   className="w-full rounded-lg"
                   data-ocid="share.class_select"
                 >
@@ -193,7 +201,10 @@ export default function SharePage() {
             </div>
 
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="share-subject"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Subject
               </Label>
               <Select
@@ -206,6 +217,7 @@ export default function SharePage() {
                 }}
               >
                 <SelectTrigger
+                  id="share-subject"
                   className="w-full rounded-lg"
                   data-ocid="share.subject_select"
                 >
@@ -225,7 +237,10 @@ export default function SharePage() {
             </div>
 
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="share-chapter"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Chapter
               </Label>
               <Select
@@ -237,6 +252,7 @@ export default function SharePage() {
                 }}
               >
                 <SelectTrigger
+                  id="share-chapter"
                   className="w-full rounded-lg"
                   data-ocid="share.chapter_select"
                 >
@@ -256,7 +272,10 @@ export default function SharePage() {
             </div>
 
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="share-topic"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Topic (optional)
               </Label>
               <Select
@@ -267,6 +286,7 @@ export default function SharePage() {
                 }
               >
                 <SelectTrigger
+                  id="share-topic"
                   className="w-full rounded-lg"
                   data-ocid="share.topic_select"
                 >

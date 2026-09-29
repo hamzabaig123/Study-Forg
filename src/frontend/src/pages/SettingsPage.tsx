@@ -683,14 +683,12 @@ export default function SettingsPage() {
               description="Pick the surface you study on. Changes apply immediately."
             />
 
-            {/* role="group" is what makes aria-label legal here — a bare div
-                with aria-label is dropped by the accessibility tree, which is
-                the one finding the audits raised on this page's structure. */}
-            <div
-              role="group"
-              aria-label="Theme"
-              className="mt-5 grid gap-3 sm:grid-cols-3"
-            >
+            {/* A fieldset is the native named group: <legend> supplies the
+                accessible name without an aria-label, which is what biome's
+                useSemanticElements asks for and what the axe pass needed. The
+                border/padding resets keep the grid laid out exactly as before. */}
+            <fieldset className="mt-5 grid gap-3 border-0 p-0 sm:grid-cols-3">
+              <legend className="sr-only">Theme</legend>
               {THEME_CARDS.map(({ name, label, hint, Icon, swatch }) => {
                 const selected = appearanceDraft === name;
                 const applied = theme === name;
@@ -742,7 +740,7 @@ export default function SettingsPage() {
                   </button>
                 );
               })}
-            </div>
+            </fieldset>
             {fieldError?.field === "appearance" ? (
               <div className="mt-3">
                 <FieldError message={fieldError.message} />

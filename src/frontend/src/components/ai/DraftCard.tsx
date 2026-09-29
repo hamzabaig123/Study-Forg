@@ -285,7 +285,7 @@ export function DraftCard({
       </div>
 
       {draft.inferred && !imported ? (
-        <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-700 dark:text-amber-400">
+        <div className="flex items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-4 py-2 text-xs text-amber-800 dark:text-amber-400">
           <AlertTriangle className="size-3.5 shrink-0" aria-hidden="true" />
           Nothing in the source marks this answer — verify it before saving.
         </div>

@@ -97,7 +97,12 @@ export default function ExportPage() {
         <CardContent className="space-y-5 p-5">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              {/* The combobox trigger cannot name itself from its placeholder, so
+                  each Label here is paired to its trigger by id — see SharePage. */}
+              <Label
+                htmlFor="export-class"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Class
               </Label>
               <Select
@@ -110,6 +115,7 @@ export default function ExportPage() {
                 }}
               >
                 <SelectTrigger
+                  id="export-class"
                   className="w-full rounded-lg"
                   data-ocid="export.class_select"
                 >
@@ -129,7 +135,10 @@ export default function ExportPage() {
             </div>
 
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="export-subject"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Subject
               </Label>
               <Select
@@ -142,6 +151,7 @@ export default function ExportPage() {
                 }}
               >
                 <SelectTrigger
+                  id="export-subject"
                   className="w-full rounded-lg"
                   data-ocid="export.subject_select"
                 >
@@ -161,7 +171,10 @@ export default function ExportPage() {
             </div>
 
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="export-chapter"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Chapter
               </Label>
               <Select
@@ -173,6 +186,7 @@ export default function ExportPage() {
                 }}
               >
                 <SelectTrigger
+                  id="export-chapter"
                   className="w-full rounded-lg"
                   data-ocid="export.chapter_select"
                 >
@@ -192,7 +206,10 @@ export default function ExportPage() {
             </div>
 
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="export-topic"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Topic (optional)
               </Label>
               <Select
@@ -201,6 +218,7 @@ export default function ExportPage() {
                 onValueChange={(next) => setTopicId(BigInt(next))}
               >
                 <SelectTrigger
+                  id="export-topic"
                   className="w-full rounded-lg"
                   data-ocid="export.topic_select"
                 >
@@ -222,7 +240,10 @@ export default function ExportPage() {
 
           <div className="grid gap-4 border-t border-border/60 pt-5 sm:grid-cols-2">
             <div className="min-w-0 space-y-1.5">
-              <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              <Label
+                htmlFor="export-format"
+                className="text-xs font-semibold uppercase tracking-widest text-muted-foreground"
+              >
                 Format
               </Label>
               <Select
@@ -230,6 +251,7 @@ export default function ExportPage() {
                 onValueChange={(next) => setFormat(next as ExportFormat)}
               >
                 <SelectTrigger
+                  id="export-format"
                   className="w-full rounded-lg"
                   data-ocid="export.format_select"
                 >

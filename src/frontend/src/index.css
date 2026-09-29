@@ -939,15 +939,19 @@
      one delegated window listener (useCardSpotlight) writing CSS custom
      properties — no per-card React state, no listeners per card. Touch
      devices never render it; the reduced-motion block below kills its
-     transition. */
+     animation.
+     `content` lives on the :hover rule, not the base rule, on purpose: an
+     ::after that exists while idle (even at opacity 0) makes axe's
+     color-contrast rule abstain on every text node in every card — around
+     45 "could not be determined due to a pseudo element" rows per page
+     audit, none of them real failures. With the box created only under the
+     pointer the static page measures clean, and the entry fade is carried
+     by the keyframe instead of the transition it replaced. */
   [data-slot="card"]::after {
-    content: "";
     position: absolute;
     inset: 0;
     border-radius: inherit;
     pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.35s ease;
     background: radial-gradient(
       340px circle at var(--spot-x, 50%) var(--spot-y, 50%),
       oklch(var(--spotlight)),
@@ -955,8 +959,15 @@
     );
   }
 
+  @keyframes spotlight-in {
+    from {
+      opacity: 0;
+    }
+  }
+
   [data-slot="card"]:hover::after {
-    opacity: 1;
+    content: "";
+    animation: spotlight-in 0.35s ease;
   }
 
   @media (hover: none) {
@@ -1083,8 +1094,10 @@ html.theme-switching *::after {
     display: none !important;
   }
 
+  /* The spotlight's entry fade is the only motion it has; without the
+     animation the light still appears, it just appears at once. */
   [data-slot="card"]::after {
-    transition: none !important;
+    animation: none !important;
   }
 
   .card-interactive,

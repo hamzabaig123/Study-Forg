@@ -294,7 +294,7 @@ export default function AiStudio() {
             className={
               engineIsModel
                 ? "rounded-full border-primary/30 bg-primary/10 text-primary"
-                : "rounded-full border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                : "rounded-full border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-400"
             }
           >
             <Sparkles className="mr-1.5 size-3" aria-hidden="true" />
@@ -348,7 +348,7 @@ export default function AiStudio() {
                 {/* A toast fades; a queue that is short by ten pages stays
                     short, so the gap has to be readable whenever it is looked at. */}
                 {missing.length > 0 && (
-                  <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+                  <span className="flex items-center gap-1.5 text-xs text-amber-800 dark:text-amber-400">
                     <AlertTriangle
                       className="size-3.5 shrink-0"
                       aria-hidden="true"

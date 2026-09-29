@@ -27,9 +27,11 @@ export function ErrorState({
       <span className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
         <AlertTriangle className="h-5 w-5" aria-hidden="true" />
       </span>
-      <h3 className="font-display text-lg font-semibold text-foreground">
+      {/* h2 for the same reason as EmptyState: card titles are plain divs,
+          so this is the next heading after the page's h1. */}
+      <h2 className="font-display text-lg font-semibold text-foreground">
         {title}
-      </h3>
+      </h2>
       <p className="mt-1.5 max-w-md text-sm text-muted-foreground">
         {description}
       </p>

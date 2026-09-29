@@ -114,7 +114,7 @@ export function SourcePanel({
               className={
                 engineIsModel
                   ? "rounded-full border-primary/30 bg-primary/10 text-primary"
-                  : "rounded-full border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                  : "rounded-full border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-400"
               }
             >
               {engineIsModel ? (
