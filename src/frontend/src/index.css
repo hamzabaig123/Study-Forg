@@ -668,12 +668,13 @@
 
   /* --- Author credit ---------------------------------------------------- */
 
-  /* The footer name keeps foreground ink rather than the brand gradient: that
-     fill measures 2.21:1 on light and 3.11:1 on Green against its own card,
-     which no amount of weight rescues at 12px. The gradient goes into the
-     hairline under it instead, where 3:1 is the only bar — `--accent` clears it
-     in every theme. The rule draws in from the left, then a highlight pans
-     along it; two animations on two properties, so they do not fight. */
+  /* The footer name is accent-coloured text on the theme's own background —
+     measured (linear-components WCAG, canvas-flattened) at ≥ 4.86:1 in every
+     theme, so AA for normal text holds without leaning on the ink. The rule
+     under it is the same flat accent, 2px, running slightly past the name
+     (negative inset) and drawing in from the left once on mount; a resting
+     gradient pan was dropped because the reference design is flat, and a
+     shimmer under a name nobody is deciding about is a fan, not a footer. */
   .credit-name {
     position: relative;
     display: inline-block;
@@ -682,20 +683,13 @@
   .credit-name::after {
     content: "";
     position: absolute;
-    inset-inline: 0;
-    bottom: -0.2em;
-    height: 1.5px;
+    inset-inline: -0.12em;
+    bottom: -0.14em;
+    height: 2px;
     border-radius: 9999px;
-    background-image: linear-gradient(
-      90deg,
-      oklch(var(--accent)),
-      oklch(var(--primary)),
-      oklch(var(--accent))
-    );
-    background-size: 220% 100%;
+    background: oklch(var(--accent));
     transform-origin: left center;
-    animation: credit-rule 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards,
-      gradient-pan 9s ease-in-out 0.6s infinite;
+    animation: credit-rule 0.6s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
 
   @keyframes credit-rule {

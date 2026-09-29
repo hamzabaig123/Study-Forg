@@ -71,7 +71,7 @@ Light and dark use flat paper/ink surfaces with hairline borders and `shadow-sub
 | Header  | `bg-card` / glass   | `border-b`          | Sticky; ember logo mark + theme switcher on the right      |
 | Content | `bg-background`     | —                   | Alternating `bg-muted/30` bands separate major sections    |
 | Sidebar | `bg-sidebar` / glass| `border-r`          | Class → subject → chapter tree; ember active rail          |
-| Footer  | `bg-muted/40`       | `border-t`          | Compact, muted text; never bare on the canvas              |
+| Footer  | transparent (page canvas) | `border-t`    | Compact, muted text; the accent-coloured credit name is the one brand mark |
 
 ## Spacing & Rhythm
 
@@ -104,7 +104,7 @@ Runtime: `LazyMotion features={domMax} strict` + `MotionConfig reducedMotion="us
 - Buttons: the base variant transitions `background-color, border-color, color, box-shadow, transform, filter` over 200ms ease-out, lifts 1px on hover with `shadow-sm`, and presses 1px back down at 75ms. No scale — a scaled text node rasterises blurry mid-transition, and `transition-all` dragged in every unrelated property.
 - Emphasis: `.animate-rise-sm` when a session answer lands, `.score-ring-fg` drawing the result ring, `.draw-hairline` under a page title, `.sheen-host` sweeping a specular highlight across a stat card on hover, `.card-interactive` lifting a settings tile.
 - Celebration: `ConfettiBurst` puts 28 CSS-only pieces (`confetti-fall`, deterministic per-index scatter, `aria-hidden`, self-unmounting at 3.2s) behind a score at or above 75% — the same threshold where `scoreMessage` starts saying "strong work", so the paper and the words celebrate the same result or neither does. No dependency was added for it.
-- The footer credit's name carries a gradient hairline (`.credit-name::after`) that draws in once and then pans slowly; the gradient lives in the rule rather than in the 12px text because a brand gradient clipped to type that small measures below AA on every one of these palettes.
+- The footer credit's name is `text-accent` in the display serif (bold italic) — the one brand-coloured text on the page — over a flat accent rule (`.credit-name::after`, 2px, running slightly past the name) that draws in once from the left. The name measures ≥ 4.86:1 as text in every theme (accent on each theme's own canvas, measured live in the browser), so the colour is legible, not decorative.
 - Decorative: `drift` on the ambient gradient orbs behind the landing hero, and nothing else — motion that never stops is the one thing a reader cannot opt out of by looking away.
 - Reduced motion is honoured twice over: the provider refuses transforms at the source, and the CSS block switches off `.stagger > *`, `.animate-rise-sm`, `.animate-drift`, `.text-sweep` and `.credit-name::after`, with `.confetti-piece` set to `display: none` — `animation: none` there would leave 28 static dots parked over the content. The test environment skips the confetti entirely.
 
