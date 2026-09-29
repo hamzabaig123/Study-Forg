@@ -305,9 +305,22 @@ have to rediscover them.
   from this IP on production. A deliberate throttle of a live system is not a
   read-only probe, so it is left as a line in `verify.sql` and an experiment you can
   run when the project has a staging ref.
-- `e2e/` at the repo root (another session's Playwright harness) is untouched. Its
-  `package-lock.json` is git-ignored, so the harness is not reproducible elsewhere;
-  that is a call for whoever owns it, not a fix to make from the outside.
+- `e2e/` at the repo root has now been **run**, for the first time (2026-09-30).
+  `e2e/seed.local.cjs` provisions a throwaway account through the real UI on the
+  mock backend — register → local email confirm → class/subject/chapter/topic →
+  five questions → a practice session the app itself scores 5/5 — and
+  `SEED_LOCAL=1 node app.live.cjs` passes **34/34 checks, zero page errors**,
+  reproducibly (run twice, exit 0 both times). It earned its keep on the first
+  run: twelve routes failed "carries the entrance transition" because the motion
+  pass moved the signed-in shell from the `animate-fade-up` class to a framer
+  wrapper with inline `opacity`/`transform`. The check was stale, the app was
+  right; it now names both mechanisms, and the probe that settled it prints
+  exactly one matched element per route — the region's own wrapper, not a chart.
+  Still unproven from this machine: `import.live.cjs` and the credential path of
+  `app.live.cjs`, both of which need a real Supabase account. One caveat from the
+  old line survives: `e2e/package-lock.json` is git-ignored (`.gitignore:21`), so
+  the harness resolves `playwright-core` from its `^1.49.0` range rather than a
+  pinned version — this run used **1.63.0**.
 - The canister half stays review-only. No amount of local work closes it: it needs
   `dfx`/`mops`, and this machine has no virtualization.
 

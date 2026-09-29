@@ -289,3 +289,49 @@ Two axe audits of four pages (63 reported items) collapsed into four causes. The
 `supabase/e2e/apply-migration.mjs` reaches the project's database over HTTPS through the Supabase Management API (`POST /v1/projects/<ref>/database/query`), so the schema, the seven `verify.sql` assertions and `tests/rls_cross_tenant.sql` all run on this machine — the only credential it needs is a **personal access token** in the environment (`SUPABASE_ACCESS_TOKEN`, plus `SUPABASE_PROJECT_REF`; `--dry-run` and `--project <ref>` are supported). It is idempotent (checks `to_regclass('public.question')` first), exits 2 for a credential/project problem vs 1 for a failed check, and a failed count prints the rows behind it. Nothing here belongs in a file: the token administers every project on the account, so it is passed per run and `supabase/.env` deliberately does not list it.
 
 Windows gotcha for any `.mjs` that fetches: `process.exit()` while an undici socket is still open crashes with `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING)` **after** printing nothing useful. Set `process.exitCode` and let the loop drain (0.8 s in practice).
+
+### The browser E2E has a seed path, and `e2e/` is outside every gate
+
+`e2e/*.cjs` is compiled by nothing: the root scripts run `pnpm -r`, the frontend
+`tsconfig.json` includes only `src`, and Biome never sees the folder. A typo in
+`app.live.cjs` is invisible until the browser runs it, which is why the harness
+now has a self-contained way to get run — `SEED_LOCAL=1 BASE_URL=… node
+app.live.cjs` against `VITE_DATA_BACKEND=mock pnpm dev`. `seed.local.cjs`
+registers a throwaway account, confirms it with the verify-email screen's local
+**Confirm this email** button, builds the class → subject → chapter → topic
+chain, authors three multiple-choice + two true/false questions, and finishes a
+practice session. Every check in `app.live.cjs` then reads data the app produced
+through its own forms; nothing is written into `localStorage` from outside.
+
+- It is **mock-only, deliberately**. `registerAndConfirm` throws "the
+  verify-email screen offers no local confirmation button — this build is not on
+  the mock backend" rather than signing a real account up against Supabase, so
+  the seed can never be the thing that writes to production.
+- `data-ocid` values are **template-built from a `MARKER` constant**
+  (`CustomTest.tsx` → `const MARKER = "custom"`, `AnswerControls` →
+  `` `${marker}.option.${index + 1}` ``). Grepping `src/` for the literal
+  `custom.option.1` finds *nothing* and tempts you into inventing a selector;
+  grep the component and reconstruct it. `QuestionRenderer` puts the prompt in
+  `` `${marker}.prompt` ``, and options render in **shuffled display order**
+  (`sessionEngine.ts` shuffles questions and options), so a test that wants a
+  5/5 run must match the option's visible text, never its position.
+- **Finish is always on screen in practice mode.** `custom.primary_button`
+  ("Next") disappears on the last question and `custom.submit_button` ("Finish &
+  see results") is present on every question, so `innerText`-testing for the
+  Finish button submits question 1 with nothing answered and the results page
+  honestly reports 0 of 5. The end-of-test signal is
+  `(await locator('[data-ocid="custom.primary_button"]').count()) === 0`.
+- Radix labels bite twice here: `getByLabel("Password")` is a **substring**
+  match and collides with "Confirm password" (strict mode refuses), and a
+  `SelectTrigger` must be clicked before `getByRole("option", …)` exists. Use
+  `{ exact: true }` on the four auth fields.
+- The tour's "carries the entrance transition" check is a **two-mechanism**
+  check, and was wrong before it was run: the motion pass gave both shells an
+  `AnimatePresence` wrapper whose `opacity`/`transform` live in an inline `style`
+  attribute, while the public QR page still uses the `animate-fade-up` class.
+  Nine of the ten tour routes "failed" it on the first run because the check only
+  knew the class. Measured signature of the wrapper: `opacity: 0; transform:
+  translateY(8px)` → `opacity: 1; transform: none` over 340 ms. Match only the
+  region's own first two levels, or a recharts inner node passes for a page
+  transition.
+

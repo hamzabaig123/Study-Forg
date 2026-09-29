@@ -26,11 +26,45 @@ node app.live.cjs
 On Windows the Edge path is auto-detected; override with `EDGE_PATH` if Edge
 is not installed (any Chrome works: `EDGE_PATH="C:/Program Files/Google/Chrome/Application/chrome.exe"`).
 
+## Running it without an account: `SEED_LOCAL=1`
+
+Most of these checks assert on *data* — an attempt history, a percentage, the
+accuracy hero — so a fresh profile proves nothing and a seeded one needs
+credentials. `SEED_LOCAL=1` builds that data through the UI instead, on the mock
+(localStorage) backend, in a throwaway browser context:
+
+```bash
+# from the repo root, in one terminal:
+cd src/frontend && VITE_DATA_BACKEND=mock pnpm dev
+# in another:
+cd e2e && SEED_LOCAL=1 BASE_URL=http://localhost:5173 node app.live.cjs
+```
+
+`seed.local.cjs` registers `e2e+<timestamp>@studyforge.test` (password floor of
+10 characters, confirmed with the verify-email screen's local **Confirm this
+email** button), builds *E2E Organic Chemistry → E2E Bonding → E2E Covalent
+bonds → E2E Molecular shape* one dialog at a time, authors three multiple-choice
+and two true/false questions, then runs a practice session and answers all five
+correctly. Nothing is injected into `localStorage` from outside, which is the
+point: the run exercises form validation, the Radix dialogs, the mock canister's
+methods and the merged analytics in one trip. The practice run is scored 5/5 by
+the app's own grader before any check reads the dashboard.
+
+It is mock-only on purpose. Against a Supabase or canister build
+`registerAndConfirm` throws `the verify-email screen offers no local confirmation
+button — this build is not on the mock backend` rather than signing up a real
+account. Use the credential path for a deployed app.
+
+First run of this path: 2026-09-30, **34 checks, all green, zero page errors**
+across the ten-route tour (`/dashboard /classes /analytics /test-builder /notes
+/ai-studio /share /export /qr /settings`).
+
 ## What each check covers
 
 | Script | Covers |
 | --- | --- |
-| `app.live.cjs` | sign-in → dashboard (accuracy hero, streak, no third-party credit) → analytics (history, percentages) → test builder (modes, shuffle) → notes workspace → zero page errors |
+| `seed.local.cjs` | provisioning, not checking: register → confirm → class chain → five questions → a graded practice session. Debug it a stage at a time with `UNTIL=register\|hierarchy\|questions\|session` against a dev server. |
+| `app.live.cjs` | sign-in (or the seed above) → dashboard (accuracy hero, streak, no third-party credit) → the seeded class listed on `/classes` → analytics (history, percentages) → test builder (modes, shuffle) → notes workspace → a ten-route tour where each route must fill its content region and mount inside the entrance transition → zero page errors |
 | `import.live.cjs` | the localStorage-mock → Supabase migration path: plants a mock archive, signs in, runs Settings → "Move data from this browser", asserts the report (create + dedupe paths) |
 
 ## When to run

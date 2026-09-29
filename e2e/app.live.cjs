@@ -7,17 +7,28 @@
  *   BASE_URL=http://localhost:5173 DEMO_EMAIL=demo@studyforge.test \
  *   DEMO_PASSWORD='…' node app.live.cjs
  *
+ * The checks below assert on *data* — an attempt history, percentages, the
+ * accuracy hero — so an account with no history proves nothing. `SEED_LOCAL=1`
+ * provisions that data through the UI instead of needing credentials:
+ * `seed.local.cjs` registers a throwaway account, builds the class → topic chain,
+ * authors five questions and finishes a practice session, all against the mock
+ * backend. Run it against a dev server started with `VITE_DATA_BACKEND=mock`.
+ *
  * Exit 0 = every check passed; anything else prints what failed.
  */
 const { chromium } = require("playwright-core");
 const os = require("node:os");
 const path = require("node:path");
+const seed = require("./seed.local.cjs");
 
 const BASE = process.env.BASE_URL ?? "http://localhost:5173";
+const SEED_LOCAL = process.env.SEED_LOCAL === "1";
 const EMAIL = process.env.DEMO_EMAIL;
 const PASSWORD = process.env.DEMO_PASSWORD;
-if (!EMAIL || !PASSWORD) {
-  console.error("DEMO_EMAIL and DEMO_PASSWORD are required (env).");
+if (!SEED_LOCAL && (!EMAIL || !PASSWORD)) {
+  console.error(
+    "DEMO_EMAIL and DEMO_PASSWORD are required (env), or set SEED_LOCAL=1 to provision an account on the mock backend.",
+  );
   process.exit(2);
 }
 
@@ -39,18 +50,49 @@ async function main() {
     if (!ok) process.exitCode = 1;
   };
 
-  await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded", timeout: 90_000 });
-  await page.getByLabel(/email/i).fill(EMAIL);
-  await page.getByLabel(/password/i).fill(PASSWORD);
-  await page.getByRole("button", { name: /sign in/i }).click();
-  await page.waitForURL("**/dashboard", { timeout: 30_000 });
-  await page.waitForTimeout(2500);
-  check(page.url().includes("/dashboard"), "sign-in lands on the dashboard");
+  if (SEED_LOCAL) {
+    const seeded = await seed.provision(page, BASE);
+    console.log(`  seeded ${seeded.email}`);
+    check(
+      seeded.answered === seed.QUESTIONS.length,
+      `the session answered every seeded question (${seeded.answered}/${seed.QUESTIONS.length})`,
+    );
+    check(
+      /\b100%/.test(seeded.results),
+      "the results page scores the seeded session at 100%",
+    );
+    await page.goto(`${BASE}/dashboard`, {
+      waitUntil: "domcontentloaded",
+      timeout: 90_000,
+    });
+    await page.waitForTimeout(2500);
+    check(page.url().includes("/dashboard"), "a provisioned account reaches the dashboard");
+  } else {
+    await page.goto(`${BASE}/login`, { waitUntil: "domcontentloaded", timeout: 90_000 });
+    await page.getByLabel(/email/i).fill(EMAIL);
+    await page.getByLabel(/password/i).fill(PASSWORD);
+    await page.getByRole("button", { name: /sign in/i }).click();
+    await page.waitForURL("**/dashboard", { timeout: 30_000 });
+    await page.waitForTimeout(2500);
+    check(page.url().includes("/dashboard"), "sign-in lands on the dashboard");
+  }
 
   const dashText = await page.evaluate(() => document.body.innerText);
   check(/accuracy/i.test(dashText), "dashboard shows the accuracy hero");
   check(/streak/i.test(dashText), "dashboard shows the day streak");
   check(!/built with love/i.test(dashText), "no third-party credit in the footer");
+
+  if (SEED_LOCAL) {
+    // The hierarchy the seed built by hand must read back out of the mock
+    // canister, or "the pages render data" would be true of an empty account.
+    await page.goto(`${BASE}/classes`, { waitUntil: "domcontentloaded", timeout: 90_000 });
+    await page.waitForTimeout(1200);
+    check(
+      (await page.evaluate(() => document.body.innerText)).includes(seed.CLASS_NAME),
+      "classes lists the seeded class",
+    );
+  }
+
 
   await page.goto(`${BASE}/analytics`, { waitUntil: "domcontentloaded", timeout: 90_000 });
   // The analytics chunk (recharts) compiles on first visit, so a fixed sleep
@@ -79,9 +121,9 @@ async function main() {
   );
 
   // The whole-shell tour: every signed-in page must fill its main content
-  // region and carry the entrance transition, with zero page errors across the
-  // trip. Content is read from the page body only, so the sidebar's own labels
-  // cannot make a route look alive when it is not.
+  // region and mount inside the entrance transition, with zero page errors
+  // across the trip. Content is read from the region only, so the sidebar's own
+  // labels cannot make a route look alive when it is not.
   const tour = [
     "/dashboard", "/classes", "/analytics", "/test-builder", "/notes",
     "/ai-studio", "/share", "/export", "/qr", "/settings",
@@ -98,9 +140,31 @@ async function main() {
       const region = document.querySelector(
         '[data-ocid="app.main"], [data-ocid="public.main"]',
       );
+      // Two entrance mechanisms ship, and the check has to name both or it
+      // fails on the page that animates: the motion pass gave the shells a
+      // wrapper whose opacity/transform live as inline styles, while the public
+      // QR page still carries the `animate-fade-up` class. Measured on the
+      // signed-in wrapper as `opacity: 0; transform: translateY(8px)` stepping
+      // to `opacity: 1; transform: none` over 340 ms.
+      // Only the region's own first two levels count — a card or a chart that
+      // animates further down is not the page's entrance, and matching one
+      // would let a route with no transition at all pass this check.
+      const isEntrance = (el) => {
+        if (!el) return false;
+        const cls = typeof el.className === "string" ? el.className : "";
+        const style = el.getAttribute("style") ?? "";
+        return (
+          cls.includes("animate-fade-up") ||
+          (style.includes("opacity:") && style.includes("transform"))
+        );
+      };
+      const wrappers = [];
+      for (const child of region ? region.children : []) {
+        wrappers.push(child, ...child.children);
+      }
       return {
         text: region ? region.innerText : "",
-        animated: region ? region.innerHTML.includes("animate-fade-up") : false,
+        animated: wrappers.some(isEntrance),
       };
     });
     check(main.text.trim().length > 60, `${route} renders its content`);
