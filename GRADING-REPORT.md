@@ -320,7 +320,10 @@ have to rediscover them.
   `app.live.cjs`, both of which need a real Supabase account. One caveat from the
   old line survives: `e2e/package-lock.json` is git-ignored (`.gitignore:21`), so
   the harness resolves `playwright-core` from its `^1.49.0` range rather than a
-  pinned version — this run used **1.63.0**.
+  pinned version — this run used **1.63.0**. A built-bundle version of the seed
+  is not a gap but a boundary: `vite.config.js:77` and `lib/supabase/env.ts:119`
+  together make "mock" impossible in any `vite build`, so the seed is a
+  dev-server path by design and the deployed artifact is checked with credentials.
 - The canister half stays review-only. No amount of local work closes it: it needs
   `dfx`/`mops`, and this machine has no virtualization.
 

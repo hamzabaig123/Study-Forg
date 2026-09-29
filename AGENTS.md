@@ -307,6 +307,15 @@ through its own forms; nothing is written into `localStorage` from outside.
   verify-email screen offers no local confirmation button — this build is not on
   the mock backend" rather than signing a real account up against Supabase, so
   the seed can never be the thing that writes to production.
+- **There is no built-bundle version of this run, and that is two guards deep.**
+  `vite.config.js:77` refuses a `mode === "production"` build on the mock flag,
+  and `lib/supabase/env.ts:119` discards a mock selection whenever
+  `import.meta.env.PROD` — which is true of **every** `vite build`, including
+  `--mode development`, because `PROD` means "not `vite serve`". Measured on
+  2026-09-30: a dev-mode mock build did inline `"mock"` yet still booted on
+  Supabase, so the seed stopped itself at `/verify-email` and wrote nothing.
+  Drive the seed against `pnpm dev`; check a built artifact with credentials
+  against a deployment.
 - `data-ocid` values are **template-built from a `MARKER` constant**
   (`CustomTest.tsx` → `const MARKER = "custom"`, `AnswerControls` →
   `` `${marker}.option.${index + 1}` ``). Grepping `src/` for the literal

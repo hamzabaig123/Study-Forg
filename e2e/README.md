@@ -55,6 +55,19 @@ It is mock-only on purpose. Against a Supabase or canister build
 button — this build is not on the mock backend` rather than signing up a real
 account. Use the credential path for a deployed app.
 
+**A build cannot be mock, so this is a dev-server path — measured, not assumed.**
+`VITE_DATA_BACKEND=mock vite build --mode development` does inline `"mock"` into
+the bundle, yet `selectDataBackend()`
+(`src/frontend/src/lib/supabase/env.ts:119`) throws a mock selection away
+whenever `import.meta.env.PROD` is true — which is *every* `vite build`, dev-mode
+included, because `PROD` means "not `vite serve`" rather than "mode is
+production". It falls through to the configured real backend so a stray mock
+bundle can never persist somebody's account in their browser. Running the seed
+against `vite preview` therefore reached `/verify-email` on the **Supabase**
+backend, and the mock-only guard above refused to continue — the correct outcome:
+no sign-up, no row, no write to the live project. The built artifact is checked
+with credentials against a deployment; the seed is checked against `pnpm dev`.
+
 First run of this path: 2026-09-30, **34 checks, all green, zero page errors**
 across the ten-route tour (`/dashboard /classes /analytics /test-builder /notes
 /ai-studio /share /export /qr /settings`).
