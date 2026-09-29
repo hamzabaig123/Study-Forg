@@ -528,8 +528,8 @@ describe("csp violation contract", () => {
       .filter((role) => role !== "");
     expect(grants).toEqual(["service_role"]);
     for (const role of ["anon", "authenticated"]) {
-      expect(code(sql)).toMatch(
-        new RegExp(`revoke all on function record_csp_violations\(jsonb\) from ${role}`, "i"),
+      expect(code(sql)).toContain(
+        `revoke all on function record_csp_violations(jsonb) from ${role}`,
       );
     }
   });
@@ -584,8 +584,12 @@ describe("csp violation contract", () => {
     // applyable to a project that never installed the limiter.
     expect(body).toMatch(/enforce_rate_limit/i);
     expect(body).toMatch(/from pg_proc/i);
-    expect(body.indexOf("enforce_rate_limit")).toBeLessThan(
-      body.search(/\binsert into csp_violation\b/i),
+    // violationBody answers null when 0015 is missing entirely; the two
+    // toMatch calls above already proved presence, but tsc cannot narrow
+    // through expect, so the positional assertions read the guarded string.
+    const throttleBody = body ?? "";
+    expect(throttleBody.indexOf("enforce_rate_limit")).toBeLessThan(
+      throttleBody.search(/\binsert into csp_violation\b/i),
     );
   });
 
