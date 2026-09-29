@@ -1,0 +1,48 @@
+name: canister-build
+
+# The Motoko backend has never been compiled on a machine this project is
+# developed on (no WSL2/Docker/Hyper-V, so no dfx and no mops) — which made
+# src/backend/dist/backend.wasm a trusted binary. A CI runner is the
+# "somewhere else" that fixes that: this workflow installs the mops toolchain
+# pinned in mops.toml (moc 1.16.0), resolves the declared packages, typechecks
+# and compiles the canister, and uploads the produced wasm as an artifact so a
+# reviewer can compare it against the committed one.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: canister-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install mops
+        run: npm install -g ic-mops@latest
+
+      - name: Resolve packages
+        run: mops install
+
+      - name: Typecheck
+        run: mops check
+
+      - name: Build
+        run: mops build
+
+      - name: Upload wasm
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-wasm
+          path: src/backend/dist/backend.wasm
+          if-no-files-found: error
