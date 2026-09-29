@@ -70,14 +70,18 @@ with credentials against a deployment; the seed is checked against `pnpm dev`.
 
 First run of this path: 2026-09-30, **34 checks, all green, zero page errors**
 across the ten-route tour (`/dashboard /classes /analytics /test-builder /notes
-/ai-studio /share /export /qr /settings`).
+/ai-studio /share /export /qr /settings`). A day later the same command runs
+**71 checks** — 34 on the seed and the tour, 37 more from `surfaces.local.cjs`,
+which needs the seeded account to have anything to work on. Debug that leg one
+flow at a time with `SURFACE=notes|noteShare|qr|share|export|settings`.
 
 ## What each check covers
 
 | Script | Covers |
 | --- | --- |
 | `seed.local.cjs` | provisioning, not checking: register → confirm → class chain → five questions → a graded practice session. Debug it a stage at a time with `UNTIL=register\|hierarchy\|questions\|session` against a dev server. |
-| `app.live.cjs` | sign-in (or the seed above) → dashboard (accuracy hero, streak, no third-party credit) → the seeded class listed on `/classes` → analytics (history, percentages) → test builder (modes, shuffle) → notes workspace → a ten-route tour where each route must fill its content region and mount inside the entrance transition → zero page errors |
+| `app.live.cjs` | sign-in (or the seed above) → dashboard (accuracy hero, streak, no third-party credit) → the seeded class listed on `/classes` → analytics (history, percentages) → test builder (modes, shuffle) → notes workspace → a ten-route tour where each route must fill its content region and mount inside the entrance transition → zero page errors → `surfaces.local.cjs` when seeding |
+| `surfaces.local.cjs` | the state a tour cannot create: the note editor autosaving and being renamed from the list, a note share that opens with its content, the short-link lifecycle (mint → the sink reaching a stubbed destination → the scan counted → pause refusing the redirect → re-point reaching a *new* destination → a loopback target refused at the form), a chapter share rendering read-only, CSV and PDF downloads checked as files, and a Settings change surviving a reload and reaching the header |
 | `import.live.cjs` | the localStorage-mock → Supabase migration path: plants a mock archive, signs in, runs Settings → "Move data from this browser", asserts the report (create + dedupe paths) |
 
 ## When to run

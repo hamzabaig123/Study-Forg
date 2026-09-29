@@ -343,4 +343,44 @@ through its own forms; nothing is written into `localStorage` from outside.
   translateY(8px)` → `opacity: 1; transform: none` over 340 ms. Match only the
   region's own first two levels, or a recharts inner node passes for a page
   transition.
+- **A text assertion taken after `goto` + a fixed sleep races the page's own
+  query.** `ManageLink` renders a skeleton while the link detail is in flight, so
+  "the manage page opens from its secret token" failed on one run and passed the
+  next on a byte-identical file. Every such assertion now goes through
+  `untilText()`; the sleeps that remain sit only in front of an interaction that
+  already auto-waits (`clickOcid`, `inputValue`).
+- **Polling across a navigation needs the read to swallow the destroyed context.**
+  `/r/:code` calls `window.location.replace`, so a poll that starts on the app page
+  and is meant to read the destination died with "Execution context was destroyed"
+  and aborted the whole run (measured on the first full `SEED_LOCAL=1` pass).
+  `text()` catches and returns `""` — one more iteration of the same poll, not a
+  crash.
+- **An absence check needs a positive witness first.** The share-row check read
+  `count(share.revoke_button.*) >= 0`, which is true on a blank page, an error page
+  and a page that never loaded. It waits for the row and then asserts.
+
+### The display name lives in two records, and only one of them is editable
+
+`useAuth().displayName` comes from the sign-in record — the local account row, or
+GoTrue's `user_metadata.full_name` written at registration. Settings → Account
+writes a *different* one, `user_settings.display_name` through `saveMySettings`,
+and its only consumer in the app was the reminder digest's greeting
+(`lib/reminders.ts`). So the field saved, reported "Settings saved.", survived a
+reload, and changed nothing on screen: the header pill and "Welcome back, …" kept
+showing the name from sign-up. `hooks/useDisplayName.ts` resolves the pair in one
+place — saved profile first, sign-in record as the fallback for an account that has
+never saved settings, `null` when there is neither — and `Header` and `Dashboard`
+read that hook instead of `useAuth`'s name.
+
+- Fixed on the **read** side deliberately: writing the name back into the account
+  record would need a local-account rename, a GoTrue `updateUser` **and** a new
+  canister method, and `pnpm bindgen` cannot run on this machine, so the third half
+  could not be generated, let alone compiled.
+- Internet Identity gains the most — its auth state carries no display name at all,
+  so the pill could previously show only a truncated principal. `Header.test.tsx`
+  pins that a saved profile name wins by answering `getMySettings` from the mock actor.
+- `SettingsPage` seeds its draft from `getMySettings` and falls back to the `useAuth`
+  name (which is also the field's placeholder), so the input always looked correct
+  while nothing read what it wrote. Keep the precedence in `useDisplayName`; a page
+  that picks a side on its own is how the two halves drifted apart.
 

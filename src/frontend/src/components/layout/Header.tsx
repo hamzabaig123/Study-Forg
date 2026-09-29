@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/hooks/useAuth";
+import { useDisplayName } from "@/hooks/useDisplayName";
 import { shortPrincipal } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Link } from "@tanstack/react-router";
@@ -25,10 +26,10 @@ export function Header({
   showSidebarToggle = false,
   className,
 }: HeaderProps) {
-  const { isAuthenticated, displayName, principal, account, signOut } =
-    useAuth();
-  // Internet Identity sign-in has no profile record, so the principal is the
-  // only thing worth showing.
+  const { isAuthenticated, principal, account, signOut } = useAuth();
+  const displayName = useDisplayName();
+  // Internet Identity has no account record at all, so the principal is the
+  // only name that visitor has until they fill in Settings → Account.
   const handle = displayName ?? (principal ? shortPrincipal(principal) : null);
 
   return (

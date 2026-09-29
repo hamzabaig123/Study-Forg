@@ -7,7 +7,7 @@ import { StatCard } from "@/components/insights/StatCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useDashboardStats, useRecentActivity } from "@/hooks/useAnalytics";
-import { useAuth } from "@/hooks/useAuth";
+import { useDisplayName } from "@/hooks/useDisplayName";
 import { useStudyProgress } from "@/hooks/useStudyProgress";
 import {
   formatCompactCount,
@@ -60,7 +60,7 @@ const QUICK_ACTIONS = [
 ] as const;
 
 export default function Dashboard() {
-  const { displayName } = useAuth();
+  const displayName = useDisplayName();
   const statsQuery = useDashboardStats();
   const activityQuery = useRecentActivity(8);
   const progress = useStudyProgress();

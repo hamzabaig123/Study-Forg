@@ -3,8 +3,10 @@ import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import {
   type MockAuthState,
   createAuthState,
+  setMockActor,
   setMockAuth,
 } from "@/test/coreMock";
+import { createMockActor } from "@/test/mockActor";
 import { createTestQueryClient } from "@/test/render";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
@@ -75,5 +77,28 @@ describe("Header with Internet Identity", () => {
     expect(
       await screen.findByRole("link", { name: /sign in/i }),
     ).toHaveAttribute("href", "/login");
+  });
+
+  it("greets with the name saved in Settings rather than the principal", async () => {
+    // An Internet Identity session carries no display name, so before the
+    // header read the profile the pill could only ever show a truncated
+    // principal — and the Display name field in Settings, which writes that
+    // profile, changed nothing on screen.
+    setMockActor(
+      createMockActor({
+        getMySettings: vi.fn().mockResolvedValue({
+          displayName: "Ada Lovelace",
+          studyGoal: "Pass the spring exam",
+          dailyTarget: 20n,
+          appearance: "light",
+          updatedAt: 1_700_000_000_000_000_000n,
+        }),
+      }),
+    );
+    await renderHeader(createAuthState({ isAuthenticated: true }));
+
+    const menu = await screen.findByRole("button", { name: /ada lovelace/i });
+    expect(menu).toHaveTextContent("Ada Lovelace");
+    setMockActor(null);
   });
 });

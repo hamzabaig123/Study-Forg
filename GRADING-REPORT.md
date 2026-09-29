@@ -309,13 +309,21 @@ have to rediscover them.
   `e2e/seed.local.cjs` provisions a throwaway account through the real UI on the
   mock backend — register → local email confirm → class/subject/chapter/topic →
   five questions → a practice session the app itself scores 5/5 — and
-  `SEED_LOCAL=1 node app.live.cjs` passes **34/34 checks, zero page errors**,
-  reproducibly (run twice, exit 0 both times). It earned its keep on the first
-  run: twelve routes failed "carries the entrance transition" because the motion
-  pass moved the signed-in shell from the `animate-fade-up` class to a framer
-  wrapper with inline `opacity`/`transform`. The check was stale, the app was
-  right; it now names both mechanisms, and the probe that settled it prints
-  exactly one matched element per route — the region's own wrapper, not a chart.
+  `SEED_LOCAL=1 node app.live.cjs` passes **71 checks, zero page errors** (34 on
+  the seed + ten-route tour, 37 on `e2e/surfaces.local.cjs`: the note editor's
+  autosave and rename, a note share that opens, the whole short-link lifecycle
+  including pause, re-point and a refused loopback target, a chapter share that
+  renders read-only, CSV and PDF downloads byte-checked as real files, and a
+  settings change surviving a reload). Reproduced on three consecutive runs. It
+  earned its keep twice over: twelve routes failed "carries the entrance
+  transition" because the motion pass moved the signed-in shell from the
+  `animate-fade-up` class to a framer wrapper with inline `opacity`/`transform`
+  — the check was stale, the app was right, and it now names both mechanisms —
+  and the settings check then caught a **real product bug**: the Display name in
+  Settings → Account saved successfully, survived a reload, and changed nothing
+  on screen, because the header and the dashboard greeting read the sign-in
+  record's name instead. `hooks/useDisplayName.ts` now resolves that (see
+  AGENTS.md), pinned by a third `Header.test.tsx` check.
   Still unproven from this machine: `import.live.cjs` and the credential path of
   `app.live.cjs`, both of which need a real Supabase account. One caveat from the
   old line survives: `e2e/package-lock.json` is git-ignored (`.gitignore:21`), so
@@ -324,6 +332,14 @@ have to rediscover them.
   is not a gap but a boundary: `vite.config.js:77` and `lib/supabase/env.ts:119`
   together make "mock" impossible in any `vite build`, so the seed is a
   dev-server path by design and the deployed artifact is checked with credentials.
+- **Two more Settings fields have no consumer at all.** `user_settings.study_goal`
+  and `daily_target` are written by Settings → Account, carried through the archive
+  export/import, and read by nothing: not a page, not the digest, not a SQL helper
+  (grep `study_goal`/`daily_target` across `src/frontend/src` and
+  `supabase/migrations` lands only on the column definitions and the settings
+  form). The hero line says "N tests today" and never mentions the target the owner
+  chose. Unlike the display name, where one record was edited and another was read,
+  this is a feature that was never wired, so it is named here rather than designed
+  in from a bug hunt.
 - The canister half stays review-only. No amount of local work closes it: it needs
   `dfx`/`mops`, and this machine has no virtualization.
-
