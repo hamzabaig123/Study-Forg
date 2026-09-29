@@ -100,7 +100,12 @@ describe("breachReason", () => {
   }
 
   function corpus(body: string, ok = true) {
-    const fetchMock = vi.fn(async () => ({ ok, text: async () => body }));
+    const fetchMock = vi.fn(
+      async (_input: string, _init?: RequestInit) => ({
+        ok,
+        text: async () => body,
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     return fetchMock;
   }
@@ -115,7 +120,9 @@ describe("breachReason", () => {
 
     await breachReason(password);
 
-    const [url, init] = fetchMock.mock.calls[0];
+    // vi.fn with an async implementation types each call as a 2-arg list,
+    // but the inference lands on an empty tuple without an annotation — say it.
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit | undefined];
     expect(url).toBe(`https://api.pwnedpasswords.com/range/${digest.slice(0, 5)}`);
     expect(String(url)).not.toContain(digest);
     expect(String(url)).not.toContain(password);

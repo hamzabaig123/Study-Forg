@@ -13,8 +13,7 @@
  * `useSyncExternalStore`, and turns a failed call into an `Error` whose message is
  * worth showing. `client.auth` is not called anywhere else.
  */
-import { passwordLengthError } from "@/lib/passwordPolicy";
-import { breachReason } from "@/lib/passwordPolicy";
+import { breachReason, passwordLengthError } from "@/lib/passwordPolicy";
 import { SUPABASE_URL } from "@/lib/supabase/env";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -65,7 +64,8 @@ async function assertNewPassword(
   }
 }
 
-function accountOf(user: AuthUser): SupabaseAccount {  const email = user.email ?? "";
+function accountOf(user: AuthUser): SupabaseAccount {
+  const email = user.email ?? "";
   const metadata = user.user_metadata;
   const full = metadata?.full_name;
   const name = typeof full === "string" ? full.trim() : "";
