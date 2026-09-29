@@ -194,22 +194,6 @@ module {
     userRoles : Map.Map<Principal, UserRole>;
   };
 
-  type OldActor = {
-    accessControlState : AccessControlState;
-    classes : Map.Map<Id, Class>;
-    subjects : Map.Map<Id, Subject>;
-    chapters : Map.Map<Id, Chapter>;
-    topics : Map.Map<Id, Topic>;
-    questions : Map.Map<Id, Question>;
-    aiKeys : Map.Map<Principal, Text>;
-    drafts : Map.Map<Id, DraftQuestion>;
-    sessions : Map.Map<Id, Session>;
-    sessionResults : Map.Map<Id, SessionResult>;
-    sessionAnswers : Map.Map<Id, Map.Map<Id, SubmittedAnswer>>;
-    shares : Map.Map<Text, Share>;
-    counters : { var nextId : Id };
-  };
-
   type NewActor = {
     accessControlState : AccessControlState;
     classes : Map.Map<Id, Class>;
@@ -233,20 +217,27 @@ module {
     counters : { var nextId : Id };
   };
 
-  public func migration(old : OldActor) : NewActor {
+  // The canister has never been deployed, so this chain has no state to replay
+  // from: one migration, from the empty actor to the full shape. Folding the
+  // earlier 120000 file in here is what `mops check`'s stable-interface gate
+  // asked for ("2 pending migrations for check-limit=1").
+  public func migration(_old : {}) : NewActor {
     {
-      accessControlState = old.accessControlState;
-      classes = old.classes;
-      subjects = old.subjects;
-      chapters = old.chapters;
-      topics = old.topics;
-      questions = old.questions;
-      aiKeys = old.aiKeys;
-      drafts = old.drafts;
-      sessions = old.sessions;
-      sessionResults = old.sessionResults;
-      sessionAnswers = old.sessionAnswers;
-      shares = old.shares;
+      accessControlState = {
+        var adminAssigned = false;
+        userRoles = Map.empty();
+      };
+      classes = Map.empty();
+      subjects = Map.empty();
+      chapters = Map.empty();
+      topics = Map.empty();
+      questions = Map.empty();
+      aiKeys = Map.empty();
+      drafts = Map.empty();
+      sessions = Map.empty();
+      sessionResults = Map.empty();
+      sessionAnswers = Map.empty();
+      shares = Map.empty();
       notes = Map.empty();
       noteShares = Map.empty();
       settings = Map.empty();
@@ -254,7 +245,7 @@ module {
       scans = List.empty();
       abuseReports = List.empty();
       linkCounters = { var nextId = 0 };
-      counters = old.counters;
+      counters = { var nextId = 0 };
     };
   };
 };
