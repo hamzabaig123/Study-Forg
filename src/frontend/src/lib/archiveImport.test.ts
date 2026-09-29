@@ -307,3 +307,153 @@ describe("importArchive", () => {
     expect(total).toBe(1 + 1 + 1 + 1 + 2 + 1 + 1 + 1 /* settings */);
   });
 });
+
+/**
+ * The bounds `archiveImport.ts` keeps to itself, restated here as literals on
+ * purpose: raising one without touching the tests should be a red suite, not a
+ * quiet agreement between two copies of the same number.
+ */
+const MAX_ROWS = 5000;
+const MAX_CHARS = 50_000;
+
+/** `levels` wrappers of `{ x: … }` around a string leaf. */
+function nested(levels: number): Record<string, unknown> {
+  let node: Record<string, unknown> = { leaf: "deep" };
+  for (let index = 0; index < levels; index += 1) {
+    node = { x: node };
+  }
+  return node;
+}
+
+describe("size bounds", () => {
+  it("fails an over-long row instead of writing half of it", async () => {
+    const doc = parseArchive(
+      textOf(
+        archive({
+          notes: [
+            {
+              id: 7n,
+              title: "Session 3 recap",
+              documentJson: "x".repeat(MAX_CHARS + 1),
+            },
+          ],
+        }),
+      ),
+    );
+    const report = await importArchive(asBackend(), doc);
+
+    expect(report.created.notes).toBe(0);
+    expect(
+      report.failures.filter((item) => item.entity === "notes"),
+    ).toMatchObject([{ label: "Session 3 recap" }]);
+    expect(report.failures[0]?.reason).toMatch(
+      new RegExp(`${MAX_CHARS + 1} characters long.*at most ${MAX_CHARS}`, "u"),
+    );
+    // The rejected row is the only note in the archive, so nothing landed.
+    expect(await target.listNotes(null)).toHaveLength(0);
+  });
+
+  it("leaves a row one character under the bar alone", async () => {
+    const doc = parseArchive(
+      textOf(
+        archive({
+          notes: [
+            {
+              id: 7n,
+              title: "Fits",
+              documentJson: "x".repeat(MAX_CHARS),
+            },
+          ],
+        }),
+      ),
+    );
+    const report = await importArchive(asBackend(), doc);
+
+    expect(report.failures).toEqual([]);
+    expect(report.created.notes).toBe(1);
+  });
+
+  it("refuses a tree the note editor would overflow the tab on", async () => {
+    // Depth is counted to the node, so the seventh wrapper is the one that
+    // sits at the limit — and a guard that recursed would die before it got
+    // as far as saying no.
+    const tooDeep = parseArchive(
+      textOf(
+        archive({
+          notes: [
+            {
+              id: 7n,
+              title: "Deep",
+              documentJson: JSON.stringify({ blocks: [] }),
+              meta: nested(7),
+            },
+          ],
+        }),
+      ),
+    );
+    const refused = await importArchive(asBackend(), tooDeep);
+    expect(refused.created.notes).toBe(0);
+    expect(refused.failures[0]?.reason).toMatch(/nested deeper than 8 levels/u);
+
+    const oneLevelShallower = parseArchive(
+      textOf(
+        archive({
+          notes: [
+            {
+              id: 7n,
+              title: "Shallow",
+              documentJson: JSON.stringify({ blocks: [] }),
+              meta: nested(6),
+            },
+          ],
+        }),
+      ),
+    );
+    const admitted = await importArchive(asBackend(), oneLevelShallower);
+    expect(admitted.failures).toEqual([]);
+    expect(admitted.created.notes).toBe(1);
+  });
+
+  it("refuses a collection it cannot finish replaying", () => {
+    const many = Array.from(
+      { length: MAX_ROWS + 1 },
+      (_, index): Record<string, unknown> => ({
+        id: BigInt(100 + index),
+        topicId: 4n,
+        prompt: `Question ${index}`,
+        questionType: QuestionType.trueFalse,
+        answer: { __kind__: "trueFalse", trueFalse: { correct: true } },
+      }),
+    );
+
+    expect(() => parseArchive(textOf(archive({ questions: many })))).toThrow(
+      /"questions" lists 5001 rows.*at most 5000/u,
+    );
+    // The boundary itself is importable: a file at the cap is not a format error.
+    expect(() =>
+      parseArchive(textOf(archive({ questions: many.slice(0, MAX_ROWS) }))),
+    ).not.toThrow();
+  });
+
+  it("refuses an over-long profile field rather than storing it", async () => {
+    const doc = parseArchive(
+      textOf(
+        archive({
+          settings: {
+            displayName: "Grace",
+            studyGoal: "y".repeat(MAX_CHARS + 1),
+            dailyTarget: 25n,
+            appearance: "dark",
+          },
+        }),
+      ),
+    );
+    const report = await importArchive(asBackend(), doc);
+
+    expect(report.created.settings).toBe(0);
+    expect(report.failures).toMatchObject([
+      { entity: "settings", label: "Profile and appearance" },
+    ]);
+    expect(await target.getMySettings()).toBeNull();
+  });
+});

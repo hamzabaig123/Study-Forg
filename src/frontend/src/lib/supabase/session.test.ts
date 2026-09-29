@@ -702,6 +702,121 @@ describe("changing a password while signed in", () => {
   });
 });
 
+/**
+ * GoTrue's `security_captcha_enabled` is one dashboard switch, and it gates
+ * sign-up, the password grant, the reset link and the re-send — not sign-up
+ * alone. So the token has to reach every one of those calls, and a build with no
+ * site key has to keep sending exactly what it sent before: a project that never
+ * switched the check on must not start carrying an empty field.
+ */
+describe("carrying the human check", () => {
+  it("puts the token on the password grant", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.signIn("ada@example.com", "correct horse", "turnstile-token");
+
+    expect(fake.calls).toContainEqual({
+      name: "signInWithPassword",
+      args: {
+        email: "ada@example.com",
+        password: "correct horse",
+        captchaToken: "turnstile-token",
+      },
+    });
+  });
+
+  it("sends the grant without the field when there is no token", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.signIn("ada@example.com", "correct horse");
+
+    const grant = fake.calls[0] as unknown as { args: object };
+    expect(grant.args).not.toHaveProperty("captchaToken");
+  });
+
+  it("nests the token in the sign-up options the client serialises", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.register({
+      name: "Ada",
+      email: "ada@example.com",
+      password: "studyforge-ada",
+      passwordConfirmation: "studyforge-ada",
+      captchaToken: "turnstile-token",
+    });
+
+    expect(fake.calls).toContainEqual({
+      name: "signUp",
+      args: {
+        email: "ada@example.com",
+        password: "studyforge-ada",
+        options: {
+          data: { full_name: "Ada" },
+          emailRedirectTo: `${window.location.origin}/verify-email?email=ada%40example.com`,
+          captchaToken: "turnstile-token",
+        },
+      },
+    });
+  });
+
+  it("carries it on the re-send and the reset link", async () => {
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    await store.resendConfirmation("ada@example.com", "re-send-token");
+    await store.requestPasswordReset("ada@example.com", "reset-token");
+
+    expect(fake.calls).toContainEqual({
+      name: "resend",
+      args: {
+        type: "signup",
+        email: "ada@example.com",
+        options: {
+          emailRedirectTo: `${window.location.origin}/verify-email?email=ada%40example.com`,
+          captchaToken: "re-send-token",
+        },
+      },
+    });
+    expect(fake.calls).toContainEqual({
+      name: "resetPasswordForEmail",
+      args: {
+        email: "ada@example.com",
+        options: {
+          redirectTo: `${window.location.origin}/reset-password`,
+          captchaToken: "reset-token",
+        },
+      },
+    });
+  });
+
+  it("proves the current password with the token the form was given", async () => {
+    const fake = fakeClient({ session: { user: user() } });
+    const store = createSessionStore(fake.client);
+    await store.restore();
+
+    await store.changePassword(
+      "the old secret",
+      "a brand new secret",
+      "a brand new secret",
+      "turnstile-token",
+    );
+
+    // The proof is the grant, so that is where the receipt belongs — and only
+    // there. `updatePassword` needs a recovery session, not a solved check.
+    expect(fake.calls).toEqual([
+      { name: "getSession", args: null },
+      {
+        name: "signInWithPassword",
+        args: {
+          email: "ada@example.com",
+          password: "the old secret",
+          captchaToken: "turnstile-token",
+        },
+      },
+      { name: "updateUser", args: { password: "a brand new secret" } },
+    ]);
+  });
+});
+
 describe("signing out", () => {
   it("drops the account and tells its listeners", async () => {
     const fake = fakeClient({ session: { user: user() } });

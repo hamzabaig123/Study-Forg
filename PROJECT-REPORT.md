@@ -94,6 +94,49 @@ blank capture (light landing, first page of the cold run) was disproven as a
 Vite cold-transform artifact — re-probed with a warm server, the content is in
 the DOM with zero console errors and renders.
 
+**The five follow-ups, executed.** The plan from "what makes the frontend a 10"
+that could run from this machine ran end to end:
+
+1. **Lighthouse, first numbers the project has ever had.** On the deployed
+   origin: Performance **68**, Accessibility **93**, Best-Practices **100**,
+   SEO **100** — LCP 4.2 s on a throttled phone, CLS 0.002. The audit named
+   280 KB of unused JS in the entry chunk: every page bundled into one index.
+   Fix: **22 routes converted to `lazyPage`** (the pattern Analytics already
+   used) — the entry drops **1337 → 939 KB raw, 394 → 289 KB gzip** — and the
+   landing gained the one `<main>` landmark it lacked. A re-run against the
+   new build: **FCP 3.8 → 2.9 s, Speed Index 7.7 → 2.9 s** — with LCP/TBT
+   noisy between runs (simulated throttling on localhost) and the local run's
+   Best-Practices/SEO dips traced to localhost artifacts (`errors-in-console`
+   from the placeholder `env.json`, no `robots.txt` locally), not regressions.
+   The deployed origin's 68/93/100/100 is the baseline the deploy of this
+   tree has to beat.
+2. **The archive-import drill — the last never-executed check.** Through the
+   real UI: signed in as the demo account, seeded this browser's localStorage
+   archive, pressed *Move data from this browser*, and let
+   `lib/archiveImport.ts` write to live Postgres. Hierarchy and profile
+   imported and verified by row counts (5/2/2/2/5 → 6/3/3/3/…); **all six
+   questions were refused `question_type_check`** — and the report named every
+   failure instead of half-writing. The cause was the drill's own scratch
+   archive holding variant-object `questionType`s where the domain uses the
+   string enum; re-seeded correctly, the re-run added **all six questions
+   (5 → 11)**. The importer's failure reporting is proven honest, the happy
+   path is proven live, and the demo was cleaned back to its exact baseline.
+3. **Empty, loading and error states, on camera.** A seeded-empty account
+   shows designed empty states (dashboard "Nothing here yet", analytics "No
+   analytics yet", builder, notes); `/results/999999` answers a graceful
+   "No results to show" rather than a crash. The slow-3G dashboard exposed one
+   real gap — **a white screen until JavaScript arrived** — now closed: a
+   static boot shell in `index.html` (wordmark + "Loading your workspace…")
+   paints before the bundle and recolours per theme through a `<style>` block
+   keyed on the classes `theme-bootstrap.js` sets pre-paint; captured at
+   900 ms on throttled light and dark loads, and React replaces it on mount.
+4. **The 320 px sweep.** 4 themes × 8 routes at 320 px: **zero overflow,
+   zero blanks** (32/32 clean).
+5. **The Site URL check stays blocked**: the `sbp_` token flaps between `200`
+   and `401` on `/v1/projects` within the same hour, and `config/auth` answered
+   `401` on both of today's attempts. It remains the one dashboard read nobody
+   has measured.
+
 ## 2. Gates, re-run on this tree (2026-09-29)
 
 *Everything in this table describes the pushed commit `3edfe5f`. The working

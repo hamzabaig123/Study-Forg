@@ -340,6 +340,21 @@ describe("short-code entropy contract", () => {
     expect(Math.floor(bits)).toBeGreaterThanOrEqual(48);
   });
 
+  it("puts the floor, not just the minted length, above 48 bits", () => {
+    // `create_link` is granted to `anon`, so the shortest code the database
+    // agrees to accept is the one an attacker gets to choose. Through 0013 that
+    // range read `{7,12}`: the client minted ten characters and nothing stopped
+    // a caller from planting a 34.7-bit address in the same public table. The
+    // minimum is the security property; the maximum is a formatting one.
+    for (const rule of codeRules) {
+      const weakest = rule.min * Math.log2(rule.alphabet.length);
+      expect(
+        Math.floor(weakest),
+        `${rule.file} allows a ${rule.min}-character code`,
+      ).toBeGreaterThanOrEqual(48);
+    }
+  });
+
   it("keeps the mock backend on the same shape, so an imported archive cannot be rejected", () => {
     const mock = readFileSync(
       join(process.cwd(), "src", "mocks", "backend.ts"),
@@ -410,5 +425,180 @@ describe("client-address contract", () => {
     expect(text).toMatch(
       /alter default privileges[^;]*revoke[^;]*on tables from anon, authenticated/i,
     );
+  });
+});
+
+/**
+ * `report_link_abuse` is the one public RPC that answers a question about a link
+ * the caller does not own. Through 0013 it was unthrottled and it distinguished
+ * an issued code (`{"ok":null}`) from one never issued (`{"err":"notFound"}`),
+ * which made the report form on `/r/:code` a free "does this short code exist?"
+ * service — the same endpoint #116 is spending effort making hard to guess. Both
+ * properties are readable from the newest declaration, so both are pinned here
+ * rather than left to the live battery, which cannot run on this machine.
+ */
+describe("abuse report contract", () => {
+  /** The body of the newest `report_link_abuse` declaration — the live one. */
+  function abuseBody(text: string): string | null {
+    let found: string | null = null;
+    for (const match of text.matchAll(
+      /create (?:or replace )?function (?:public\.)?report_link_abuse[\s\S]*?\$\$([\s\S]*?)\$\$/g,
+    )) {
+      if (match[1]) found = match[1];
+    }
+    return found;
+  }
+
+  const body = abuseBody(code(sql));
+
+  it("has an abuse declaration to read at all", () => {
+    expect(body, "no $$-delimited report_link_abuse in any migration").not.toBeNull();
+  });
+
+  it("gives a caller no reply that distinguishes an issued code from a guess", () => {
+    // Comments are already stripped, so this is the code path and not the prose
+    // that explains why the old answer had to go.
+    expect(body).not.toMatch(/notFound/);
+  });
+
+  it("throttles before it touches the link table", () => {
+    const text = body ?? "";
+    expect(text).toContain("enforce_rate_limit");
+    expect(text.indexOf("enforce_rate_limit")).toBeLessThan(
+      text.search(/\bupdate\s+link\b/i),
+    );
+  });
+
+  it("files a report only for a code that exists", () => {
+    // The reply cannot say "miss", so the guard belongs here: an unconditional
+    // insert would let a stranger grow `abuse_report` one row per request.
+    expect(body).toMatch(/if\s+found\s+then[\s\S]*?insert into abuse_report/i);
+  });
+
+  it("notices a later migration that answers notFound again", () => {
+    // The guard has to be able to fail: same function, restated with the
+    // distinguishing branch 0013 removed.
+    const regressed = `${code(sql)}
+create or replace function report_link_abuse(p_code text, p_reason text) returns jsonb language plpgsql security definer as $$
+begin
+  if not exists (select 1 from link where code = p_code) then
+    return jsonb_build_object('err', jsonb_build_object('notFound', null));
+  end if;
+  return jsonb_build_object('ok', null);
+end
+$$;`;
+    expect(abuseBody(regressed)).toMatch(/notFound/);
+  });
+});
+
+/**
+ * `record_csp_violations` (0015) is the one RPC the browser calls anonymously to
+ * write a row, and its input is a report the caller can invent. Everything that
+ * keeps that harmless is readable from the newest declaration, so it is pinned
+ * here: the grant set, the ceiling, the shape the table refuses to hold, and the
+ * route rewrite that keeps `/r/<code>` and `/manage/<token>` out of it.
+ */
+describe("csp violation contract", () => {
+  /** The body of the newest `record_csp_violations` declaration. */
+  function violationBody(text: string): string | null {
+    let found: string | null = null;
+    for (const match of text.matchAll(
+      /create (?:or replace )?function (?:public\.)?record_csp_violations[\s\S]*?\$\$([\s\S]*?)\$\$/g,
+    )) {
+      if (match[1]) found = match[1];
+    }
+    return found;
+  }
+
+  const body = violationBody(code(sql));
+  const createTable = code(sql).match(
+    /create table if not exists csp_violation[\s\S]*?\);/,
+  )?.[0];
+
+  it("has a violation declaration to read at all", () => {
+    expect(body, "no $$-delimited record_csp_violations in any migration").not.toBeNull();
+  });
+
+  it("is executable by the delivery function and by nobody else", () => {
+    // The 0006 mistake restated: a helper that only a service caller should use,
+    // handed to `authenticated` by a blanket grant, becomes a public endpoint.
+    const grants = [...code(sql).matchAll(/on function record_csp_violations\(jsonb\)\s+to\s+([a-z_,\s]+)/gi)]
+      .flatMap((match) => (match[1] ?? "").split(","))
+      .map((role) => role.trim())
+      .filter((role) => role !== "");
+    expect(grants).toEqual(["service_role"]);
+    for (const role of ["anon", "authenticated"]) {
+      expect(code(sql)).toMatch(
+        new RegExp(`revoke all on function record_csp_violations\(jsonb\) from ${role}`, "i"),
+      );
+    }
+  });
+
+  it("stores one row per violation, not one row per report", () => {
+    // An anonymous caller can reload a page as often as it likes. Without the
+    // natural key and the upsert, that is a row per request in a table nobody
+    // reads programmatically.
+    expect(createTable).toMatch(
+      /primary key \(directive, blocked_host, route, disposition\)/,
+    );
+    expect(body).toMatch(
+      /on conflict \(directive, blocked_host, route, disposition\)\s+do update set hits/u,
+    );
+  });
+
+  it("keeps the two halves of the batch collapse, or a duplicate is an error", () => {
+    // `insert … on conflict do update` that touches one target row twice raises,
+    // and a browser may put two identical reports in one array. So the batch is
+    // grouped before it is inserted, and the count arrives as `excluded.hits`.
+    expect(body).toMatch(/group by 1, 2, 3, 4/i);
+    expect(body).toMatch(/csp_violation\.hits \+ excluded\.hits/i);
+    expect(body).not.toMatch(/csp_violation\.hits \+ 1/i);
+  });
+
+  it("refuses to store what identifies a visitor", () => {
+    // `user_agent` and `originalPolicy` are in every report, and both are either
+    // a fingerprint or a megabyte. A body that selects them turns a telemetry
+    // table into a visitor log.
+    for (const field of ["user_agent", "originalPolicy", "referrer"]) {
+      expect(body, `${field} must never be read out of a report`).not.toContain(
+        field,
+      );
+    }
+  });
+
+  it("replaces the capability-bearing segment of a page before storing it", () => {
+    // `/r/<code>`, `/manage/<token>` and `/shared/<token>` name a real object,
+    // and this table is readable by anyone with the SQL editor.
+    expect(body).toContain("^/(r|manage|shared)/[^/]+");
+  });
+
+  it("bounds the table against a caller who invents new violations", () => {
+    // Every field of a report is the caller's choice, so without a ceiling the
+    // distinct-tuple argument above is only a bound on honest traffic.
+    expect(body).toMatch(/count\(\*\) >= 5000 from csp_violation/i);
+    expect(createTable).toMatch(/char_length\(route\) +between 1 and 120/u);
+  });
+
+  it("throttles the batch before it writes, and still runs without 0002", () => {
+    // The `exists` guard on `pg_proc` is 0003/0004's shape: this file has to be
+    // applyable to a project that never installed the limiter.
+    expect(body).toMatch(/enforce_rate_limit/i);
+    expect(body).toMatch(/from pg_proc/i);
+    expect(body.indexOf("enforce_rate_limit")).toBeLessThan(
+      body.search(/\binsert into csp_violation\b/i),
+    );
+  });
+
+  it("notices a later migration that hands the helper to a client role", () => {
+    // The negative control: 0006's blanket grant, aimed at this function.
+    const regressed = `${code(sql)}
+grant execute on all functions in schema public to authenticated;`;
+    const granted = [
+      ...regressed.matchAll(
+        /grant execute on all functions in schema public to ([a-z_,\s]+)/gi,
+      ),
+    ].map((match) => match[1] ?? "");
+    expect(granted.join(",")).toMatch(/authenticated/);
+    expect(sqlFunctions).toContain("record_csp_violations");
   });
 });

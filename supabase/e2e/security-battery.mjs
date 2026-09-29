@@ -47,7 +47,21 @@ const RATE_LIMITED_RPC = { name: "shared_content", arg: "p_token_hash", max: 120
  * invalid URL costs one hit and writes no row.
  */
 const FORGED_LIMIT = { name: "create_link", max: 20 };
+/**
+ * The public report form. 0013 gave it a bucket and took away the answer that
+ * distinguished a code the service issued from one it never did; the ghost code
+ * below is shaped like a real one and exists nowhere.
+ */
+const ABUSE_LIMIT = { name: "report_link_abuse", max: 20, ghost: "zzzzzzzz" };
 const DEMO_ID = "e078ff60-846c-46ef-8a7e-091138c66b44"; // demo@studyforge.test
+/**
+ * An origin the Edge Functions' CORS allowlist is expected to recognise — the
+ * same list `APP_ORIGINS` overrides. A stranger origin gets no allow-header, so
+ * the CORS section needs one that is genuinely on the list to prove the echo.
+ */
+const APP_ORIGIN = (
+  process.env.APP_ORIGIN ?? "https://study-forg-frontend-100.vercel.app"
+).replace(/\/+$/, "");
 
 async function main() {
   const results = [];
@@ -122,7 +136,13 @@ async function main() {
   }
 
   {
-    const r = await fetch(`${BASE}/functions/v1/reminder-sender`, {
+    // The allowlist, both ways. `Access-Control-Allow-Origin: *` used to be the
+    // answer here, and it was not cosmetic: the session token rides in a header,
+    // so any page on the internet could post a signed-in visitor's own token to
+    // these endpoints and spend the owner's AI keys or mail their inbox. A
+    // stranger now gets no allow-origin at all (and a refusal, not a read), and
+    // the app's own origin is echoed exactly.
+    const stranger = await fetch(`${BASE}/functions/v1/reminder-sender`, {
       method: "OPTIONS",
       headers: {
         apikey: KEY,
@@ -130,9 +150,65 @@ async function main() {
         "Access-Control-Request-Method": "POST",
       },
     });
-    rec("edge: reminder-sender CORS preflight answers",
-      r.status === 200 && !!r.headers.get("access-control-allow-origin"),
-      `HTTP ${r.status}`);
+    rec(
+      "edge: CORS preflight names no origin for a stranger",
+      stranger.headers.get("access-control-allow-origin") === null,
+      `acao=${stranger.headers.get("access-control-allow-origin")}`,
+    );
+    const posted = await fetch(`${BASE}/functions/v1/reminder-sender`, {
+      method: "POST",
+      headers: {
+        apikey: KEY,
+        "Content-Type": "application/json",
+        Origin: "https://example.com",
+      },
+      body: "{}",
+    });
+    rec(
+      "edge: a stranger origin is refused before its body is read",
+      posted.status === 403,
+      `HTTP ${posted.status}`,
+    );
+    const mine = await fetch(`${BASE}/functions/v1/reminder-sender`, {
+      method: "OPTIONS",
+      headers: {
+        apikey: KEY,
+        Origin: APP_ORIGIN,
+        "Access-Control-Request-Method": "POST",
+      },
+    });
+    // `includes`, not `===`: measured live, the platform adds its own
+    // `Vary: Accept-Encoding` to every reply, so the value the function sets
+    // arrives as part of a list rather than as the whole of it.
+    rec(
+      "edge: CORS preflight echoes the app origin, not a wildcard",
+      mine.headers.get("access-control-allow-origin") === APP_ORIGIN &&
+        (mine.headers.get("vary") ?? "").includes("Origin"),
+      `acao=${mine.headers.get("access-control-allow-origin")} vary=${mine.headers.get("vary")}`,
+    );
+  }
+
+  {
+    // 0014: the entropy floor. `create_link` is granted to `anon`, so while the
+    // range read `{7,12}` any caller could plant a 34.7-bit address in the same
+    // public table the redirect reads from — the width of the client's generator
+    // is irrelevant if the database accepts shorter. One call costs one limiter
+    // hit and writes nothing.
+    const planted = await fetch(`${BASE}/rest/v1/rpc/create_link`, {
+      method: "POST",
+      headers: { apikey: KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        p_target_url: "https://example.com/",
+        p_code: "abcdefg",
+        p_edit_token: "x".repeat(32),
+      }),
+    });
+    const plantedText = await planted.text();
+    rec(
+      "security: create_link refuses a short code below the entropy floor",
+      /badCode/i.test(plantedText),
+      `HTTP ${planted.status} ${plantedText.slice(0, 90)}`,
+    );
   }
 
   {
@@ -197,6 +273,58 @@ async function main() {
       `security: a forged x-forwarded-for burst is still limited on ${FORGED_LIMIT.name}`,
       tripped && calls <= FORGED_LIMIT.max + 5,
       `${calls} calls with distinct forged addresses, last: ${last.slice(0, 100)}`,
+    );
+  }
+
+  {
+    // Two properties of the abuse endpoint, one aligned window, both from 0013.
+    // The reply must not say whether the code exists — the old `notFound` answer
+    // made /r/:code a free "which short codes are issued?" service, which is
+    // worth far more to a caller than a 48-bit guess. And the 21st report in a
+    // minute from one address must be refused; the form is public, so before the
+    // bucket existed a stranger could fill the owner's review queue at line
+    // speed. Running this does leave your own address throttled on that form for
+    // up to a minute, which is the point of the probe.
+    const msToEdge = 60_000 - (Date.now() % 60_000) + 300;
+    await new Promise((resolve) => setTimeout(resolve, msToEdge));
+    const report = async () => {
+      const r = await fetch(`${BASE}/rest/v1/rpc/${ABUSE_LIMIT.name}`, {
+        method: "POST",
+        headers: { apikey: KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          p_code: ABUSE_LIMIT.ghost,
+          p_reason: "security battery probe",
+        }),
+      });
+      return { status: r.status, text: (await r.text()).trim() };
+    };
+
+    const first = await report();
+    let opaque = false;
+    try {
+      const parsed = JSON.parse(first.text);
+      opaque =
+        first.status === 200 && parsed?.ok === null && parsed.err === undefined;
+    } catch {
+      opaque = false;
+    }
+    rec(
+      "security: report_link_abuse answers a never-issued code with the success body",
+      opaque,
+      `HTTP ${first.status} ${first.text.slice(0, 90)}`,
+    );
+
+    let tripped = false;
+    let calls = 1;
+    let last = first;
+    for (; calls < ABUSE_LIMIT.max + 5 && !tripped; calls++) {
+      last = await report();
+      if (/too many reports|rate.?limit/i.test(last.text)) tripped = true;
+    }
+    rec(
+      `security: rate limiter trips at ${ABUSE_LIMIT.max}+1 on ${ABUSE_LIMIT.name}`,
+      tripped,
+      `${calls} calls, last: ${last.text.slice(0, 90)}`,
     );
   }
 

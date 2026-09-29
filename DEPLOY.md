@@ -63,6 +63,34 @@ project on the platform.
 
 5. **Deploy**. First build takes a couple of minutes.
 
+### Optional: a human check in front of sign-up
+
+`VITE_TURNSTILE_SITE_KEY` is the only variable the app has for it, and it is
+optional in the strongest sense: unset, no widget is fetched, no token is asked
+for, and every auth form sends exactly what it sends today. The switch that
+actually matters is on the project, not in this repo.
+
+1. **Cloudflare dashboard → Turnstile → Add a widget.** Name it, add the
+   deployed origin (and `http://localhost:5173` while testing). Cloudflare
+   gives back a **site key** (`0x…`, public) and a **secret key** (`0x…`, never
+   public).
+2. **Vercel → Environment Variables:** `VITE_TURNSTILE_SITE_KEY` = the site key,
+   for Production, Preview and Development. It ships in the bundle by design —
+   a site key only ever proves "this browser showed a widget".
+3. **Supabase dashboard → Authentication → Sign In / Up → Advanced:** paste the
+   secret key as `TURNSTILE_SECRET_KEY`, then set **CAPTCHA** to *Cloudflare
+   Turnstile*. GoTrue reads the secret server-side and never exposes it.
+4. Redeploy, then sign up with a throwaway address. The link and the sign-in
+   both work, and the project's auth log shows the check was verified.
+
+**Order matters.** Step 3 gates sign-up, sign-in, the confirmation re-send and
+the reset link all at once — a project with the switch on and a client with no
+site key refuses every one of them, which reads to a visitor as "the password
+is wrong". Set step 2 and deploy first, and only then throw the switch.
+
+To back out, turn the switch off in step 3 and clear the variable in step 2;
+either half alone goes back to the behaviour it has today.
+
 ### If the build fails at install
 
 Two separate failures are possible here, and both were reproduced locally before
@@ -129,6 +157,26 @@ outright.
 > Because GoTrue **spends the token while it builds the redirect**, tapping a
 > link whose origin is not up burns the link as well as failing — see
 > `supabase/README.md` → *Auth settings a deployed project needs*.
+
+### And tell the two server functions the same list
+
+`ai-proxy` and `reminder-sender` answer a browser only if that page's origin is
+on their allow-list, and they refuse the request before reading its token if it
+is not. The default list is the four origins in `supabase/functions/ai-proxy/index.ts`
+— the Vercel alias, `study-forg.app`, `www.study-forg.app`, and
+`http://localhost:5173`.
+
+- **A new domain, or a preview deployment that needs AI extraction or the
+  "send now" button:** Supabase → Edge Functions → **Secrets** →
+  `APP_ORIGINS=https://your-origin.vercel.app,https://study-forg-frontend-100.vercel.app`
+  (comma-separated, exact origins, no trailing slash). It **replaces** the
+  default rather than adding to it, so name every origin you still use in one
+  value. No redeploy is needed for a secret to land, though the dashboard's
+  Redeploy button is the reliable way to make it take effect.
+- Symptom of forgetting it: the AI Studio reports it could not reach the proxy
+  and Settings → Reminders cannot send, while the rest of the app works — the
+  browser console shows a CORS refusal and the network tab shows **403**.
+- The scheduled cron tick sends no `Origin` at all, so it is never affected.
 
 ## 4. How updates work (the part you asked about)
 

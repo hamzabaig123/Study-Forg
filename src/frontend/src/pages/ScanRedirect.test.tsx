@@ -178,4 +178,61 @@ describe("ScanRedirect", () => {
       await screen.findByText(/your report has been recorded/i),
     ).toBeInTheDocument();
   });
+
+  /**
+   * The stored target is re-checked at the sink, not trusted from whichever
+   * backend answered. `location.replace("javascript:…")` runs in this origin —
+   * the one holding the session — and an archive restored by hand, the canister
+   * or a direct SQL write can each leave a string the minting form would refuse.
+   */
+  describe.each([
+    ["a script scheme", "javascript:alert(1)"],
+    ["a loopback address", "http://127.0.0.1/admin"],
+    [
+      "another of this app's short links",
+      "https://studyforge.app/r/abc1234567",
+    ],
+  ])("refuses %s", (_name, targetUrl) => {
+    it("neither navigates nor offers the address as a link", async () => {
+      const resolveCode = vi.fn().mockResolvedValue({
+        __kind__: "redirect",
+        redirect: { targetUrl },
+      });
+      setMockActor(createMockActor({ resolveCode }));
+
+      await renderRoute(<ScanRedirect />, {
+        path: "/r/$code",
+        initialPath: "/r/unsafe12",
+      });
+
+      expect(
+        await screen.findByRole("heading", { name: /this link was refused/i }),
+      ).toBeInTheDocument();
+      await waitFor(() => {
+        expect(resolveCode).toHaveBeenCalled();
+      });
+      expect(replace).not.toHaveBeenCalled();
+      expect(document.querySelector(`a[href="${targetUrl}"]`)).toBeNull();
+    });
+  });
+
+  it("still redirects a target the rules allow", async () => {
+    const resolveCode = vi.fn().mockResolvedValue({
+      __kind__: "redirect",
+      redirect: { targetUrl: "https://example.com/a?b=1#c" },
+    });
+    setMockActor(createMockActor({ resolveCode }));
+
+    await renderRoute(<ScanRedirect />, {
+      path: "/r/$code",
+      initialPath: "/r/ok123456",
+    });
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("https://example.com/a?b=1#c");
+    });
+    expect(
+      screen.queryByRole("heading", { name: /this link was refused/i }),
+    ).not.toBeInTheDocument();
+  });
 });

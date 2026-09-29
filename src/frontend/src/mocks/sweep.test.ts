@@ -1032,7 +1032,7 @@ describe("sweep", () => {
       err: { __kind__: "notFound" },
     });
 
-    // an abuse report is recorded but never touches the owner's link
+    // reporting abuse never touches the owner's link
     expect(await B.reportAbuse(link.code, "spam")).toMatchObject({
       __kind__: "ok",
     });
@@ -1051,9 +1051,20 @@ describe("sweep", () => {
         invalidInput: "A short code is required.",
       },
     });
-    expect(await B.reportAbuse("nosuchcode", "spam")).toMatchObject({
+    // A code the service never issued answers exactly what a real one did, so
+    // the public report endpoint cannot be used to ask "does this short code
+    // exist?" — migration 0013 deleted the `notFound` reply for that reason.
+    expect(await B.reportAbuse("nosuchcode", "spam")).toEqual(
+      await B.reportAbuse(link.code, "spam"),
+    );
+    // `abuse_report.reason` is capped at 2000 characters by a table CHECK, and
+    // the definer rejects the oversize input rather than raising 23514.
+    expect(await B.reportAbuse(link.code, "x".repeat(2001))).toMatchObject({
       __kind__: "err",
-      err: { __kind__: "notFound" },
+      err: {
+        __kind__: "invalidInput",
+        invalidInput: "Describe the problem with this link.",
+      },
     });
 
     expect(await B.deleteLink(link.editToken)).toMatchObject({

@@ -64,6 +64,19 @@ async function assertNewPassword(
   }
 }
 
+/**
+ * The captcha entry supabase-js turns into `gotrue_meta_security`, or nothing.
+ *
+ * Sent only when a token exists: with `VITE_TURNSTILE_SITE_KEY` unset there is
+ * no widget to produce one, and GoTrue ignores the field when its project has
+ * captcha off. An explicit `captchaToken: undefined` would say the same thing,
+ * but this way the request that leaves a captcha-less deployment is byte for
+ * byte the one it used to be.
+ */
+function captchaOptions(captchaToken?: string): { captchaToken?: string } {
+  return captchaToken ? { captchaToken } : {};
+}
+
 function accountOf(user: AuthUser): SupabaseAccount {
   const email = user.email ?? "";
   const metadata = user.user_metadata;
@@ -94,16 +107,27 @@ export interface SessionStore {
    * another one writes a token into storage that only a pull will notice.
    */
   refresh(): Promise<void>;
-  /** Resolves with the account, or throws the project's own reason for refusing. */
-  signIn(email: string, password: string): Promise<SupabaseAccount>;
+  /**
+   * Resolves with the account, or throws the project's own reason for refusing.
+   *
+   * `captchaToken` is only needed once the project switches
+   * `security_captcha_enabled` on, which gates the password grant as well as
+   * sign-up; with the flag off GoTrue ignores it.
+   */
+  signIn(
+    email: string,
+    password: string,
+    captchaToken?: string,
+  ): Promise<SupabaseAccount>;
   register(input: {
     name: string;
     email: string;
     password: string;
     passwordConfirmation: string;
+    captchaToken?: string;
   }): Promise<SupabaseAccount | null>;
   /** Re-send the confirmation link to an address. */
-  resendConfirmation(email: string): Promise<void>;
+  resendConfirmation(email: string, captchaToken?: string): Promise<void>;
   /**
    * Email a "choose a new password" link.
    *
@@ -112,7 +136,7 @@ export interface SessionStore {
    * account exists — which is why the screen that calls it can say "if that
    * address is ours, a link is on its way" without lying.
    */
-  requestPasswordReset(email: string): Promise<void>;
+  requestPasswordReset(email: string, captchaToken?: string): Promise<void>;
   /**
    * Set the new password for the session the reset link opened.
    *
@@ -131,11 +155,17 @@ export interface SessionStore {
    * shared computer, a stolen laptop, a tab left open — can lock the real
    * owner out by rotating the password. The proof is a password grant, which
    * also refreshes the session; a wrong answer never touches it.
+   *
+   * That grant is one of the endpoints `security_captcha_enabled` gates, so the
+   * token the form's widget produced has to reach it — otherwise the project
+   * answers a correct current password with a 403 and the change can never be
+   * made on a captcha-protected deployment.
    */
   changePassword(
     currentPassword: string,
     password: string,
     confirmation: string,
+    captchaToken?: string,
   ): Promise<SupabaseAccount>;
   /**
    * True from the moment a reset link is opened until a new password is chosen.
@@ -312,17 +342,24 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
       }
     },
 
-    async signIn(email, password) {
+    async signIn(email, password, captchaToken) {
       const { data, error } = await client.auth.signInWithPassword({
         email,
         password,
+        ...captchaOptions(captchaToken),
       });
       const account = unwrap(data.user, error);
       apply(account);
       return account;
     },
 
-    async register({ name, email, password, passwordConfirmation }) {
+    async register({
+      name,
+      email,
+      password,
+      passwordConfirmation,
+      captchaToken,
+    }) {
       await assertNewPassword(password, passwordConfirmation);
       const { data, error } = await client.auth.signUp({
         email,
@@ -336,6 +373,7 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
           // link that fails to open a session still lands somewhere that can
           // re-send it.
           emailRedirectTo: verificationRedirect(email),
+          ...captchaOptions(captchaToken),
         },
       });
       if (error) {
@@ -350,20 +388,24 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
       return current;
     },
 
-    async resendConfirmation(email) {
+    async resendConfirmation(email, captchaToken) {
       const { error } = await client.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: verificationRedirect(email) },
+        options: {
+          emailRedirectTo: verificationRedirect(email),
+          ...captchaOptions(captchaToken),
+        },
       });
       if (error) {
         throw new Error(authMessage(error.message));
       }
     },
 
-    async requestPasswordReset(email) {
+    async requestPasswordReset(email, captchaToken) {
       const { error } = await client.auth.resetPasswordForEmail(email, {
         redirectTo: redirectTo("/reset-password"),
+        ...captchaOptions(captchaToken),
       });
       if (error) {
         throw new Error(authMessage(error.message));
@@ -379,7 +421,12 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
       return account;
     },
 
-    async changePassword(currentPassword, password, confirmation) {
+    async changePassword(
+      currentPassword,
+      password,
+      confirmation,
+      captchaToken,
+    ) {
       await assertNewPassword(password, confirmation);
       const account = current;
       if (!account) {
@@ -392,6 +439,7 @@ export function createSessionStore(client: SupabaseClient): SessionStore {
       const proof = await client.auth.signInWithPassword({
         email: account.email,
         password: currentPassword,
+        ...captchaOptions(captchaToken),
       });
       if (proof.error) {
         if (/invalid/i.test(proof.error.message)) {

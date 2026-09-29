@@ -53,19 +53,41 @@ export interface AuthState {
 }
 
 /**
+ * What the sign-up form collects.
+ *
+ * `captchaToken` is the one field a local account has no use for: it is a
+ * receipt from a human check the project asked for, and `lib/localAuth` is not
+ * a project. It is optional everywhere because a build with
+ * `VITE_TURNSTILE_SITE_KEY` unset has no widget to produce one.
+ */
+export interface EmailSignUpInput {
+  name: string;
+  email: string;
+  password: string;
+  passwordConfirmation: string;
+  captchaToken?: string;
+}
+
+/**
  * Email and password, whichever store verifies them.
  *
  * `verification` is the one place the two differ visibly: the dev mock has no
  * mail server, so its verify screen completes the address in the browser, while
  * Supabase has already sent a link and the screen can only re-send it.
+ *
+ * The screens all take the same last argument, a captcha token, and all ignore
+ * it when the project does not ask for one — which is the shape a local account
+ * keeps no matter what the dashboard says.
  */
 export interface EmailPasswordAuthState extends AuthState {
   account: EmailAccount | null;
-  signIn: (email: string, password: string) => Promise<EmailAccount>;
+  signIn: (
+    email: string,
+    password: string,
+    captchaToken?: string,
+  ) => Promise<EmailAccount>;
   /** `null` means the address still has to be confirmed before there is a session. */
-  register: (
-    input: Parameters<typeof registerAccount>[0],
-  ) => Promise<EmailAccount | null>;
+  register: (input: EmailSignUpInput) => Promise<EmailAccount | null>;
   /** A seeded account for the mock backend; a real project has none to offer. */
   startDemo: (() => EmailAccount) | null;
   verification: "local" | "email";
@@ -74,7 +96,7 @@ export interface EmailPasswordAuthState extends AuthState {
    * calls it is often showing an account the browser has no session for yet —
    * the moment just after signing up.
    */
-  verifyEmail: (email?: string) => void | Promise<void>;
+  verifyEmail: (email?: string, captchaToken?: string) => void | Promise<void>;
   /**
    * Read the session again, for a screen that waits on something this browser is
    * not told about — the confirmation link opened in another tab. Only a store
@@ -88,7 +110,9 @@ export interface EmailPasswordAuthState extends AuthState {
    * `null` where there is no mail server to send it with, which is what keeps the
    * dev app's sign-in screen from offering a link that could only ever fail.
    */
-  requestPasswordReset: ((email: string) => Promise<void>) | null;
+  requestPasswordReset:
+    | ((email: string, captchaToken?: string) => Promise<void>)
+    | null;
   /**
    * Complete a reset with the new password. Paired with the request above, and
    * `null` for the same reason.
@@ -109,6 +133,7 @@ export interface EmailPasswordAuthState extends AuthState {
         currentPassword: string,
         password: string,
         confirmation: string,
+        captchaToken?: string,
       ) => Promise<void>)
     | null;
 }
@@ -188,11 +213,18 @@ export function useLocalAccountAuth(): EmailPasswordAuthState {
         emailAccountOf(await loginAccount(email, password)),
       [],
     ),
-    register: useCallback(
-      async (input: Parameters<typeof registerAccount>[0]) =>
-        emailAccountOf(await registerAccount(input)),
-      [],
-    ),
+    register: useCallback(async (input: EmailSignUpInput) => {
+      // A local account is a row in this browser's storage: there is no project
+      // to present a human-check receipt to, so the token never leaves here.
+      return emailAccountOf(
+        await registerAccount({
+          name: input.name,
+          email: input.email,
+          password: input.password,
+          passwordConfirmation: input.passwordConfirmation,
+        }),
+      );
+    }, []),
     startDemo: useCallback(() => emailAccountOf(startDemoAccount()), []),
     verifyEmail: useCallback(() => verifyCurrentAccount(), []),
     // Nothing to pull: a local account lives in this browser's storage, and the
@@ -297,28 +329,30 @@ export function useSupabaseAuth(): EmailPasswordAuthState {
     awaitsNewPassword: recovery === "awaiting",
     verification: "email",
     signIn: useCallback(
-      (address: string, password: string) =>
-        sessionStore().signIn(address, password),
+      (address: string, password: string, captchaToken?: string) =>
+        sessionStore().signIn(address, password, captchaToken),
       [],
     ),
     register: useCallback(
-      (input: Parameters<typeof registerAccount>[0]) =>
-        sessionStore().register(input),
+      (input: EmailSignUpInput) => sessionStore().register(input),
       [],
     ),
     startDemo: null,
     verifyEmail: useCallback(
-      async (address?: string) => {
+      async (address?: string, captchaToken?: string) => {
         // A confirmation can be re-sent to an address the browser holds no
         // session for — that is exactly the state right after signing up.
-        await sessionStore().resendConfirmation(address || email);
+        await sessionStore().resendConfirmation(address || email, captchaToken);
       },
       [email],
     ),
     refreshSession: useCallback(() => sessionStore().refresh(), []),
-    requestPasswordReset: useCallback(async (address: string) => {
-      await sessionStore().requestPasswordReset(address);
-    }, []),
+    requestPasswordReset: useCallback(
+      async (address: string, captchaToken?: string) => {
+        await sessionStore().requestPasswordReset(address, captchaToken);
+      },
+      [],
+    ),
     updatePassword: useCallback(
       async (password: string, confirmation: string) => {
         await sessionStore().updatePassword(password, confirmation);
@@ -330,11 +364,13 @@ export function useSupabaseAuth(): EmailPasswordAuthState {
         currentPassword: string,
         password: string,
         confirmation: string,
+        captchaToken?: string,
       ) => {
         await sessionStore().changePassword(
           currentPassword,
           password,
           confirmation,
+          captchaToken,
         );
       },
       [],

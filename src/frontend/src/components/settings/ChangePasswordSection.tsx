@@ -1,7 +1,9 @@
+import { CaptchaField } from "@/components/common/CaptchaField";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEmailPasswordAuth } from "@/hooks/useAuth";
+import { useCaptchaToken } from "@/hooks/useCaptchaToken";
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -24,6 +26,7 @@ export function ChangePasswordSection() {
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
+  const captcha = useCaptchaToken();
 
   if (!changePassword) {
     return null;
@@ -35,7 +38,12 @@ export function ChangePasswordSection() {
     setBusy(true);
     setProblem("");
     try {
-      await change(current, nextPassword, confirmation);
+      await change(
+        current,
+        nextPassword,
+        confirmation,
+        captcha.token || undefined,
+      );
       toast.success("Password changed. You stay signed in on this device.");
       setCurrent("");
       setNextPassword("");
@@ -46,6 +54,10 @@ export function ChangePasswordSection() {
           ? error.message
           : "The password could not be changed.",
       );
+      // The proof grant carried the token, so it is spent whatever the answer
+      // was — a wrong current password needs a fresh check as much as a refused
+      // one does.
+      captcha.expire();
     } finally {
       setBusy(false);
     }
@@ -112,10 +124,11 @@ export function ChangePasswordSection() {
           {problem}
         </p>
       ) : null}
+      <CaptchaField onToken={captcha.onChange} resetKey={captcha.resetKey} />
       <div className="flex justify-end">
         <Button
           type="submit"
-          disabled={busy}
+          disabled={busy || captcha.required}
           className="rounded-full"
           data-ocid="settings.security.password.submit_button"
         >

@@ -10,63 +10,192 @@
 // Deploy (needs the Supabase CLI, run from the repo root):
 //   supabase functions deploy ai-proxy --project-ref <ref>
 //   supabase secrets set GEMINI_API_KEY=... OPENROUTER_API_KEY=... --project-ref <ref>
+//   optional: APP_ORIGINS=<comma-separated origins> — the browsers allowed to
+//   call this function. Unset, the list below is used; add a preview deployment
+//   to it rather than editing the default.
+//   SUPABASE_SERVICE_ROLE_KEY is what makes the per-account cap durable, and the
+//   runtime already injects it.
 //
-// The runtime injects SUPABASE_URL and SUPABASE_ANON_KEY for every edge
-// function; nothing else here is required configuration. No imports: remote
-// module specifiers keep the deployed bundle from booting, and this function
-// needs nothing but fetch.
+// The runtime injects SUPABASE_URL, SUPABASE_ANON_KEY and
+// SUPABASE_SERVICE_ROLE_KEY for every edge function; nothing else here is
+// required configuration. The service key is used for exactly one call — the
+// `enforce_rate_limit` RPC that counts requests per account — and never reaches
+// a reply. No imports: remote module specifiers keep the deployed bundle from
+// booting, and this function needs nothing but fetch.
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Max-Age": "86400",
-};
+/**
+ * Browsers allowed to call this function.
+ *
+ * `APP_ORIGINS` is a comma-separated list of exact origins — scheme, host and
+ * optional port, no path and no trailing slash — so a preview deployment can
+ * admit itself without a code change. The default is the four origins this app
+ * is actually served from, which keeps the function deployable with no new
+ * secret. `http://localhost:5173` is one of them: `pnpm dev` on this machine
+ * runs against the live project, and a dev server that cannot reach the proxy
+ * is the reason the AI Studio once looked broken.
+ */
+const DEFAULT_ORIGINS = [
+  "https://study-forg-frontend-100.vercel.app",
+  "https://study-forg.app",
+  "https://www.study-forg.app",
+  "http://localhost:5173",
+];
+
+function allowedOrigins(): ReadonlySet<string> {
+  const configured = (Deno.env.get("APP_ORIGINS") ?? "")
+    .split(",")
+    .map((value) => value.trim().replace(/\/+$/, ""))
+    .filter((value) => value !== "");
+  return new Set(configured.length > 0 ? configured : DEFAULT_ORIGINS);
+}
+
+/**
+ * The CORS headers for one request.
+ *
+ * `Access-Control-Allow-Origin` is the request's own origin when that origin is
+ * allowlisted, and absent otherwise. It used to be `*`, and a wildcard here was
+ * not merely untidy: the session token rides in the `Authorization` header, so
+ * no cookie and no `Allow-Credentials` is involved, which means any page on the
+ * internet could have POSTed a signed-in visitor's own token to this endpoint
+ * and spent the owner's Gemini and OpenRouter keys from behind a tab they never
+ * opened. Echoing the exact origin is what makes the same request need a page
+ * the owner deployed.
+ *
+ * A request with no `Origin` — the pg_cron-style server caller, a live probe —
+ * gets no CORS headers at all. That is correct rather than an oversight: CORS is
+ * a rule the browser enforces on the *response*, and with no browser there is
+ * no one to refuse.
+ */
+function corsHeaders(request: Request): Record<string, string> {
+  const origin = (request.headers.get("origin") ?? "").trim();
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    // The answer depends on the header that asked, so a shared cache must not
+    // serve one origin's reply to another.
+    Vary: "Origin",
+  };
+  if (origin !== "" && allowedOrigins().has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
 
 /** A unit is one page's text or image plus the extraction prompt — bound it anyway. */
 const MAX_BODY_BYTES = 8_000_000;
+
+/**
+ * Read the body as text without ever holding more than `MAX_BODY_BYTES`.
+ *
+ * `request.text()` — and `request.json()` before it — buffers the entire payload
+ * and then reports its length, which made the cap below a measurement taken
+ * after the memory was already spent. A request with no `Content-Length` could
+ * therefore still make the isolate allocate as much as the caller liked. This
+ * checks each chunk as it lands and cancels the stream the moment the cap is
+ * crossed, so the rest is never read.
+ */
+async function readCappedText(
+  request: Request,
+): Promise<{ tooLarge: true } | { tooLarge: false; text: string }> {
+  const declared = Number(request.headers.get("content-length") ?? "");
+  // A lie here only costs the per-chunk check; an honest header short-circuits it.
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return { tooLarge: true };
+  }
+  const reader = request.body?.getReader();
+  if (!reader) return { tooLarge: false, text: "" };
+  const decoder = new TextDecoder();
+  let text = "";
+  let received = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    const value = next.value;
+    if (!value) continue;
+    received += value.byteLength;
+    if (received > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return { tooLarge: true };
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return { tooLarge: false, text: text + decoder.decode() };
+}
 
 /** One upstream at a time gets ~30s; 55s is under the platform's wall clock. */
 const UPSTREAM_TIMEOUT_MS = 55_000;
 
 /**
- * Per-account sliding window — a fair-use guardrail, not a quota defence.
+ * Per-account request cap, counted in Postgres.
  *
- * The map lives in one isolate and Supabase spreads requests across isolates
- * (and cold-starts a fresh one on a burst), so N isolates admit N x RATE_LIMIT
- * and any deploy resets every counter. Durable counting would have to live in
- * Postgres, the way `enforce_rate_limit` does. What this bound honestly buys is
- * one tab cannot hammer the owner's key by accident.
+ * `enforce_rate_limit` (migrations 0002/0005/0011) keeps its window in the
+ * `rate_limit` table, so the count survives a cold start and reads the same in
+ * every region. The guard this replaces was a `Map` inside the isolate, which
+ * was neither: Supabase spreads requests across isolates and cold-starts a fresh
+ * one on a burst, so N isolates admitted N x the cap and any deploy reset every
+ * counter — and this endpoint spends the *owner's* money per call, so a cap that
+ * resets on restart is a cap that nobody has to respect for long.
+ *
+ * The account id rides in the bucket name, which is what makes the count
+ * per-account. The table's other half, `ip`, is this function's own egress
+ * address here — identical for every caller — so keying on it would have pooled
+ * every account into one window and let one abuser throttle the rest.
  */
 const RATE_LIMIT = 20;
-const RATE_WINDOW_MS = 60_000;
-const MAX_TRACKED_ACCOUNTS = 1000;
-const hits = new Map<string, number[]>();
+const RATE_WINDOW_SECONDS = 60;
 
-function rateLimited(user: string): boolean {
-  const now = Date.now();
-  const recent = (hits.get(user) ?? []).filter((at) => now - at < RATE_WINDOW_MS);
-  if (recent.length >= RATE_LIMIT) {
-    hits.set(user, recent);
-    return true;
+/**
+ * Ask Postgres whether this account has room for one more request.
+ *
+ * PostgREST turns the helper's `raise exception 'RATE_LIMITED: …'` into a
+ * non-2xx whose body names it, so the marker is the only refusal this reads as
+ * "wait". Everything else — no service key, no project URL, a timeout, a 404
+ * because the limiter is not installed on this project — is a broken counter,
+ * not a full window, and the request goes through. The AI Studio is the feature;
+ * a Postgres hiccup must not turn it off.
+ */
+async function overRateLimit(user: string): Promise<boolean> {
+  const baseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (baseUrl === "" || serviceKey === "") return false;
+  try {
+    const res = await fetch(`${baseUrl}/rest/v1/rpc/enforce_rate_limit`, {
+      method: "POST",
+      headers: {
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        p_bucket: `ai_proxy:${user}`,
+        p_max: RATE_LIMIT,
+        p_window_seconds: RATE_WINDOW_SECONDS,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    if (res.ok) return false;
+    const detail = await res.text().catch(() => "");
+    return detail.includes("RATE_LIMITED");
+  } catch {
+    return false;
   }
-  recent.push(now);
-  hits.set(user, recent);
-  // A visitor that stops never evicts their own entry, so drop the keys whose
-  // window has aged out — and only those. Clearing the whole map instead hands
-  // anyone who reaches that size a free reset for every other account.
-  if (hits.size > MAX_TRACKED_ACCOUNTS) {
-    for (const [key, times] of hits) {
-      if (!times.some((at) => now - at < RATE_WINDOW_MS)) hits.delete(key);
-    }
-  }
-  return false;
 }
 
-function json(body: unknown, status = 200): Response {
+/**
+ * A reply that carries this request's own CORS answer.
+ *
+ * `cors` is a parameter rather than a module constant on purpose: the value
+ * depends on who asked, and an isolate serves several of them at once.
+ */
+function json(
+  cors: Readonly<Record<string, string>>,
+  body: unknown,
+  status = 200,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...CORS, "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 }
 
@@ -211,11 +340,25 @@ async function getAuthUser(bearer: string): Promise<{ id: string } | null> {
 }
 
 Deno.serve(async (request) => {
+  const cors = corsHeaders(request);
+  const origin = (request.headers.get("origin") ?? "").trim();
   if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS });
+    return new Response("ok", { headers: cors });
+  }
+  // A browser that sends an Origin this app does not serve gets refused before
+  // its body is read. CORS already stops that page from *reading* the reply;
+  // this stops it from making the upstream call at all, which is the half that
+  // costs the key owner money. A caller with no Origin (a script, a live probe)
+  // is not a cross-site request and is unaffected.
+  if (origin !== "" && !allowedOrigins().has(origin)) {
+    return json(
+      cors,
+      { error: { message: "This origin may not call the proxy." } },
+      403,
+    );
   }
   if (request.method !== "POST") {
-    return json({ error: { message: "Use POST." } }, 405);
+    return json(cors, { error: { message: "Use POST." } }, 405);
   }
 
   // Supabase's gateway has already checked the JWT signature; a live /auth/v1/user
@@ -225,24 +368,29 @@ Deno.serve(async (request) => {
   const bearer = request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "");
   const user = bearer ? await getAuthUser(bearer) : null;
   if (!user) {
-    return json({ error: { message: "Sign in to use the server proxy." } }, 401);
-  }
-  if (rateLimited(user.id)) {
     return json(
+      cors,
+      { error: { message: "Sign in to use the server proxy." } },
+      401,
+    );
+  }
+  if (await overRateLimit(user.id)) {
+    return json(
+      cors,
       { error: { message: "Too many requests — wait a minute." } },
       429,
     );
   }
 
-  const raw = await request.text();
-  if (raw.length > MAX_BODY_BYTES) {
-    return json({ error: { message: "Request body is too large." } }, 413);
+  const read = await readCappedText(request);
+  if (read.tooLarge) {
+    return json(cors, { error: { message: "Request body is too large." } }, 413);
   }
   let payload: { model?: unknown; text?: unknown; images?: unknown };
   try {
-    payload = JSON.parse(raw);
+    payload = JSON.parse(read.text);
   } catch {
-    return json({ error: { message: "Body is not JSON." } }, 400);
+    return json(cors, { error: { message: "Body is not JSON." } }, 400);
   }
   const model = typeof payload.model === "string" ? payload.model : "";
   const text = typeof payload.text === "string" ? payload.text : "";
@@ -250,7 +398,11 @@ Deno.serve(async (request) => {
     ? (payload.images as ImagePart[])
     : [];
   if (!model || !text) {
-    return json({ error: { message: "model and text are required." } }, 400);
+    return json(
+      cors,
+      { error: { message: "model and text are required." } },
+      400,
+    );
   }
 
   let upstream: Awaited<ReturnType<typeof callUpstream>>;
@@ -260,6 +412,7 @@ Deno.serve(async (request) => {
     // A timeout or a dead connection is worth repeating — the client's own
     // busy-model walk treats it exactly that way.
     return json(
+      cors,
       {
         error: {
           message: `Could not reach the model: ${cause instanceof Error ? cause.message : String(cause)}`,
@@ -271,8 +424,8 @@ Deno.serve(async (request) => {
   if (!upstream.ok) {
     return new Response(upstream.body, {
       status: upstream.status,
-      headers: { ...CORS, "Content-Type": "application/json" },
+      headers: { ...cors, "Content-Type": "application/json" },
     });
   }
-  return json({ text: upstream.text });
+  return json(cors, { text: upstream.text });
 });

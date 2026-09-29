@@ -50,6 +50,29 @@
       no `'unsafe-inline'` to scripts, so an inline block here would be blocked
       and the app would flash the wrong theme on every dark-mode visit.
     -->
+    <!-- The pre-JS boot shell recolours per theme through the classes
+         theme-bootstrap.js just set — literal oklch values because the
+         token stylesheet arrives with the bundle in dev. -->
+    <style>
+      /* Default palette inline in the style attribute would beat these rules,
+         so the light colours live here too and the theme blocks override. */
+      #boot-shell {
+        background: oklch(0.972 0.045 93);
+        color: oklch(0.3 0.055 55);
+      }
+      html.dark #boot-shell {
+        background: oklch(0.24 0.02 262);
+        color: oklch(0.94 0.012 120);
+      }
+      html.frosted #boot-shell {
+        background: oklch(0.958 0.024 152);
+        color: oklch(0.3 0.055 165);
+      }
+      html.maroon #boot-shell {
+        background: oklch(0.9809 0.0109 54.4);
+        color: oklch(0.27 0.05 18);
+      }
+    </style>
     <script src="/theme-bootstrap.js"></script>
   </head>
   <body>
@@ -70,6 +93,13 @@
           enabled, and reload this page.
         </p>
       </noscript>
+      <div
+        id="boot-shell"
+        style="min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px"
+      >
+        <span style="font-family:Georgia,serif;font-size:22px;font-weight:600;font-style:italic">StudyForge</span>
+        <span style="font-size:13px;opacity:0.7">Loading your workspace…</span>
+      </div>
     </div>
     <script type="module" src="./src/main.tsx"></script>
   </body>

@@ -72,6 +72,20 @@ describe("contentSecurityPolicy", () => {
     expect(directive("script-src")).toContain("https://va.vercel-scripts.com");
   });
 
+  it("lets the human check load and frame itself", () => {
+    // Turnstile (`lib/turnstile.ts`) is two entries, not one: its script runs in
+    // this document and it solves inside an iframe it injects. Without
+    // `frame-src` the widget renders as an empty box and every gated form stays
+    // shut behind a check nobody can take — a broken sign-in that looks like a
+    // network problem, which is the worst shape this can fail in.
+    expect(directive("script-src")).toContain(
+      "https://challenges.cloudflare.com",
+    );
+    expect(directive("frame-src")).toContain(
+      "https://challenges.cloudflare.com",
+    );
+  });
+
   it("carries the resource types the pages actually generate", () => {
     // QR codes and file previews are data/blob URLs made in this page, and
     // styles arrive as inline `style` attributes all over the layout.
@@ -103,6 +117,14 @@ describe("contentSecurityPolicy", () => {
     // silently drops it.
     expect(policy).not.toContain("frame-ancestors");
   });
+
+  it("carries no report-to either, for the same reason", () => {
+    // The endpoint `report-to` names is declared by a response header, which a
+    // `<meta>` cannot send. Here the consequence is louder than silence: every
+    // page would log that the group does not exist, and a policy nobody can read
+    // as broken teaches the owner to ignore it.
+    expect(policy).not.toContain("report-to");
+  });
 });
 
 /**
@@ -120,12 +142,53 @@ describe("securityHeaders", () => {
     .split("\n")
     .filter((line) => line.trim() !== "" && !line.startsWith("#"));
 
-  it("sends the same policy as the meta, plus the directive a meta ignores", () => {
+  it("sends the same policy as the meta, plus what a meta ignores", () => {
     const header = text.match(/Content-Security-Policy: (.+)/)?.[1];
     expect(header).toBe(
-      `${contentSecurityPolicy({ supabaseUrl: "https://demo_project.supabase.co" })}; frame-ancestors 'none'`,
+      `${contentSecurityPolicy({ supabaseUrl: "https://demo_project.supabase.co" })}; frame-ancestors 'none'; report-to csp`,
     );
     expect(header).toContain("https://demo_project.supabase.co");
+  });
+
+  it("points the report at the collector on the project the policy already allows", () => {
+    // One URL, both spellings: `Reporting-Endpoints` is the newer form and
+    // `Report-To` the group form, and between them they cover the browsers that
+    // actually deliver. Naming a host the policy does not allow would send every
+    // report to a place the CSP itself refuses.
+    const endpoint =
+      "https://demo_project.supabase.co/functions/v1/csp-collector";
+    expect(text).toContain(`Reporting-Endpoints: csp="${endpoint}"`);
+    expect(text).toContain(
+      `Report-To: group="csp",max_age=10800,endpoints=[{"url":"${endpoint}","priority":1}]`,
+    );
+    // The same origin, in the policy's own words — the negative control is a
+    // collector on a different project, which every report would fail to reach.
+    const connectSrc =
+      text
+        .match(/Content-Security-Policy: (.+)/)
+        ?.[1].match(/connect-src ([^;]+)/)?.[1] ?? "";
+    expect(connectSrc).toContain("https://demo_project.supabase.co");
+    expect(endpoint.startsWith(connectSrc.split(" ")[1])).toBe(true);
+  });
+
+  it("names no report target when the build named no project", () => {
+    // A dangling group is a console error on every page and no signal at all, so
+    // the absence is the honest answer — and it is what a mock-mode build ships.
+    // Checked against the rule lines, not the file: the comment block above them
+    // explains both headers whatever the build was given, and matching it would
+    // make this assertion pass by accident.
+    const rules = securityHeaders({ supabaseUrl: undefined })
+      .split("\n")
+      .filter((line) => line.trim() !== "" && !line.startsWith("#"));
+    expect(rules.some((line) => /^ {2}Report-To:/u.test(line))).toBe(false);
+    expect(
+      rules.some((line) => /^ {2}Reporting-Endpoints:/u.test(line)),
+    ).toBe(false);
+    expect(
+      rules.find((line) => line.startsWith("  Content-Security-Policy:")),
+    ).not.toContain("report-to");
+    expect(rules.join("\n")).toContain("frame-ancestors 'none'");
+    expect(rules.join("\n")).toContain("https://*.supabase.co");
   });
 
   it("refuses to be framed in every dialect a client might read", () => {
@@ -247,8 +310,19 @@ describe("vercel.json", () => {
       expect(sent["Content-Security-Policy"]).toContain(
         "frame-ancestors 'none'",
       );
+      expect(sent["Content-Security-Policy"]).toContain("report-to csp");
       expect(sent["X-Frame-Options"]).toBe("DENY");
       expect(sent["Strict-Transport-Security"]).toContain("max-age=31536000");
+      // The reporting target has to be in the file the host reads, or the policy
+      // asks for reports and no endpoint exists to receive them — which is the
+      // one failure of this whole surface that produces no error anywhere.
+      const project = sent["Content-Security-Policy"]?.match(
+        /https:\/\/[a-z0-9-]+\.supabase\.co/,
+      )?.[0];
+      expect(
+        sent["Reporting-Endpoints"],
+        `${label} declares no report endpoint for its report-to`,
+      ).toBe(`csp="${project}/functions/v1/csp-collector"`);
     });
 
     it(`${label} does not switch off a feature the app uses`, () => {

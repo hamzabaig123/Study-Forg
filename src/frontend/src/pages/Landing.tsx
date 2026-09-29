@@ -94,7 +94,9 @@ export default function Landing() {
   const { isAuthenticated: isSignedIn } = useAuth();
 
   return (
-    <div className="flex flex-col">
+    // A main landmark: the landing is the only page whose sections sit
+    // directly in a div, which is what Lighthouse's landmark-one-main flags.
+    <main className="flex flex-col">
       {/* Hero */}
       <section
         data-ocid="landing.hero.section"
@@ -456,6 +458,6 @@ export default function Landing() {
       </section>
 
       <AppFooter />
-    </div>
+    </main>
   );
 }

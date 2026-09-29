@@ -95,6 +95,37 @@ vi.mock("@/lib/supabase/session", () => ({
   sessionStore: () => store,
 }));
 
+/**
+ * A Turnstile the test solves by hand.
+ *
+ * `siteKey` starts empty so every test below sees the form exactly as a project
+ * with no captcha configured renders it; the one that wants the check sets it
+ * first. The callback is kept rather than fired immediately so a test can
+ * observe the form both before and after a visitor solves the box.
+ */
+const widget = vi.hoisted(() => ({
+  siteKey: "",
+  renders: 0,
+  solve: null as ((token: string) => void) | null,
+}));
+
+vi.mock("@/lib/turnstile", () => ({
+  turnstileSiteKey: () => widget.siteKey,
+  captchaConfigured: () => widget.siteKey !== "",
+  loadTurnstile: () =>
+    Promise.resolve({
+      render: (
+        _host: unknown,
+        options: { callback?: (token: string) => void },
+      ) => {
+        widget.renders += 1;
+        widget.solve = options.callback ?? null;
+        return `widget-${widget.renders}`;
+      },
+      remove: () => {},
+    }),
+}));
+
 async function renderLogin(initial = "/login") {
   setMockActor(null);
   const rootRoute = createRootRoute({ component: () => <Outlet /> });
@@ -176,6 +207,9 @@ describe("AuthPage with a Supabase session", () => {
     window.history.replaceState(null, "", "/");
     window.localStorage.clear();
     problem.message = null;
+    widget.siteKey = "";
+    widget.renders = 0;
+    widget.solve = null;
     store.recovering = false;
     store.settle(null);
     store.signIn.mockReset();
@@ -213,9 +247,47 @@ describe("AuthPage with a Supabase session", () => {
     await user.click(screen.getByRole("button", { name: /^sign in$/i }));
 
     expect(await screen.findByText("Dashboard body")).toBeInTheDocument();
+    // The third argument is the captcha token, and this build has no site key,
+    // so it is absent rather than an empty string — the request a project
+    // without the check sees is the one it always saw.
     expect(store.signIn).toHaveBeenCalledWith(
       "ada@example.com",
       "correct horse",
+      undefined,
+    );
+  });
+
+  it("holds the form until the check is solved, then sends its token", async () => {
+    // The project's captcha switch gates the password grant as much as sign-up,
+    // so this is the form where a token has to exist before the request leaves —
+    // and the one where sending a spent one again would look like a wrong
+    // password to the visitor.
+    widget.siteKey = "site-key";
+    store.signIn.mockImplementation(async () => {
+      store.settle(ada);
+      return ada;
+    });
+    await renderLogin();
+
+    await user.type(await screen.findByLabelText("Email"), "ada@example.com");
+    await user.type(screen.getByLabelText("Password"), "correct horse");
+    await waitFor(() => expect(widget.renders).toBe(1));
+
+    const submit = screen.getByRole("button", { name: /^sign in$/i });
+    expect(submit).toBeDisabled();
+    expect(await screen.findByText(/confirm the check above/i)).toBeVisible();
+
+    await act(async () => {
+      widget.solve?.("solved-token");
+    });
+    await waitFor(() => expect(submit).toBeEnabled());
+    await user.click(submit);
+
+    expect(await screen.findByText("Dashboard body")).toBeInTheDocument();
+    expect(store.signIn).toHaveBeenCalledWith(
+      "ada@example.com",
+      "correct horse",
+      "solved-token",
     );
   });
 
@@ -256,7 +328,10 @@ describe("AuthPage with a Supabase session", () => {
     await user.click(
       await screen.findByRole("button", { name: /send the link again/i }),
     );
-    expect(store.resendConfirmation).toHaveBeenCalledWith("grace@example.com");
+    expect(store.resendConfirmation).toHaveBeenCalledWith(
+      "grace@example.com",
+      undefined,
+    );
   });
 
   it("prefers the address the link is for when it comes back to sign in", async () => {
@@ -364,7 +439,10 @@ describe("AuthPage with a Supabase session", () => {
       await screen.findByRole("button", { name: /send the link again/i }),
     );
 
-    expect(store.resendConfirmation).toHaveBeenCalledWith("grace@example.com");
+    expect(store.resendConfirmation).toHaveBeenCalledWith(
+      "grace@example.com",
+      undefined,
+    );
     expect(
       screen.getByRole("button", { name: /send the link again/i }),
     ).toBeInTheDocument();
@@ -414,6 +492,7 @@ describe("AuthPage with a Supabase session", () => {
     await waitFor(() =>
       expect(store.requestPasswordReset).toHaveBeenCalledWith(
         "ada@example.com",
+        undefined,
       ),
     );
     expect(await screen.findByRole("status")).toHaveTextContent(

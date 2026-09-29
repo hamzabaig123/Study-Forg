@@ -1,8 +1,10 @@
+import { CaptchaField } from "@/components/common/CaptchaField";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useEmailPasswordAuth, useInternetIdentityAuth } from "@/hooks/useAuth";
+import { useCaptchaToken } from "@/hooks/useCaptchaToken";
 import { authLinkError } from "@/lib/authLinkError";
 import { USE_LOCAL_ACCOUNTS, USE_SUPABASE } from "@/lib/authMode";
 import { MIN_PASSWORD_LENGTH } from "@/lib/passwordPolicy";
@@ -210,6 +212,7 @@ function EmailPasswordAuthPage({
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [busy, setBusy] = useState(false);
+  const captcha = useCaptchaToken();
   if (mode === "verify") {
     return <VerifyEmailScreen />;
   }
@@ -238,8 +241,9 @@ function EmailPasswordAuthPage({
             email,
             password,
             passwordConfirmation: confirmation,
+            captchaToken: captcha.token || undefined,
           })
-        : await signIn(email, password);
+        : await signIn(email, password, captcha.token || undefined);
       if (!signedIn) {
         // Supabase created the account but will not open a session for an
         // address it has not seen clicked, so the verification screen has to
@@ -266,6 +270,10 @@ function EmailPasswordAuthPage({
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Could not continue.";
+      // A token is spent the moment it is sent, whatever the project made of it,
+      // so a refused attempt has to show a fresh box rather than the ticked one
+      // that just failed.
+      captcha.expire();
       // "Email not confirmed" is the project's answer to a correct password, and
       // a toast about it leaves the visitor with no way forward. The screen that
       // can send the link is one navigation away, and it has the address.
@@ -359,7 +367,20 @@ function EmailPasswordAuthPage({
                 </Link>
               </p>
             )}
-            <Button type="submit" className="w-full" disabled={busy}>
+            <CaptchaField
+              onToken={captcha.onChange}
+              resetKey={captcha.resetKey}
+            />
+            {captcha.required && (
+              <p className="text-sm text-muted-foreground">
+                Confirm the check above to continue.
+              </p>
+            )}
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={busy || captcha.required}
+            >
               {busy
                 ? "Please wait…"
                 : registerMode
@@ -461,6 +482,7 @@ function VerifyEmailScreen() {
   const [cooldown, setCooldown] = useState(0);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
+  const captcha = useCaptchaToken();
 
   useEffect(() => {
     if (cooldown <= 0) {
@@ -505,7 +527,7 @@ function VerifyEmailScreen() {
     setBusy(true);
     setProblem("");
     try {
-      await verifyEmail(address);
+      await verifyEmail(address, captcha.token || undefined);
       toast.success(
         verification === "local"
           ? "Email verified."
@@ -515,6 +537,9 @@ function VerifyEmailScreen() {
       setProblem(
         error instanceof Error ? error.message : "The email could not be sent.",
       );
+      // The token went out with the request, so it is spent even though the
+      // project said no — the box has to be solved again.
+      captcha.expire();
     } finally {
       setBusy(false);
       setCooldown(RESEND_COOLDOWN_SECONDS);
@@ -573,9 +598,13 @@ function VerifyEmailScreen() {
               {problem}
             </p>
           ) : null}
+          <CaptchaField
+            onToken={captcha.onChange}
+            resetKey={captcha.resetKey}
+          />
           <Button
             className="w-full"
-            disabled={busy || cooldown > 0}
+            disabled={busy || cooldown > 0 || captcha.required}
             onClick={() => {
               void resend();
             }}
@@ -639,6 +668,7 @@ function ForgotPasswordScreen() {
   const [cooldown, setCooldown] = useState(0);
   const [problem, setProblem] = useState("");
   const [sent, setSent] = useState("");
+  const captcha = useCaptchaToken();
 
   useEffect(() => {
     if (cooldown <= 0) {
@@ -667,7 +697,7 @@ function ForgotPasswordScreen() {
       // Awaited rather than fired and forgotten: the project refuses a redirect
       // it does not recognise, and a screen that said "check your inbox" through
       // that refusal would be the reason nobody ever gets the link.
-      await send(email);
+      await send(email, captcha.token || undefined);
       setSent(email);
     } catch (error) {
       const message =
@@ -675,6 +705,7 @@ function ForgotPasswordScreen() {
           ? error.message
           : "The reset link could not be sent.";
       setProblem(message);
+      captcha.expire();
       // The mailer's hourly quota is spent when it says "rate limit" — a
       // 30-second retry would meet the same wall, so wait out five minutes.
       if (/rate limit/i.test(message)) {
@@ -729,10 +760,14 @@ function ForgotPasswordScreen() {
                   {problem}
                 </p>
               ) : null}
+              <CaptchaField
+                onToken={captcha.onChange}
+                resetKey={captcha.resetKey}
+              />
               <Button
                 type="submit"
                 className="w-full"
-                disabled={busy || cooldown > 0}
+                disabled={busy || cooldown > 0 || captcha.required}
               >
                 {cooldown > 0
                   ? `Send the link again in ${cooldown}s`

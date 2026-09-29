@@ -82,6 +82,7 @@ import type { Principal } from "@icp-sdk/core/principal";
 import { tagBigints, untagBigints } from "@/lib/bigintJson";
 import { exportFileFor } from "@/lib/questionExport";
 import { reportStorageProblem, safeSetItem } from "@/lib/localStore";
+import { urlProblem } from "@/lib/security/externalUrl";
 
 /* -------------------------------------------------------------------------- */
 /* Stored shape                                                               */
@@ -422,19 +423,38 @@ function clone<T>(value: T): T {
 }
 
 function randomAlphabet(alphabet: string, length: number): string {
-  const bytes = new Uint8Array(length);
-  globalThis.crypto?.getRandomValues?.(bytes);
-  let out = "";
-  for (let index = 0; index < length; index += 1) {
-    out += alphabet.charAt((bytes[index] ?? Math.floor(Math.random() * 256)) % alphabet.length);
+  const crypto = globalThis.crypto;
+  // `Math.random()` is not a token source: it is a 48-bit xorshift seeded from
+  // the clock, so a code minted with it is recoverable rather than merely
+  // guessable. `lib/supabase/tokens.ts` throws for the same reason; the mock has
+  // to mint values that satisfy the same CHECK, so it gets the same rule.
+  if (!crypto?.getRandomValues) {
+    throw new Error("WebCrypto is unavailable, and these tokens need it");
   }
-  return out;
+  const bytes = new Uint8Array(length);
+  const limit = 256 - (256 % alphabet.length);
+  const picked: string[] = [];
+  while (picked.length < length) {
+    crypto.getRandomValues(bytes);
+    for (const byte of bytes) {
+      // `byte % alphabet.length` alone biases the first characters whenever the
+      // alphabet length does not divide 256, which is true of all three below.
+      if (byte < limit) {
+        picked.push(alphabet.charAt(byte % alphabet.length));
+        if (picked.length === length) {
+          break;
+        }
+      }
+    }
+  }
+  return picked.join("");
 }
 
 function shortCode(): string {
   // Deliberately the same alphabet and length as `lib/supabase/tokens.ts`: a
   // link created against the mock and later moved to Postgres must satisfy the
-  // `link.code` CHECK. The contract test reads both literals.
+  // `link.code` CHECK. The contract test reads both literals. Ten is the floor
+  // migration 0014 sets, so nothing this file mints is a 34.7-bit address.
   return randomAlphabet("23456789abcdefghjkmnpqrstuvwxyz", 10);
 }
 
@@ -756,96 +776,6 @@ function publicQuestion(row: QuestionRow): PublicQuestion {
 /* -------------------------------------------------------------------------- */
 /* Validation, export and generation                                          */
 /* -------------------------------------------------------------------------- */
-
-const SHORT_PATH_PREFIX = "/r/";
-
-/** Mirrors `hostOf` in `lib/qr-links.mo`: userinfo, port and path are dropped. */
-function hostOf(remainder: string): string {
-  let host = remainder.split("/")[0].split("?")[0].split("#")[0];
-  const at = host.split("@");
-  host = at[at.length - 1];
-  if (host.startsWith("[")) {
-    return `${host.split("]")[0]}]`;
-  }
-  return host.split(":")[0];
-}
-
-/** Mirrors `pathOf` in `lib/qr-links.mo`, stopping at a query or fragment. */
-function pathOf(remainder: string): string {
-  const parts = remainder.split("/");
-  if (parts.length < 2) {
-    return "";
-  }
-  let path = "/";
-  for (let index = 1; index < parts.length; index += 1) {
-    const segment = parts[index];
-    if (segment.startsWith("?") || segment.startsWith("#")) {
-      break;
-    }
-    path += segment;
-    if (index + 1 < parts.length) {
-      path += "/";
-    }
-  }
-  return path;
-}
-
-/** Mirrors `isPrivateHost` in `lib/qr-links.mo`: loopback, ULA and RFC1918 literals. */
-function isPrivateHost(host: string): boolean {
-  const h = host.toLowerCase();
-  if (h === "::1" || h === "[::1]") {
-    return true;
-  }
-  if (h.startsWith("fc") || h.startsWith("fd") || h.startsWith("fe80")) {
-    return true;
-  }
-  const octets = h.split(".");
-  if (octets.length !== 4) {
-    return false;
-  }
-  const first = Number(octets[0]);
-  const second = Number(octets[1]);
-  if (first === 10 || first === 127) {
-    return true;
-  }
-  if (first === 169 && second === 254) {
-    return true;
-  }
-  if (first === 192 && second === 168) {
-    return true;
-  }
-  return first === 172 && second >= 16 && second <= 31;
-}
-
-function urlProblem(rawUrl: string): string | null {
-  const trimmed = rawUrl.trim();
-  if (trimmed.length === 0) {
-    return "Enter a URL to shorten.";
-  }
-  const separator = trimmed.indexOf("://");
-  if (separator < 0) {
-    return "URL must start with http:// or https://";
-  }
-  const scheme = trimmed.slice(0, separator).toLowerCase();
-  if (scheme !== "http" && scheme !== "https") {
-    return "Only http and https links are allowed.";
-  }
-  const remainder = trimmed.slice(separator + 3);
-  if (remainder.length === 0) {
-    return "URL is missing a host.";
-  }
-  const host = hostOf(remainder);
-  if (host.length === 0) {
-    return "URL is missing a host.";
-  }
-  if (isPrivateHost(host)) {
-    return "Links to private or local addresses are not allowed.";
-  }
-  if (pathOf(remainder).startsWith(SHORT_PATH_PREFIX)) {
-    return "Links cannot point back at this app's short links.";
-  }
-  return null;
-}
 
 /** The masked hint for a saved key: first three and last four characters. */
 function maskKey(key: string): string {
@@ -1883,8 +1813,13 @@ export const mockBackend = {
     if (trimmedReason.length === 0) {
       return { __kind__: "err", err: { __kind__: "invalidInput", invalidInput: "Describe the problem with this link." } };
     }
-    if (!database().links.some((item) => item.code === code)) {
-      return { __kind__: "err", err: { __kind__: "notFound", notFound: null } };
+    // Recorded only for a code that exists, and the reply says the same thing
+    // either way — migration 0013 removed the `notFound` answer because it made
+    // the endpoint a free "does this short code exist?" oracle. `err: notFound`
+    // stays in the union: the canister still has that variant, and the
+    // over-long-reason branch below is not it.
+    if (trimmedReason.length > 2000) {
+      return { __kind__: "err", err: { __kind__: "invalidInput", invalidInput: "Describe the problem with this link." } };
     }
     return { __kind__: "ok", ok: null };
   },

@@ -48,29 +48,51 @@ const OUTBOUND_ORIGINS = [
 ];
 
 /**
- * The Supabase origin, exact when a project URL was supplied to the build.
+ * The project's own origin, when the build was given a URL worth trusting.
  *
  * `https://*.supabase.co` would cover every project on the platform, which is
- * one more tenant's host than this app needs reachable.
+ * one more tenant's host than this app needs reachable, so everything that names
+ * the project — the policy's `connect-src` and the violation collector below —
+ * goes through here and gets the exact origin or nothing.
  */
-function supabaseOrigin(projectUrl?: string): string {
-  if (projectUrl) {
-    try {
-      const url = new URL(projectUrl);
-      if (url.protocol === "https:" || url.protocol === "http:") {
-        return url.origin;
-      }
-    } catch {
-      // A malformed value is not worth failing a build over: the wildcard below
-      // still lets the app run, and the config itself reports the problem.
+function projectOrigin(projectUrl?: string): string | null {
+  if (!projectUrl) return null;
+  try {
+    const url = new URL(projectUrl);
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      return url.origin;
     }
+  } catch {
+    // A malformed value is not worth failing a build over: the wildcard still
+    // lets the app run, and the config itself reports the problem.
   }
-  return "https://*.supabase.co";
+  return null;
+}
+
+function supabaseOrigin(projectUrl?: string): string {
+  return projectOrigin(projectUrl) ?? "https://*.supabase.co";
 }
 
 export interface PolicyOptions {
   /** `VITE_SUPABASE_URL` as the build saw it. */
   supabaseUrl?: string;
+}
+
+/** The name both `report-to` spellings use for the collector. */
+export const CSP_REPORT_ENDPOINT = "csp";
+
+/**
+ * Where a violation report is posted, or `null` when the build has no project.
+ *
+ * The collector is an Edge Function on the same Supabase origin the policy
+ * already allows, so this adds no reachable host — it reuses the one entry that
+ * is already there. Without a project URL there is nothing to name, and a policy
+ * that reports to a group nobody declared is a console error on every page load
+ * and no report at all, so the absence is the honest answer rather than a guess.
+ */
+function collectorEndpoint(projectUrl?: string): string | null {
+  const origin = projectOrigin(projectUrl);
+  return origin === null ? null : `${origin}/functions/v1/csp-collector`;
 }
 
 /**
@@ -85,6 +107,13 @@ export interface PolicyOptions {
  *   `colorScheme`), and `style-src` inline cannot execute script.
  * - `img-src` needs `data:` and `blob:` for the QR preview and the PDF/export
  *   previews, both of which are generated in this page.
+ * - `frame-src` exists for one frame: Cloudflare's Turnstile challenge
+ *   (`lib/turnstile.ts`), which solves inside an iframe it injects. `default-src
+ *   'self'` alone would refuse it, and the widget would render as an empty box
+ *   with the form shut behind it. Listing the host unconditionally is the
+ *   cheaper mistake — a project that never switched captcha on fetches nothing
+ *   from it, while a policy that omits it breaks sign-in the moment the switch
+ *   is thrown without a redeploy of the policy.
  * - `object-src 'none'` and `base-uri 'none'` close two old XSS helpers that
  *   nothing in the app uses; `form-action 'none'` is safe because every form in
  *   the app is submitted by `onSubmit` with the default prevented.
@@ -102,26 +131,38 @@ export function contentSecurityPolicy(options: PolicyOptions = {}): string {
     `connect-src ${connectSrc}`,
     "font-src 'self'",
     "form-action 'none'",
+    "frame-src 'self' https://challenges.cloudflare.com",
     "img-src 'self' data: blob:",
     "object-src 'none'",
-    "script-src 'self' https://cdnjs.cloudflare.com https://va.vercel-scripts.com",
+    "script-src 'self' https://cdnjs.cloudflare.com https://challenges.cloudflare.com https://va.vercel-scripts.com",
     "style-src 'self' 'unsafe-inline'",
     "worker-src 'self' blob: https://cdnjs.cloudflare.com",
   ].join("; ");
 }
 
 /**
- * The same policy with the one directive a `<meta>` cannot carry.
+ * The same policy with the directives a `<meta>` cannot carry.
  *
  * `frame-ancestors` is defined only for the HTTP version of CSP; a browser
  * reading it out of a meta tag ignores it. So the `<script>`-injection defence
  * ships in `index.html` either way, and this variant adds clickjacking
  * protection for whoever can send a real header.
+ *
+ * `report-to` joins it for the same reason and is **header-only on purpose**: the
+ * endpoint it names is declared by a response header (`Reporting-Endpoints`
+ * below), which a meta cannot send, so putting the directive in the tag would
+ * leave every page reporting an unknown group and no report ever arriving. The
+ * meta policy keeps saying nothing about violations, which is the accurate
+ * description of what a meta can do.
  */
 export function contentSecurityPolicyForHeaders(
   options: PolicyOptions = {},
 ): string {
-  return `${contentSecurityPolicy(options)}; frame-ancestors 'none'`;
+  const parts = [contentSecurityPolicy(options), "frame-ancestors 'none'"];
+  if (collectorEndpoint(options.supabaseUrl)) {
+    parts.push(`report-to ${CSP_REPORT_ENDPOINT}`);
+  }
+  return parts.join("; ");
 }
 
 /**
@@ -138,9 +179,24 @@ export function contentSecurityPolicyForHeaders(
  * Each of these is inert until a host serves it, so shipping the file fixes
  * nothing on its own; it removes the step where whoever deploys has to invent
  * the values.
+ *
+ * The two reporting headers name the same URL under both spellings, because the
+ * spellings cover different browser generations: `Reporting-Endpoints` is the
+ * newer form (a single endpoint referenced by `report-to csp`) and `Report-To` is
+ * the group form every browser that delivers CSP reports already reads. One
+ * report goes to one destination; what `csp_violation.hits` counts is arriving
+ * reports, not distinct violation events, and the table says so rather than
+ * pretending to a precision it does not have.
  */
 export function securityHeaders(options: PolicyOptions = {}): string {
   const csp = contentSecurityPolicyForHeaders(options);
+  const endpoint = collectorEndpoint(options.supabaseUrl);
+  const reporting = endpoint
+    ? [
+        `  Report-To: group="${CSP_REPORT_ENDPOINT}",max_age=10800,endpoints=[{"url":"${endpoint}","priority":1}]`,
+        `  Reporting-Endpoints: ${CSP_REPORT_ENDPOINT}="${endpoint}"`,
+      ].join("\n")
+    : null;
   return `# Generated from src/lib/security/contentSecurityPolicy.ts by
 # \`pnpm security:headers\` (\`EMIT_HEADERS=1 pnpm build\` also writes this file as
 # dist/_headers).
@@ -150,8 +206,14 @@ export function securityHeaders(options: PolicyOptions = {}): string {
 # comments should still parse every line below as a path and a header.
 #
 # What each line is for:
-#   Content-Security-Policy  the page policy, plus frame-ancestors, which a
-#                            <meta> ignores (the reason for this file at all).
+#   Content-Security-Policy  the page policy, plus frame-ancestors and report-to,
+#                            which a <meta> ignores (the reason for this file at
+#                            all).
+#   Report-To / Reporting-Endpoints  where a blocked request is reported: the
+#                            csp-collector Edge Function on the project the policy
+#                            already allows. Absent when the build named no
+#                            project, because a report with nowhere to go is a
+#                            console error instead of a signal.
 #   Strict-Transport-Security  https-only from here on, for a year.
 #   X-Frame-Options          the same framing refusal, for a client that reads
 #                            it instead of CSP.
@@ -169,7 +231,7 @@ export function securityHeaders(options: PolicyOptions = {}): string {
 #                            revalidated or a deploy never arrives.
 
 /*
-  Content-Security-Policy: ${csp}
+  Content-Security-Policy: ${csp}${reporting ? `\n${reporting}` : ""}
   Strict-Transport-Security: max-age=31536000; includeSubDomains
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff

@@ -116,11 +116,14 @@ select tablename, policyname
 --    returns the first's rows.
 
 -- 9. The short-code rule the database enforces admits what the client mints.
---    Expected: one row, both columns reading `{7,12}`. A mismatch means one
---    migration widened the column and not the function (or the reverse), which
---    reaches the UI as create_link answering `badCode` for a perfectly good
---    code. lib/supabase/sqlSurface.contract.test.ts is the offline twin of this
---    check: it compares the same regexes against SHORT_CODE_LENGTH.
+--    Expected: one row, both columns reading `{10,12}` once 0014 has run
+--    (`{7,12}` before it, and `{7}` on a project that never applied 0003). A
+--    mismatch means one migration widened the column and not the function (or the
+--    reverse), which reaches the UI as create_link answering `badCode` for a
+--    perfectly good code. lib/supabase/sqlSurface.contract.test.ts is the offline
+--    twin of this check: it compares the same regexes against SHORT_CODE_LENGTH,
+--    and insists the *minimum* of the range clears 48 bits — the range is what an
+--    anonymous caller gets to choose, `create_link` being granted to `anon`.
 select pg_get_constraintdef(con.oid)                                      as column_check,
        (select substring(p.prosrc from '\[2-9a-hjkmnp-z\]\{[0-9,]+\}')
           from pg_proc p
@@ -323,5 +326,37 @@ select invariant, ok
                  and c.relname = 'class'
                  and g.rolname = 'authenticated'
                  and a.privilege_type = 'INSERT'))
+  ) as checks(invariant, ok)
+ order by 1;
+
+-- 15. The abuse-report invariants 0013 promises, read out of the stored function
+--     definition. The header comments of the migration file are not part of it,
+--     and the body's own comments are worded so that none of them names the
+--     variant this file removed — otherwise the second line below would be
+--     satisfied or failed by documentation rather than by code.
+select invariant, ok
+  from (values
+    ('the public report endpoint is throttled',
+      exists (select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public'
+                 and p.proname = 'report_link_abuse'
+                 and pg_get_functiondef(p.oid) like '%enforce_rate_limit%')),
+    ('its reply names no error variant that separates a real code from a guess',
+      not exists (select 1 from pg_proc p
+                    join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public'
+                     and p.proname = 'report_link_abuse'
+                     and pg_get_functiondef(p.oid) like '%notFound%')),
+    ('a row is filed only for a code that exists',
+      exists (select 1 from pg_proc p
+                join pg_namespace n on n.oid = p.pronamespace
+               where n.nspname = 'public'
+                 and p.proname = 'report_link_abuse'
+                 and pg_get_functiondef(p.oid)
+                     ~* '\bif[[:space:]]+found[[:space:]]+then\b'
+                 and pg_get_functiondef(p.oid) like '%insert into abuse_report%')),
+    ('and the report form is still reachable without signing in',
+      has_function_privilege('anon', 'report_link_abuse(text, text)', 'EXECUTE'))
   ) as checks(invariant, ok)
  order by 1;

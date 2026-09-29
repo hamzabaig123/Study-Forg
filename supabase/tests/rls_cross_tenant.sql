@@ -3,7 +3,8 @@
 -- What it proves, in one paste: one signed-in account cannot see or change
 -- another account's rows; an unconfirmed account cannot write at all; `anon`
 -- cannot read tables but the token-addressed link surface still works; and
--- `abuse_report` stays closed to direct writes even for `authenticated`.
+-- `abuse_report` stays closed to direct writes even for `authenticated`, while
+-- the abuse RPC gives no caller a way to ask whether a short code exists.
 --
 -- How to run: paste the WHOLE file into the Supabase dashboard SQL editor and
 -- execute it as one script. Everything happens inside one transaction that
@@ -147,8 +148,8 @@ end
 $$;
 
 -- ---------------------------------------------------------------------------
--- abuse_report is deny-by-default for direct writes, and the abuse RPC
--- refuses a code the service never issued.
+-- abuse_report is deny-by-default for direct writes, and the abuse RPC answers
+-- a code the service never issued with the same body it uses for a real one.
 -- ---------------------------------------------------------------------------
 
 set local request.jwt.claims = '{"role":"authenticated","sub":"22222222-2222-4222-8222-222222222222"}';
@@ -162,12 +163,15 @@ exception
 end
 $$;
 
+-- The reply alone has to be unreadable as an existence test; the matching
+-- "a real code writes a row, this one did not" check is at the end of the file,
+-- where a real code exists.
 do $$
 declare r jsonb;
 begin
   r := report_link_abuse('nosuch99', 'unknown code');
-  if not (r ? 'err') then
-    raise exception 'FAIL(abuse-rpc): report_link_abuse accepted a code that was never issued: %', r;
+  if r is distinct from '{"ok": null}'::jsonb then
+    raise exception 'FAIL(abuse-oracle): report_link_abuse answered a never-issued code with % — it must answer the same {"ok":null} a real code gets, or the public report endpoint tells a caller which short codes exist', r;
   end if;
 end
 $$;
@@ -254,6 +258,36 @@ begin
   select count(*) into n from link_scan;
   if n <> 1 then
     raise exception 'FAIL(scan-owner): A sees % link scans for its link, expected 1', n;
+  end if;
+end
+$$;
+
+-- The other half of the abuse oracle, now that a real code exists: the report
+-- for it and the report for a never-issued code answer identically, and only the
+-- real one leaves a row. Read as the owner on purpose — `abuse_report` grants a
+-- client role no SELECT policy, so a count taken under `authenticated` reads 0
+-- rows either way and proves nothing.
+reset role;
+
+do $$
+declare
+  v_real   jsonb;
+  v_ghost  jsonb;
+  v_seen   int;
+  v_unseen int;
+begin
+  v_real  := report_link_abuse('abcd234', 'a report against a live code');
+  v_ghost := report_link_abuse('nosuch99', 'a report against a live code');
+  if v_real is distinct from v_ghost then
+    raise exception 'FAIL(abuse-oracle): the two replies differ — % for a code that exists, % for one that does not', v_real, v_ghost;
+  end if;
+  select count(*) into v_seen from abuse_report where code = 'abcd234';
+  if v_seen <> 1 then
+    raise exception 'FAIL(abuse-record): a real code''s report wrote % rows, expected 1', v_seen;
+  end if;
+  select count(*) into v_unseen from abuse_report where code = 'nosuch99';
+  if v_unseen <> 0 then
+    raise exception 'FAIL(abuse-record): % rows filed for a code that exists nowhere', v_unseen;
   end if;
 end
 $$;

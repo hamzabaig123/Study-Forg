@@ -12,7 +12,15 @@
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; base-uri 'none'; connect-src 'self' https://qjoijoxmnliarlyaqmoz.supabase.co https://generativelanguage.googleapis.com https://openrouter.ai https://cdnjs.cloudflare.com http://localhost:11434 https://api.pwnedpasswords.com https://vitals.vercel-insights.com https://va.vercel-scripts.com; font-src 'self'; form-action 'none'; img-src 'self' data: blob:; object-src 'none'; script-src 'self' https://cdnjs.cloudflare.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'none'"
+          "value": "default-src 'self'; base-uri 'none'; connect-src 'self' https://qjoijoxmnliarlyaqmoz.supabase.co https://generativelanguage.googleapis.com https://openrouter.ai https://cdnjs.cloudflare.com http://localhost:11434 https://api.pwnedpasswords.com https://vitals.vercel-insights.com https://va.vercel-scripts.com; font-src 'self'; form-action 'none'; frame-src 'self' https://challenges.cloudflare.com; img-src 'self' data: blob:; object-src 'none'; script-src 'self' https://cdnjs.cloudflare.com https://challenges.cloudflare.com https://va.vercel-scripts.com; style-src 'self' 'unsafe-inline'; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'none'; report-to csp"
+        },
+        {
+          "key": "Report-To",
+          "value": "group=\"csp\",max_age=10800,endpoints=[{\"url\":\"https://qjoijoxmnliarlyaqmoz.supabase.co/functions/v1/csp-collector\",\"priority\":1}]"
+        },
+        {
+          "key": "Reporting-Endpoints",
+          "value": "csp=\"https://qjoijoxmnliarlyaqmoz.supabase.co/functions/v1/csp-collector\""
         },
         {
           "key": "Strict-Transport-Security",

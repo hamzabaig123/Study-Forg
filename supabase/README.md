@@ -19,15 +19,15 @@ the localStorage archive the app used when there was no server.
 `migrations/0010_digest_counts_every_test.sql` | Re-declares `reminder_digest(uuid, integer)` so it sums `result` **and** `custom_session`. The dashboard merges the two — a run built in the Test Builder is graded in the browser and mirrored into `custom_session` — but the digest read only `result`, so an account whose day was spent on built tests was mailed "0%, 0 answered, 0-day streak" while its own dashboard said 50% over 20 questions. Measured live on 2026-09-28. Same eight output columns, same owner scoping, same `service_role`-only grants re-asserted at the bottom. Run after 0002 (which creates `custom_session`) and after 0008. **Applied 2026-09-28**, and measured before/after against the account that complained: `reminder_digest(<owner>, 300)` went from `0% / 0 answered / 0-day streak` to `50% / 10 correct / 20 answered / streak 1 / 1 test today` — the dashboard's own numbers — while a library-only account kept its `89% / streak 3`, proving the union added rows rather than shifting the calendar.
 `migrations/0011_trusted_client_address.sql` | Re-declares `enforce_rate_limit` so a window is keyed on the address the edge vouches for — `cf-connecting-ip`, which Cloudflare writes and refuses to pass through from a client — instead of the leftmost `x-forwarded-for` element, which the caller writes. The old key was measured live: 25 `create_link` calls carrying 25 invented addresses produced 25 accepted requests and 25 separate limiter rows, i.e. every public throttle was decorative. Falls back to the proxy-appended last `x-forwarded-for` element, then `x-real-ip`, then `unknown`. The file also takes back `TRUNCATE`, `TRIGGER` and (on 17 and up) `MAINTAIN` from `anon` and `authenticated` on every public table and from the `postgres` default privileges, because RLS does not apply to TRUNCATE and a signed-in account could otherwise wipe a table another account's rows live in. `REFERENCES` is deliberately left alone — the client roles' own FK inserts need it. **Applied 2026-09-28.** Measured after: the same forged-address burst is answered `20 accepted / 5 limited` with one limiter row keyed on the real address, and the battery's `shared_content` probe still trips at 121 on the honest path.
 `migrations/0012_maroon_appearance.sql` | Widens the `user_settings.appearance` CHECK from three values to four so the fourth theme (Maroon Forge) can sync to an account. The client already stores `maroon` device-locally and the adapter validates it; without this the row is refused on insert and the preference never follows the account. No table is created, no row is rewritten, and the three existing values keep working — dropping and re-adding the same constraint is what makes a second run a no-op. **Applied 2026-09-29.** Read back over the Management API: the constraint is `CHECK (appearance = ANY (ARRAY['light','dark','frosted','maroon']))` with `convalidated = true`.
-`functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by its `CRON_SECRET` bearer or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. Deploying it is three commands and a secret — see its file header — and the full setup, including the Resend sender restriction and the optional tick, is in [The reminder pipeline](#the-reminder-pipeline) below. On the mock backend the digest is a browser notification instead.
+`functions/reminder-sender/` | The Deno function that does the sending 0006 describes: it authenticates a pg_cron tick by its `CRON_SECRET` bearer or a person by their own session, builds the digest from `reminder_digest`, mails it through Resend, and writes the attempt to `reminder_log`. It reads its body under a 16 KiB streaming cap, compares the tick bearer without a timing signal, and caps each account at five "send one now" presses an hour from the log those presses already write. Deploying it is three commands and a secret — see its file header — and the full setup, including the Resend sender restriction and the optional tick, is in [The reminder pipeline](#the-reminder-pipeline) below. On the mock backend the digest is a browser notification instead.
 `verify.sql` | Fourteen read-only checks that prove the security claims instead of asserting them. 1–7 are the schema/RLS surface, 9 the short-code drift, 10 the data invariants `0004` turns into constraints — run 10 before applying 0004 and it names the rows that would make it raise — 11 the shape and the write surface `0006` promises, including that `reminder_log` has no client write policy at all, 12 the function-grant invariants `0008` promises: no client role may execute the two reminder helpers or the rate limiter, and 14 the client-address and privilege invariants `0011` promises: the limiter reads `cf-connecting-ip`, never the caller-written leftmost `x-forwarded-for` element, and no client role holds TRUNCATE/TRIGGER/MAINTAIN on any public table or in the stored default privileges
 `email-templates/` | The five branded GoTrue emails (confirm signup, reset password, magic link, invite, change email) plus the paste instructions and suggested subjects. These are the dashboard's copy of record: edit here, paste there
 `tests/rls_cross_tenant.sql` | Two fake tenants inside one `BEGIN … ROLLBACK`: proves A cannot read, write or delete B's rows, that an unconfirmed account cannot write, and that the anonymous link functions still answer. Run it in the SQL editor; it leaves no trace
 `e2e/apply-migration.mjs` | Applies `0001_init.sql` over HTTPS through the Supabase Management API, then re-runs `verify.sql`'s first seven checks and the RLS file as assertions. Needs only `SUPABASE_ACCESS_TOKEN` and `SUPABASE_PROJECT_REF`; no `psql`, no Docker. It applies **0001 only** — the later migrations are pasted by hand until a runner that knows about all of them exists
 `e2e/replay-sweep.mjs` | The whole write path, driven against a live database through the real client (supabase-js, the same one the adapter uses — this exercises the RPCs and tables behind the 77 methods, not each of the 77 calls). Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and **either** `SUPABASE_DB_URL` **or** `SUPABASE_SERVICE_ROLE_KEY`; creates three throwaway accounts (two confirmed, one deliberately left unconfirmed) and deletes all three. No service key required in principle — see the header of the script — but `SUPABASE_DB_URL` only works if it is a **direct or pooler hostname** (`aws-0-<region>.pooler.supabase.com:5432`, user `postgres.<ref>`, database `postgres`; a `db.<ref>.supabase.co` host does not resolve outside Supabase's own network) **and** `pg` is reachable through `NODE_PATH`, since the driver is deliberately not a dependency here. On this machine the service-key route is the one that works. It is also the only gate that writes tables as a client rather than through a `security definer` function: the hierarchy, `note`, `activity`, `user_settings`, and the three that used to have no proof at all — `reminder_settings`, `push_subscriptions` and `custom_session`, the mirror every finished Test Builder run sends. Every one of those is then re-read as a *second* account, which must see zero rows
-`e2e/security-battery.mjs` | The live stranger test: thirty-one read-only or self-cleaning probes over HTTPS — every public table refused to `anon`, the `service_role`-only helpers refused to a signed-in key, the token-addressed RPCs throttled, and a burst that forges its own `x-forwarded-for` per call answered by the limiter rather than let through. Needs only `SUPABASE_URL` + `SUPABASE_ANON_KEY` (`DEMO_EMAIL`/`DEMO_PASSWORD` add the authenticated write surface). Run it after every migration
+`e2e/security-battery.mjs` | The live stranger test: thirty-six read-only or self-cleaning probes over HTTPS — every public table refused to `anon`, the `service_role`-only helpers refused to a signed-in key, the token-addressed RPCs throttled, a burst that forges its own `x-forwarded-for` per call answered by the limiter rather than let through, the public abuse report shown to answer a never-issued short code with exactly the body a real one gets and to throttle at 20/min, `create_link` shown to refuse an `anon` caller's attempt to plant a seven-character code, and the Edge Functions' CORS allowlist checked from both sides (a stranger origin gets no `Access-Control-Allow-Origin` and a refusal, the app's own origin is echoed). Needs only `SUPABASE_URL` + `SUPABASE_ANON_KEY` (`DEMO_EMAIL`/`DEMO_PASSWORD` add the authenticated write surface, `APP_ORIGIN` names the origin the CORS echo is expected to match). Run it after every migration
 `e2e/auth-flow.mjs` | The whole sign-up → confirm → sign-in → refresh → change-password → recovery → sign-out → delete path against a live GoTrue, in the order a real user meets it, ending with the throwaway account it created deleted. Needs `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY`, which it uses for two admin routes on that one account — confirm and delete, with the delete repeated from the cleanup path if a step fails in between. `SUPABASE_PASSWORD_FLOOR` (default 10) is asserted on both the sign-up and the change-password route, so a dashboard policy change fails here rather than surprising a user
-`functions/ai-proxy/` | The Edge Function that calls Gemini or OpenRouter with keys held on the server, so the browser never stores one. Deploy command in its header
+`functions/ai-proxy/` | The Edge Function that calls Gemini or OpenRouter with keys held on the server, so the browser never stores one. Answers only the origins in its CORS allowlist (`APP_ORIGINS`, or the four compiled defaults), caps each account at 20 requests a minute **in Postgres** (`enforce_rate_limit`, so the count survives a cold start and is shared across regions), and reads its body under a streaming 8 MB cap. Deploy command in its header
 `backup/backup.mjs` | Dumps every public table to one readable JSON snapshot under `backup/snapshots/` (git-ignored — that folder holds other people's homework). Needs `SUPABASE_ACCESS_TOKEN` + `SUPABASE_PROJECT_REF`
 `backup/restore.mjs` | The other half: restores a JSON snapshot into a **different** project and then proves it — row counts, RLS and `anon` grants re-read after the write, not assumed from the schema file. `--into <ref>` and `--confirm <ref>` are both required and must agree; `--dry-run` does the whole preflight and writes nothing; it refuses a non-empty target, an `auth.users` owner the snapshot needs, and its own source project. Both transports and every flag are in OPERATIONS.md → *Restore drill*
 `OPERATIONS.md` | Backups, PITR, the restore drill, key rotation and the staging → production path
@@ -128,9 +128,18 @@ zip does not). `tests/rls_cross_tenant.sql` has still never been run through
    0002 created. Finally `migrations/0011_trusted_client_address.sql`, which
    re-declares the limiter 0005 introduced and 0008 revoked from the client
    roles, and takes the destructive table privileges back from both roles; it is
-   idempotent and ends with `notify pgrst, 'reload schema'`. Last,
+   idempotent and ends with `notify pgrst, 'reload schema'`. Then
    `migrations/0012_maroon_appearance.sql` — one CHECK, no ordering constraint
-   against any other file.
+   against any other file — and last
+   `migrations/0013_abuse_report_throttle_and_oracle.sql`, which re-declares
+   `report_link_abuse` and so must follow 0002 (the throttle branch calls
+   `enforce_rate_limit`) and 0011 (that is the version of the limiter keyed on
+   the address Cloudflare vouches for). Last,
+   `migrations/0014_short_code_floor.sql`, which follows 0003 (it replaces that
+   file's `{7,12}` pair) and 0004 (whose `create_link` is the newest declaration
+   until this one). It **counts before it alters**: if any live `link.code` is
+   shorter than ten characters the file raises and names them, because silently
+   taking away somebody's printed URL is not a repair.
 3. Run all of `verify.sql` and read each result against its comment. Check 4
    (`role_table_grants` for `anon`) returning zero rows is the one that matters
    most: it is what makes the publishable key safe to ship in the browser.
@@ -179,7 +188,7 @@ as `due_reminders()` resolves it for the cron tick. The browser's own
 `buildDigest` copy — including its HTML rendering — is what the mock backend
 surfaces as a notification, not what this function mails.
 
-The function reads four secrets (Edge Functions → Secrets in the dashboard, or
+The function reads five secrets (Edge Functions → Secrets in the dashboard, or
 `supabase secrets set` with the CLI):
 
 | Secret | Required | What it does |
@@ -188,6 +197,7 @@ The function reads four secrets (Edge Functions → Secrets in the dashboard, or
 `APP_URL` | yes in practice | The deployed app origin; the email's "Continue studying" button, the plain-text footer and the push click all point at `${APP_URL}/dashboard`. Set it to `https://study-forg-frontend-100.vercel.app`. It used to fall back to the project's API origin, which mailed every reader a link to `https://<ref>.supabase.co/dashboard` — Supabase's own dashboard, not the app. That fallback is gone: an app-triggered send borrows the page's origin from its `Origin` header, and a cron tick with nothing to borrow lands on the production origin compiled into `appOrigin()`.
 `RESEND_FROM` | no | Custom sender for a verified domain: `StudyForge <notices@yourdomain.com>`. Default: `onboarding@resend.dev`.
 `CRON_SECRET` | only for the tick | The bearer the scheduled pg_cron tick must carry; the function compares it character for character. The value lives in `supabase/.env`.
+`APP_ORIGINS` | no | Comma-separated exact origins — the browsers allowed to call the function from a page. Unset, both Edge Functions use the compiled default (`https://study-forg-frontend-100.vercel.app`, `https://study-forg.app`, `https://www.study-forg.app`, `http://localhost:5173`). Set it when the app is served from somewhere else: a preview deployment, or your own domain. **It replaces the default list rather than adding to it**, so keep the origins you still use in the value. The pg_cron tick sends no `Origin` and is never gated by this.
 
 **The Resend sender restriction:** until a domain is verified, Resend delivers
 the default `onboarding@resend.dev` sender only to the Resend account owner's
@@ -572,7 +582,10 @@ secret and the `reminder-sender` redeploy — went through the Management API on
   only its own rows, B cannot read/update/delete/insert across the boundary, an
   unconfirmed account cannot write at all, `anon` is refused both tables while
   `resolve_link` still answers and records its scan for the owner, and
-  `report_link_abuse` rejects a code the service never issued.
+  `report_link_abuse` answers a code the service never issued with the same body
+  a real code gets and files a row for only the real one. (That last pair is what
+  0013 changes; the run recorded below was made against 0012, where the RPC still
+  returned `notFound`.)
 - The app writes real rows: `POST /rest/v1/class` and `/rest/v1/activity` both
   return 201 with `owner_id` set to the signed-in `auth.uid()`, and
   `dashboard_stats`, `class_rows` and `attempt_history` answer 200, so the
@@ -617,10 +630,18 @@ credential:
   and tested against the mock backend, but it has not run against this database.
   It restores the library, not the practice history, because `start_session`
   dates an attempt server-side — an export of past attempts would move every one
-  to today.
+  to today. Its size bounds are enforced in the client that reads the file: 5 000
+  rows per replayed collection (a format refusal, not a partial import), 50 000
+  characters per field and eight levels per row, the last checked by an
+  iterative walk so a hostile archive cannot overflow the tab in the note editor
+  after the row is already written. The row caps are the importer's own; the
+  `text` columns behind these rows are still unbounded in `0001_init.sql`, which
+  is why an over-long row is refused rather than trimmed.
 - `functions/ai-proxy` **is deployed** and has answered a real signed-in request
   (verified 2026-09-28: an unauthenticated call is refused `401`, and a request
-  carrying a session token reaches the provider). It is still not wired to the
+  carrying a session token reaches the provider). Its request cap is now counted
+  in Postgres rather than in the isolate — see the note below on what the
+  deployed version is missing. It is still not wired to the
   studio — no frontend code calls it, so the extraction path in the browser keeps
   using the reviewer's own key. Deploying it is necessary for that to change, not
   sufficient.
@@ -642,6 +663,21 @@ credential:
   and the three helpers' ACLs read `postgres` + `service_role` only (0008),
   which the publishable key confirmed by getting `401 / 42501` from
   `reminder_digest` and `due_reminders`.
+  `migrations/0013_abuse_report_throttle_and_oracle.sql` and
+  `migrations/0014_short_code_floor.sql` are **written, not applied**: until
+  someone pastes them, the live abuse endpoint still answers a never-issued short
+  code with `{"err":"notFound"}` and still has no bucket, and `link.code` still
+  accepts a seven-character code from an anonymous caller. The three new battery
+  checks and `verify.sql` #15 fail by design until both files are in.
+  Both halves of that sentence were **measured on the live project on 2026-09-29**,
+  not inferred from the file: an anonymous `POST /rest/v1/rpc/report_link_abuse`
+  carrying `p_code: "nosuchcode"` answered `200 {"err": "notFound"}`, and
+  `pg_constraint` still reads `link_code_check ~ '^[2-9a-hjkmnp-z]{7,12}$'`.
+  0014's refusal is also known not to fire here: `link` holds one row and its
+  code is already ten characters, so the count-and-raise guard finds nothing to
+  object to. 0013's `grant execute … to anon, authenticated` matches the live
+  ACL rather than widening it — `report_link_abuse` is already
+  `postgres,authenticated,service_role,anon`.
 - `functions/reminder-sender` **is deployed** — version 10 on 2026-09-28, built
   from this repository's `supabase/functions/reminder-sender/index.ts`. Every
   secret it reads is set (`BREVO_API_KEY`, `BREVO_FROM`, `RESEND_API_KEY`,
@@ -653,6 +689,34 @@ credential:
   tick was scheduled and exercised live earlier the same week; the `cron` schema
   is not reachable over PostgREST from this machine, so re-confirm with
   `select * from cron.job` in the SQL editor if in doubt.
+- **Both function sources are ahead of what is deployed.** Since version 10 the
+  repository added, to `reminder-sender`: a 16 KiB body cap enforced *while
+  reading* (`readBody`, answered `413`) rather than after `request.json()` has
+  buffered the payload; `secretsMatch`, which XOR-accumulates over equal-length
+  UTF-8 buffers instead of `===`, so the tick bearer's reply time says nothing
+  about how much of a guess matched; and a per-account cap of five "send one
+  now" presses an hour, counted from `reminder_log` — the table every send
+  already writes — and answered `429`. The app's own scheduler and the cron tick
+  both ask for `daily`, so neither is counted. To `ai-proxy`: the per-account
+  request cap moved out of the isolate and into Postgres, one
+  `enforce_rate_limit('ai_proxy:<user id>', 20, 60)` per request over
+  PostgREST with the service key (`enforce_rate_limit`'s live ACL already reads
+  `postgres` + `service_role`, so no migration is needed for it), failing
+  **open** if the counter cannot be reached — a broken limiter must not turn the
+  AI Studio off; and the same streaming body cap, at 8 MB. Neither is live until
+  `supabase functions deploy` runs again.
+  `src/lib/supabase/edgeFunctions.contract.test.ts` pins all of it against the
+  source text (with the regression each guard rejects), because no frontend gate
+  otherwise reads `supabase/functions/`, and the behaviour is proven by
+  `harness-117.mjs` — 24 checks that import both real `.ts` files under a stubbed
+  `Deno` global in Node and drive the handler: which bucket the limiter is
+  counted under, that a full window answers `429` before any upstream call, that
+  25 requests in one isolate are all admitted (the old `Map` refused #21), that a
+  400 KB body is refused without the caller ever being resolved, that a
+  near-miss, a prefix and a longer--but-prefixed tick bearer are all treated as
+  an ordinary signed-in caller, and that six test sends this hour answers `429`
+  while a broken log read fails open. It is scratch tooling outside the repo
+  because it needs a `Deno` stub the project must not ship.
 - `studyforge.custom-sessions.v1` (Test Builder runs and their results) is not
   in the archive the exporter writes, and not erased by "Clear local data". It
   does have a table — `custom_session` (0002), fed by `lib/customSync.ts` as

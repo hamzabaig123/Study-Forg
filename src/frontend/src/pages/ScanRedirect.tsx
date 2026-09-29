@@ -7,6 +7,8 @@ import { DeviceType, UnavailableReason } from "@/types";
 import { useParams } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 
+import { safeRedirectUrl } from "@/lib/security/externalUrl";
+
 import {
   type AlertTriangle,
   Ban,
@@ -293,14 +295,45 @@ export default function ScanRedirect() {
     country,
   );
 
-  const targetUrl =
+  const storedUrl =
     data && data.__kind__ === "redirect" ? data.redirect.targetUrl : null;
+  /**
+   * Re-checked here rather than trusted. The rule set this page shares with the
+   * minting side is the *write's* rule set for whichever backend answered: a
+   * restored archive, the canister or hand-run SQL can each leave a different
+   * string in `target_url`. `window.location.replace("javascript:…")` executes
+   * in this origin — the one holding the session — and the "continue to the
+   * destination" anchor below is the same sink wearing a link.
+   */
+  const targetUrl = useMemo(() => safeRedirectUrl(storedUrl), [storedUrl]);
 
   useEffect(() => {
     if (!targetUrl) return;
     // Replace rather than push so the short link never traps the back button.
     window.location.replace(targetUrl);
   }, [targetUrl]);
+
+  if (storedUrl !== null && targetUrl === null) {
+    return (
+      <PublicLayout>
+        <div
+          data-ocid="scan.refused_state"
+          className="mx-auto flex max-w-xl flex-col items-center px-6 py-24 text-center"
+          role="alert"
+        >
+          <span className="flex size-14 items-center justify-center rounded-full bg-destructive/10 text-destructive">
+            <ShieldAlert className="size-6" aria-hidden="true" />
+          </span>
+          <h1 className="mt-6 text-2xl">This link was refused</h1>
+          <p className="mt-3 text-sm text-muted-foreground">
+            The address behind that code is not one StudyForge will send you to.
+            If you were expecting a page here, tell the person who shared the
+            link.
+          </p>
+        </div>
+      </PublicLayout>
+    );
+  }
 
   if (targetUrl) {
     return (

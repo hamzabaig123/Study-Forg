@@ -161,9 +161,9 @@ const shareToken = () => `share_${slug(24)}`;
 const linkCode = () => {
   const alphabet = "23456789abcdefghjkmnpqrstuvwxyz";
   // 10 characters, matching SHORT_CODE_LENGTH in lib/supabase/tokens.ts and the
-  // `{7,12}` CHECK that 0003 installs. A 7-character code would still be
-  // accepted, and minting one here would hide the fact that the widening never
-  // reached the database.
+  // floor 0014 raises the `{7,12}` CHECK that 0003 installs to. A 7-character
+  // code is what the column used to accept, and minting one here would hide the
+  // fact that the floor never reached the database.
   return Array.from(randomBytes(10), (byte) => alphabet[byte % alphabet.length]).join("");
 };
 
@@ -409,6 +409,19 @@ await step("link lifecycle through the token surface", async () => {
   const moved = (await anon.rpc("resolve_link", { p_code: code })).data;
   must(moved?.targetUrl === "https://example.org/", `retargeted resolve: ${JSON.stringify(moved)}`);
   ok((await anon.rpc("report_link_abuse", { p_code: code, p_reason: "sweep probe" })).data, "abuse report");
+  // 0013: a code the service never issued must answer exactly what the real one
+  // just did. Anything here but the same `{"ok":null}` means the public report
+  // form is back to being an existence oracle for short codes.
+  const ghostReport = (
+    await anon.rpc("report_link_abuse", {
+      p_code: "zzzzzzzz",
+      p_reason: "sweep probe",
+    })
+  ).data;
+  must(
+    ghostReport?.ok === null && ghostReport.err === undefined,
+    `abuse report on an unissued code: ${JSON.stringify(ghostReport)}`,
+  );
   ok((await anon.rpc("link_delete", { p_token_hash: hash })).data, "delete");
   const dead = (await anon.rpc("resolve_link", { p_code: code })).data;
   must(dead?.unavailable === "deleted", `deleted resolve: ${JSON.stringify(dead)}`);

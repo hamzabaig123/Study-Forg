@@ -10,12 +10,16 @@
 
 /**
  * The alphabet and length the database agrees to: `link.code` carries
- * `check (code ~ '^[2-9a-hjkmnp-z]{7,12}$')` (0001 minted the column, 0003
- * widened it) and `create_link` re-validates `p_code` against the same range.
- * Ten characters of a 31-symbol alphabet is ~49.6 bits, which is wide enough
- * that the public `/r/:code` redirect — the one endpoint with no session in
- * front of it — is not worth probing. `sqlSurface.contract.test.ts` fails if
- * these two constants and the SQL regexes stop agreeing.
+ * `check (code ~ '^[2-9a-hjkmnp-z]{10,12}$')` (0001 minted the column, 0003
+ * widened it to `{7,12}`, 0014 raised the floor to 10) and `create_link`
+ * re-validates `p_code` against the same range. Ten characters of a 31-symbol
+ * alphabet is ~49.6 bits, which is wide enough that the public `/r/:code`
+ * redirect — the one endpoint with no session in front of it — is not worth
+ * probing, and the floor matters as much as this length does: `create_link` is
+ * granted to `anon`, so while the range read `{7,12}` any caller could plant a
+ * 34.7-bit address in that public table.
+ * `sqlSurface.contract.test.ts` fails if these two constants and the SQL regexes
+ * stop agreeing, and asserts the SQL minimum clears 48 bits.
  */
 export const SHORT_CODE_ALPHABET = "23456789abcdefghjkmnpqrstuvwxyz";
 export const SHORT_CODE_LENGTH = 10;

@@ -35,6 +35,10 @@
 //   https://<ref>.supabase.co/dashboard
 //   CRON_SECRET=<tick bearer>, required only once the pg_cron tick is
 //   scheduled
+//   optional: APP_ORIGINS=<comma-separated origins> — the browsers allowed to
+//   call this function from a page (the in-app scheduler and the settings
+//   page's test button). The cron tick sends no Origin and is not gated by it.
+//   Unset, ai-proxy's default list applies.
 //   the newer channels: BREVO_API_KEY + BREVO_FROM=<verified sender email>
 //   (the digest's own transport; sign-up and reset emails ride Gmail as
 //   Supabase's custom SMTP — see supabase/README.md → The reminder pipeline);
@@ -44,25 +48,194 @@
 // supabase/README.md → The reminder pipeline. due_reminders() (migration 0006)
 // decides who is due; nothing in the schema schedules the tick itself.
 
-const CORS = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Max-Age": "86400",
-};
+/**
+ * Browsers allowed to call this function.
+ *
+ * The same list, and the same `APP_ORIGINS` override, as `ai-proxy` — kept
+ * duplicated on purpose, because each function deploys on its own and neither
+ * imports anything (a remote module specifier stops the bundle booting).
+ * `http://localhost:5173` is here so the settings page's test button works from
+ * the dev server against the live project.
+ */
+const DEFAULT_ORIGINS = [
+  "https://study-forg-frontend-100.vercel.app",
+  "https://study-forg.app",
+  "https://www.study-forg.app",
+  "http://localhost:5173",
+];
+
+function allowedOrigins(): ReadonlySet<string> {
+  const configured = (Deno.env.get("APP_ORIGINS") ?? "")
+    .split(",")
+    .map((value) => value.trim().replace(/\/+$/, ""))
+    .filter((value) => value !== "");
+  return new Set(configured.length > 0 ? configured : DEFAULT_ORIGINS);
+}
+
+/**
+ * The CORS headers for one request.
+ *
+ * `Access-Control-Allow-Origin` is the request's own origin when that origin is
+ * allowlisted, and absent otherwise. It used to be `*`, which meant any page on
+ * the internet could read a reply addressed to a signed-in visitor's session
+ * token — and this endpoint answers with the account's email address, sends
+ * mail and web push as that account. The pg_cron tick sends no `Origin` at all
+ * and therefore gets no CORS headers, which is right: CORS is a browser rule,
+ * and there is no browser to satisfy.
+ */
+function corsHeaders(request: Request): Record<string, string> {
+  const origin = (request.headers.get("origin") ?? "").trim();
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Max-Age": "86400",
+    // The answer depends on the header that asked, so a shared cache must not
+    // serve one origin's reply to another.
+    Vary: "Origin",
+  };
+  if (origin !== "" && allowedOrigins().has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+
+/**
+ * A reply that carries this request's own CORS answer.
+ *
+ * `cors` is a parameter rather than a module constant on purpose: the value
+ * depends on who asked, and an isolate serves several of them at once.
+ */
+function json(
+  cors: Readonly<Record<string, string>>,
+  body: unknown,
+  status = 200,
+): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...cors, "Content-Type": "application/json" },
+  });
+}
+
+/**
+ * The whole request body this endpoint can use is `{ "daily": true }` — twelve
+ * bytes — so 16 KiB is generous by three orders of magnitude and still a ceiling.
+ * `request.json()` buffers the entire payload before it parses any of it, which
+ * turns "anyone with a session token may call this" into "anyone with a session
+ * token may make an isolate allocate as much as it likes".
+ */
+const MAX_BODY_BYTES = 16 * 1024;
+
+/** Test sends one account may trigger per hour. */
+const TEST_SEND_LIMIT = 5;
+const TEST_SEND_WINDOW_MS = 60 * 60 * 1000;
+
+/**
+ * Read the body under `MAX_BODY_BYTES`, without ever buffering more than that.
+ *
+ * A body that is absent, unparsable or not JSON is the empty object — which
+ * already means "send me one now" — so a malformed request is not a refusal, it
+ * is a default. A body over the cap is a refusal, and the stream is cancelled
+ * rather than drained, so the caller cannot make the isolate read the rest.
+ */
+async function readBody(
+  request: Request,
+): Promise<{ tooLarge: true } | { tooLarge: false; body: { daily?: boolean } }> {
+  const declared = Number(request.headers.get("content-length") ?? "");
+  // A lie here only costs the second check below; an honest header short-circuits it.
+  if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
+    return { tooLarge: true };
+  }
+  const reader = request.body?.getReader();
+  if (!reader) {
+    return { tooLarge: false, body: {} };
+  }
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    const value = next.value;
+    if (!value) continue;
+    received += value.byteLength;
+    if (received > MAX_BODY_BYTES) {
+      await reader.cancel();
+      return { tooLarge: true };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(received);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    const text = new TextDecoder().decode(bytes).trim();
+    const parsed = text === "" ? {} : JSON.parse(text);
+    return {
+      tooLarge: false,
+      body: (parsed ?? {}) as { daily?: boolean },
+    };
+  } catch {
+    return { tooLarge: false, body: {} };
+  }
+}
+
+/**
+ * Compare a bearer token to the shared cron secret without a timing signal.
+ *
+ * `===` returns at the first differing byte, so latency tells a caller how much
+ * of their guess was right — a slow, remote oracle, but an oracle is an oracle
+ * when the secret is long-lived and never rotates. XOR-accumulating over the
+ * whole buffer costs the same whatever matched. The length check stays: a
+ * shared secret's length is not the thing under attack here, and comparing
+ * buffers of different sizes byte-for-byte is not possible.
+ */
+function secretsMatch(presented: string, expected: string): boolean {
+  const a = new TextEncoder().encode(presented);
+  const b = new TextEncoder().encode(expected);
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let index = 0; index < a.length; index += 1) {
+    diff |= (a[index] ?? 0) ^ (b[index] ?? 0);
+  }
+  return diff === 0;
+}
+
+/**
+ * How many test sends this account already triggered, straight from
+ * `reminder_log` — the table every attempt already writes.
+ *
+ * Fails **open**: if the read breaks, the settings page's button still works.
+ * The cap is there to stop a stuck script or a bored caller from mailing the
+ * account hundreds of times a day through the owner's own mail quota, not to
+ * gate a person pressing a button.
+ */
+async function recentTestSends(owner: string): Promise<number> {
+  const baseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const since = new Date(Date.now() - TEST_SEND_WINDOW_MS).toISOString();
+  try {
+    const res = await fetch(
+      `${baseUrl}/rest/v1/reminder_log?select=id&user_id=eq.${owner}&kind=eq.test&sent_at=gte.${since}&limit=${TEST_SEND_LIMIT + 1}`,
+      {
+        headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` },
+        signal: AbortSignal.timeout(10_000),
+      },
+    );
+    if (!res.ok) return 0;
+    const rows = (await res.json()) as unknown[];
+    return Array.isArray(rows) ? rows.length : 0;
+  } catch {
+    return 0;
+  }
+}
 
 const BRAND_DEEP = "#8a4a1d";
 const BRAND = "#b85c24";
 const BRAND_PALE = "#f6ede3";
 const INK = "#2c2926";
 const MUTED = "#6b6661";
-
-function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...CORS, "Content-Type": "application/json" },
-  });
-}
 
 /**
  * Where the digest's links land: the email CTA, the push click action and the
@@ -724,11 +897,22 @@ function todayKey(nowMs: number): string {
 }
 
 Deno.serve(async (request) => {
+  const cors = corsHeaders(request);
+  const origin = (request.headers.get("origin") ?? "").trim();
   if (request.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS });
+    return new Response("ok", { headers: cors });
+  }
+  // Refuse a browser this app does not serve before its token is resolved. The
+  // pg_cron tick sends no Origin, so it reaches neither of these branches.
+  if (origin !== "" && !allowedOrigins().has(origin)) {
+    return json(
+      cors,
+      { error: { message: "This origin may not call the reminder service." } },
+      403,
+    );
   }
   if (request.method !== "POST") {
-    return json({ error: { message: "Use POST." } }, 405);
+    return json(cors, { error: { message: "Use POST." } }, 405);
   }
 
   const baseUrl = Deno.env.get("SUPABASE_URL") ?? "";
@@ -740,12 +924,15 @@ Deno.serve(async (request) => {
   const bearer =
     request.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
 
-  let body: { daily?: boolean } = {};
-  try {
-    body = (await request.json()) as { daily?: boolean };
-  } catch {
-    body = {};
+  const read = await readBody(request);
+  if (read.tooLarge) {
+    return json(
+      cors,
+      { error: { message: "That request body is larger than this endpoint takes." } },
+      413,
+    );
   }
+  const body = read.body;
   // The app's own scheduler asks for the day's digest; the settings page's test
   // button asks for one right now. Only the first may consume the day.
   const wantsDaily = body.daily === true;
@@ -754,14 +941,35 @@ Deno.serve(async (request) => {
   // `bearer` above has already had its "Bearer " scheme stripped, so this is a
   // bare-token comparison — against the prefixed form no tick would ever match.
   const cronSecret = Deno.env.get("CRON_SECRET") ?? "";
-  const isCron = cronSecret !== "" && bearer === cronSecret;
+  const isCron = cronSecret !== "" && secretsMatch(bearer, cronSecret);
   let user: { id: string; email: string } | null = null;
   if (!isCron) {
     user = bearer ? await getAuthUser(bearer) : null;
     if (!user) {
       return json(
+        cors,
         { error: { message: "Sign in to use the reminder service." } },
         401,
+      );
+    }
+  }
+
+  if (!isCron && !wantsDaily) {
+    // "Send me one now" is the only branch a caller can repeat, and every press
+    // mails or pushes to that account through this project's own mail quota. The
+    // app's scheduler and the cron tick both ask for `daily`, so neither is
+    // affected; a test send is already logged in `reminder_log`, which is what
+    // this counts rather than a second, per-isolate table nothing else reads.
+    const alreadySent = await recentTestSends(user!.id);
+    if (alreadySent >= TEST_SEND_LIMIT) {
+      return json(
+        cors,
+        {
+          error: {
+            message: `That is this hour's limit of ${TEST_SEND_LIMIT} test sends — the scheduled digest still arrives as usual.`,
+          },
+        },
+        429,
       );
     }
   }
@@ -780,6 +988,7 @@ Deno.serve(async (request) => {
     });
     if (!res.ok) {
       return json(
+        cors,
         { error: { message: "Could not read due reminders." } },
         502,
       );
@@ -801,6 +1010,7 @@ Deno.serve(async (request) => {
     const rows = res.ok ? ((await res.json()) as StoredSettings[]) : [];
     if (rows.length === 0 || !rows[0].enabled) {
       return json(
+        cors,
         {
           error: {
             message:
@@ -857,5 +1067,5 @@ Deno.serve(async (request) => {
     }
   }
 
-  return json({ ok: true, results });
+  return json(cors, { ok: true, results });
 });

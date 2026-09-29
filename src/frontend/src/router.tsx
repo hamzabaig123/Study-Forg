@@ -1,30 +1,8 @@
 import { LoadingState } from "@/components/common/LoadingState";
 import { RequireAuth } from "@/components/layout/RequireAuth";
 import { useBackend } from "@/hooks/useBackend";
-import AiStudio from "@/pages/AiStudio";
 import AuthPage from "@/pages/AuthPage";
-import ChapterDetail from "@/pages/ChapterDetail";
-import ClassDetail from "@/pages/ClassDetail";
-import Classes from "@/pages/Classes";
-import CustomResults from "@/pages/CustomResults";
-import CustomTest from "@/pages/CustomTest";
-import Dashboard from "@/pages/Dashboard";
-import ExportPage from "@/pages/ExportPage";
 import Landing from "@/pages/Landing";
-import NoteDetail from "@/pages/NoteDetail";
-import Notes from "@/pages/Notes";
-import PracticeSession from "@/pages/PracticeSession";
-import QrGenerator from "@/pages/QrGenerator";
-import ScanRedirect from "@/pages/ScanRedirect";
-import SessionResults from "@/pages/SessionResults";
-import SettingsPage from "@/pages/SettingsPage";
-import SharePage from "@/pages/SharePage";
-import SharedNoteView from "@/pages/SharedNoteView";
-import SharedView from "@/pages/SharedView";
-import SubjectDetail from "@/pages/SubjectDetail";
-import TestBuilder from "@/pages/TestBuilder";
-import TimedTest from "@/pages/TimedTest";
-import TopicDetail from "@/pages/TopicDetail";
 import {
   Outlet,
   type RouteComponent,
@@ -72,6 +50,89 @@ const Analytics = lazyPage(
 const ManageLink = lazyPage(
   () => import("@/pages/ManageLink"),
   "Loading the link…",
+);
+
+const AiStudio = lazyPage(
+  () => import("@/pages/AiStudio"),
+  "Loading the AI studio…",
+);
+const ChapterDetail = lazyPage(
+  () => import("@/pages/ChapterDetail"),
+  "Loading the chapter…",
+);
+const ClassDetail = lazyPage(
+  () => import("@/pages/ClassDetail"),
+  "Loading the class…",
+);
+const Classes = lazyPage(
+  () => import("@/pages/Classes"),
+  "Loading your classes…",
+);
+const CustomResults = lazyPage(
+  () => import("@/pages/CustomResults"),
+  "Loading your results…",
+);
+const CustomTest = lazyPage(
+  () => import("@/pages/CustomTest"),
+  "Loading your test…",
+);
+const Dashboard = lazyPage(
+  () => import("@/pages/Dashboard"),
+  "Loading your dashboard…",
+);
+const ExportPage = lazyPage(
+  () => import("@/pages/ExportPage"),
+  "Loading the export tool…",
+);
+const NoteDetail = lazyPage(
+  () => import("@/pages/NoteDetail"),
+  "Loading the note…",
+);
+const Notes = lazyPage(() => import("@/pages/Notes"), "Loading your notes…");
+const PracticeSession = lazyPage(
+  () => import("@/pages/PracticeSession"),
+  "Loading your practice…",
+);
+const QrGenerator = lazyPage(
+  () => import("@/pages/QrGenerator"),
+  "Loading the QR tool…",
+);
+const ScanRedirect = lazyPage(() => import("@/pages/ScanRedirect"), "Loading…");
+const SessionResults = lazyPage(
+  () => import("@/pages/SessionResults"),
+  "Loading your results…",
+);
+const SettingsPage = lazyPage(
+  () => import("@/pages/SettingsPage"),
+  "Loading your settings…",
+);
+const SharePage = lazyPage(
+  () => import("@/pages/SharePage"),
+  "Loading the share tool…",
+);
+const SharedNoteView = lazyPage(
+  () => import("@/pages/SharedNoteView"),
+  "Loading the shared note…",
+);
+const SharedView = lazyPage(
+  () => import("@/pages/SharedView"),
+  "Loading the shared set…",
+);
+const SubjectDetail = lazyPage(
+  () => import("@/pages/SubjectDetail"),
+  "Loading the subject…",
+);
+const TestBuilder = lazyPage(
+  () => import("@/pages/TestBuilder"),
+  "Loading the test builder…",
+);
+const TimedTest = lazyPage(
+  () => import("@/pages/TimedTest"),
+  "Loading your test…",
+);
+const TopicDetail = lazyPage(
+  () => import("@/pages/TopicDetail"),
+  "Loading the topic…",
 );
 
 const rootRoute = createRootRoute({ component: RootRoute });

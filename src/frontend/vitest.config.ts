@@ -43,15 +43,21 @@ export default defineConfig({
      * URL and publishable key (which is what a real integration ends up with)
      * select the Supabase adapter instead, so every page test then dies on
      * "There is no Supabase session". Both look like broken pages, not a
-     * mis-set file. Pinning all four keeps the seam the tests inject actors into
-     * the one thing the suite ever runs against; the modes are covered by tests
-     * that pin `@/lib/authMode` themselves.
+     * mis-set file. Pinning them keeps the seam the tests inject actors into the
+     * one thing the suite ever runs against; the modes are covered by
+     * tests that pin `@/lib/authMode` themselves.
+     *
+     * The Turnstile site key is pinned for the same reason one level down: a key
+     * in `.env.local` would make `captchaConfigured()` true in every auth page
+     * test, and each of those forms would then wait on a widget jsdom cannot
+     * solve. A test that wants the captcha shape stubs `@/lib/turnstile`.
      */
     env: {
       VITE_DATA_BACKEND: "",
       VITE_USE_MOCK: "",
       VITE_SUPABASE_URL: "",
       VITE_SUPABASE_ANON_KEY: "",
+      VITE_TURNSTILE_SITE_KEY: "",
     },
     // Mounting a page costs several seconds on a slow disk (Radix portals,
     // react-query, the router), which pushes interaction-heavy tests past

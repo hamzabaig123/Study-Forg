@@ -138,12 +138,73 @@ function idKey(value: unknown): string | null {
   return null;
 }
 
-function rows(value: unknown, field: string): ArchiveRow[] {
+/**
+ * What one row of an archive may hold, and how many of them may be replayed.
+ *
+ * An archive is a file somebody chose, and until these existed nothing bounded
+ * its contents: a `documentJson` of 400 MB, a `targetUrl` of a million
+ * characters, a value nested 100 000 levels deep. The deep one is the dangerous
+ * shape, because it does not fail here — the note editor walks that tree later,
+ * and a stack overflow takes the tab *after* the row was written. So the walk
+ * below is iterative on purpose: a guard that recurses is the thing it checks
+ * for.
+ *
+ * `MAX_ROWS_PER_COLLECTION` is the other half. Every row costs one round trip,
+ * so a collection of a million of them is not a slow import but an import that
+ * cannot be finished, against a UI that offers no cancel. It is refused as a
+ * format problem — a partial import that quietly dropped rows would be worse,
+ * because the missing half would be invisible.
+ */
+const MAX_ROWS_PER_COLLECTION = 5000;
+const MAX_FIELD_CHARS = 50_000;
+const MAX_NESTING_DEPTH = 8;
+
+function oversizedRow(row: ArchiveRow | ArchiveSettings): string | null {
+  const queue: Array<{ value: unknown; path: string; depth: number }> =
+    Object.entries(row).map(([key, value]) => ({
+      value,
+      path: key,
+      depth: 1,
+    }));
+  while (queue.length > 0) {
+    const node = queue.shift();
+    if (!node) continue;
+    const value = node.value;
+    if (typeof value === "string") {
+      if (value.length > MAX_FIELD_CHARS) {
+        return `${node.path} is ${value.length} characters long; the importer takes at most ${MAX_FIELD_CHARS}.`;
+      }
+      continue;
+    }
+    if (value !== null && typeof value === "object") {
+      if (node.depth >= MAX_NESTING_DEPTH) {
+        return `${node.path} is nested deeper than ${MAX_NESTING_DEPTH} levels, which the editors cannot render.`;
+      }
+      for (const [key, child] of Object.entries(
+        value as Record<string, unknown>,
+      )) {
+        queue.push({
+          value: child,
+          path: `${node.path}.${key}`,
+          depth: node.depth + 1,
+        });
+      }
+    }
+  }
+  return null;
+}
+
+function rows(value: unknown, field: string, maxRows?: number): ArchiveRow[] {
   if (value === undefined || value === null) {
     return [];
   }
   if (!Array.isArray(value)) {
     throw new ArchiveFormatError(`"${field}" is not a list of rows.`);
+  }
+  if (maxRows !== undefined && value.length > maxRows) {
+    throw new ArchiveFormatError(
+      `"${field}" lists ${value.length} rows, and an import replays at most ${maxRows}.`,
+    );
   }
   return value as ArchiveRow[];
 }
@@ -191,13 +252,13 @@ export function parseArchive(text: string): ArchiveDocument {
   const settings = doc.settings;
   return {
     exportedAt: optionalText(doc.exportedAt),
-    classes: rows(doc.classes, "classes"),
-    subjects: rows(doc.subjects, "subjects"),
-    chapters: rows(doc.chapters, "chapters"),
-    topics: rows(doc.topics, "topics"),
-    questions: rows(doc.questions, "questions"),
-    notes: rows(doc.notes, "notes"),
-    links: rows(doc.links, "links"),
+    classes: rows(doc.classes, "classes", MAX_ROWS_PER_COLLECTION),
+    subjects: rows(doc.subjects, "subjects", MAX_ROWS_PER_COLLECTION),
+    chapters: rows(doc.chapters, "chapters", MAX_ROWS_PER_COLLECTION),
+    topics: rows(doc.topics, "topics", MAX_ROWS_PER_COLLECTION),
+    questions: rows(doc.questions, "questions", MAX_ROWS_PER_COLLECTION),
+    notes: rows(doc.notes, "notes", MAX_ROWS_PER_COLLECTION),
+    links: rows(doc.links, "links", MAX_ROWS_PER_COLLECTION),
     settings:
       settings !== null && typeof settings === "object"
         ? (settings as ArchiveSettings)
@@ -284,10 +345,26 @@ export async function importArchive(
     skipped[entity] += 1;
     map.set(key, id);
   };
+  /**
+   * Name a row that is over bounds in the report and write nothing. A failure
+   * rather than a truncation: a note whose body arrived half present is
+   * indistinguishable from a note the owner never wrote.
+   */
+  const rejectOversized = (entity: ImportEntity, row: ArchiveRow): boolean => {
+    const reason = oversizedRow(row);
+    if (!reason) return false;
+    failures.push({
+      entity,
+      label: label(row.name ?? row.title ?? row.prompt, "Untitled"),
+      reason,
+    });
+    return true;
+  };
 
   const knownClasses = await target.listClasses();
   for (const row of doc.classes) {
     step();
+    if (rejectOversized("classes", row)) continue;
     const key = idKey(row.id);
     const name = optionalText(row.name);
     if (!key || !name) {
@@ -315,6 +392,7 @@ export async function importArchive(
   const knownSubjects = new Map<bigint, Array<{ id: bigint; name: string }>>();
   for (const row of doc.subjects) {
     step();
+    if (rejectOversized("subjects", row)) continue;
     const key = idKey(row.id);
     const name = optionalText(row.name);
     const classId = classIds.get(idKey(row.classId) ?? "");
@@ -361,6 +439,7 @@ export async function importArchive(
   const knownChapters = new Map<bigint, Array<{ id: bigint; name: string }>>();
   for (const row of doc.chapters) {
     step();
+    if (rejectOversized("chapters", row)) continue;
     const key = idKey(row.id);
     const name = optionalText(row.name);
     const subjectId = subjectIds.get(idKey(row.subjectId) ?? "");
@@ -407,6 +486,7 @@ export async function importArchive(
   const knownTopics = new Map<bigint, Array<{ id: bigint; name: string }>>();
   for (const row of doc.topics) {
     step();
+    if (rejectOversized("topics", row)) continue;
     const key = idKey(row.id);
     const name = optionalText(row.name);
     const chapterId = chapterIds.get(idKey(row.chapterId) ?? "");
@@ -453,6 +533,7 @@ export async function importArchive(
   const knownPrompts = new Map<bigint, Set<string>>();
   for (const row of doc.questions) {
     step();
+    if (rejectOversized("questions", row)) continue;
     const topicId = topicIds.get(idKey(row.topicId) ?? "");
     const prompt = optionalText(row.prompt);
     if (!prompt || !row.answer || !row.questionType) {
@@ -501,6 +582,7 @@ export async function importArchive(
   );
   for (const row of doc.notes) {
     step();
+    if (rejectOversized("notes", row)) continue;
     const title = label(row.title, "Untitled");
     const documentJson = optionalText(row.documentJson);
     if (!documentJson) {
@@ -530,6 +612,7 @@ export async function importArchive(
 
   for (const row of doc.links) {
     step();
+    if (rejectOversized("links", row)) continue;
     const targetUrl = optionalText(row.targetUrl);
     if (!targetUrl) {
       fail("links", row, "A link needs a URL.");
@@ -547,7 +630,17 @@ export async function importArchive(
     }
   }
 
-  if (doc.settings) {
+  // The profile is strings a person typed, so it gets the same bounds as a row
+  // and the same treatment: named in the report, never written.
+  const settingsOversize = doc.settings ? oversizedRow(doc.settings) : null;
+  if (settingsOversize) {
+    step();
+    failures.push({
+      entity: "settings",
+      label: "Profile and appearance",
+      reason: settingsOversize,
+    });
+  } else if (doc.settings) {
     step();
     const current = await target.getMySettings();
     const displayName = label(doc.settings.displayName, "");

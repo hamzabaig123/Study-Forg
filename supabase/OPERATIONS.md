@@ -158,7 +158,7 @@ tables without FORCE, `anon` table grants — and prints `DRILL PASS` or
    skips the migration because the schema is already there. The two files are
    still worth running in the editor if that command reports something you have
    to look at.
-2. `supabase/verify.sql` — fourteen numbered sections, thirteen of which are
+2. `supabase/verify.sql` — fifteen numbered sections, fourteen of which are
    read-only queries; **item 8 is not a query at all**, its own comment explains
    that cross-tenant isolation cannot be checked from the editor (which connects
    as `postgres`, where `auth.uid()` is null and the policies are bypassed) and
