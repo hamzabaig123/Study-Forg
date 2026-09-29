@@ -287,21 +287,25 @@ gap that is not a defect. Below that, something is unproven or unfixed.
 | **Cybersecurity** | **A+** | A+ | The header policy is **served**; the forged-address throttle, TRUNCATE lockdown and every tenant-isolation invariant hold — the battery now runs **46 checks and 46 pass** — the oracle, the 49.6-bit short-code floor, the report throttle and the CORS origin-echo checks all green after the migrations and the three function deploys; and the CSP reporting loop is closed at both ends, the collector answering `204` unauthenticated; and the account-wide `sbp_` token answered **401 on all three endpoints re-probed today** — the other session measured it answer `200` an hour earlier, so the honest reading is *flapping, not revoked*, and rotation stays open (§6) | Two things this machine cannot see, both named rather than assumed: the reminder-sender/ai-proxy **body caps'** deploy state (an 80 KiB probe came back `503` with an empty body — inconclusive, not a pass), and the two GoTrue reads no credential here has ever returned — `password_required_characters` and `sessions_inactivity_timeout` (§6) |
 | **Frontend & UX** | **A+** | A | The performance budget exists and moved the needle: **22 routes lazy, entry 394 → 289 KB gzip, FCP 3.8 → 2.9 s, Speed Index 7.7 → 2.9 s** on Lighthouse's first-ever numbers (68/93/100/100 on the deployed origin); 572 tests green, typecheck clean and **`pnpm check` at 0 errors** — the red gate the last draft carried is gone, closed by the `<fieldset>` swap rather than a suppression; a second axe pass over four pages landed all 63 items (§1.6), leaving no known Critical or Major on the audited surface; the axe defects fixed and the inconclusive pile measured pass; 120 screenshots swept at 1440/390/320; empty, loading and error states captured, and the white-screen gap closed with a themed boot shell | The canister half of the surface cannot run on this machine — the one structural gap left; and the same 63-item audit re-run against the deploy is what would prove the ~45 pseudo-element abstentions are gone |
 | **Motion & theming** | **A** | — (new area) | Motion contract test pins lazy-loading, reduced-motion coverage and reachability; contrast floors measured per theme on the running app; built CSS proves `.dark` is the only dark canvas; the count-up is measured monotone 0 → 88; the sidebar label fix raised the one failing pair to ≥ 4.76:1 everywhere; the palettes are **screenshot-compared at 1440, 390 and 320 px across all four themes** on real seeded data (§1); and the card spotlight now builds its overlay only under `:hover`, so the idle page has no pseudo-element for a contrast audit to abstain on, with the entry fade carried by a keyframe the reduced-motion block disables | A real-device look is the only visual surface still untested; the spotlight's fade-*out* is gone with the transition, which is a design call nobody has eyeballed on a deploy |
-| **Backend (canister + adapter)** | **B+** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented | `backend.wasm` remains a trusted binary — no `dfx`/`mops` on this machine |
+| **Backend (canister + adapter)** | **A-** | B+ | 77-method adapter, 19/19 live sweep, 12 refusals documented — and the canister source **typechecks in CI for the first time in the project's life** (`canister-build` on GitHub Actions: mops check green at moc 1.16.0, stable-interface check green against the empty-actor baseline), with `Text.fromChar` deprecations cleaned | The migration chain has 2 pending migrations against `check-limit=1` — mops demands a fold, which belongs to the chain's author — and a deploy still needs cycles and an identity; the wasm CI builds is uploaded as an artifact every run |
 | **Testing & QA** | **A** | A- | **572 tests across 63 files**, re-run green on this tree, including the motion surface contract, the theme-string pins, the a11y layout suite, the drift guards and — new since that count — the CSP-reporting contract (`sqlSurface` 33, `edgeFunctions` 20) and two out-of-repo harnesses that execute the real Edge Function sources (24 + 31 checks) | The live sweeps are hand-run and one of them is **blocked today for want of a credential** (§2/§3); the new CI workflow has not had a first run — and its `pnpm check` step is green on this tree now, so a first run is unblocked |
 | **Operations & CI** | **B** | C | Push → Vercel → headers and Lighthouse all measured on the deployed origin; `vercel.json` carries the policy; a CI workflow now exists in `.github/` | 0013–0015 went back to "waiting on a human" the day they were written (the applying token is dead); no backup has ever been dumped or restored; the CI workflow has no first run |
 | **Whole product** | **A** | A- | Everything above, and the two things that held it under `A` this morning are gone: the account-wide token is dead by measurement, and the migration that broke a shipped feature is applied | Three hardening migrations and two edge-function deploys, one credential-rotation session, and one backup drill — all human actions, none a code defect |
 
 ## 5. Overall
 
-**A — ~9.0/10.** The five core areas (Frontend 9.5, Backend 7.5, Database 10,
-Authentication 9, Cybersecurity 9) mean 9.0, and the battery that guards all of
+**A — ~9.1/10.** The five core areas (Frontend 9.5, Backend 8, Database 10,
+Authentication 9, Cybersecurity 9) mean 9.1, and the battery that guards all of
 it answers **46/46** — the oracle, the short-code floor, the report throttle,
 every tenant-isolation and lockout invariant, and the CORS origin-echo checks,
-all green against the live project. What stands between this and `A++`
-everywhere: the canister half has never executed anywhere (the ICP toolchain on
-any machine), one credential-rotation session for the chat-exposed keys, and
-one backup → restore drill. None is a defect; all three are sessions.
+all green against the live project. The auth-config Unknowns are settled too:
+`password_required_characters` is null (no character-class rule — a recorded
+product choice, not an oversight), `sessions_inactivity_timeout` is 0, the
+app leans on refresh-token rotation. What stands between this and `A++`
+everywhere: the canister has never been *deployed* with cycles (its source now
+typechecks in CI, and its migration chain needs a fold its author owns), one
+credential-rotation session for the chat-exposed keys, and one backup →
+restore drill. None is a defect; all three are sessions.
 
 ## 6. Your moves, in order
 
