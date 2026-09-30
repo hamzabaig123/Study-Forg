@@ -106,7 +106,9 @@ jobs:
             sleep 0.5
           done
           echo "::error::the sidecar did not become healthy in 30s"
-          tail -n 20 /tmp/sidecar.log
+          tail -n 20 /tmp/sidecar.log | while IFS= read -r line; do
+            echo "::error::sidecar: ${line}"
+          done
           exit 1
 
       - name: Backend lane

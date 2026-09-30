@@ -8,6 +8,10 @@
 # or let this script fail with a message naming the missing prerequisite.
 set -euo pipefail
 
+# Resolve the wrapper next to this script, not a fixed path: in the Docker
+# image the script is mounted at /sidecar, in CI it lives in the checkout.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 BIN="${POCKET_IC_BIN:-}"
 
 if [ -z "$BIN" ]; then
@@ -28,4 +32,4 @@ echo "sidecar: using pocket-ic at $BIN"
 # The wrapper reads the path from the environment; a shell variable is not
 # enough — it must cross into the node process.
 export POCKET_IC_BIN="$BIN"
-exec node /sidecar/pocketic-sidecar.mjs
+exec node "$SCRIPT_DIR/pocketic-sidecar.mjs"
