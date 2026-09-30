@@ -11,9 +11,11 @@ set -euo pipefail
 BIN="${POCKET_IC_BIN:-}"
 
 if [ -z "$BIN" ]; then
-  # mops keeps toolchains under its cache/home; search both spellings rather
-  # than pinning one layout that a mops upgrade may move.
-  BIN="$(find /root/.cache /root/.mops -type f -name 'pocket-ic*' -perm -u+x 2>/dev/null | head -n 1 || true)"
+  # mops keeps toolchains under its cache/home; search both spellings and both
+  # homes (the Docker container runs as root, a CI runner does not) rather than
+  # pinning one layout that a mops upgrade may move.
+  BIN="$(find "${HOME:-/root}/.cache" "${HOME:-/root}/.mops" /root/.cache /root/.mops \
+    -type f -name 'pocket-ic*' -perm -u+x 2>/dev/null | head -n 1 || true)"
 fi
 
 if [ -z "$BIN" ]; then

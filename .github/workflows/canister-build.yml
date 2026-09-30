@@ -1,12 +1,16 @@
 name: canister-build
 
-# The Motoko backend has never been compiled on a machine this project is
-# developed on (no WSL2/Docker/Hyper-V, so no dfx and no mops) — which made
-# src/backend/dist/backend.wasm a trusted binary. A CI runner is the
-# "somewhere else" that fixes that: this workflow installs the mops toolchain
-# pinned in mops.toml (moc 1.16.0), resolves the declared packages, typechecks
-# and compiles the canister, and uploads the produced wasm as an artifact so a
-# reviewer can compare it against the committed one.
+# Builds the Motoko backend with the toolchain pinned in mops.toml (moc
+# 1.16.0), boots the produced wasm on PocketIC, and drives the backend test
+# lane (test/pocketic/backend.test.ts) against it — the same gate the local
+# Docker toolchain runs. The wasm is uploaded as an artifact only if the lane
+# is green, so the artifact always represents a lane-tested build.
+#
+# The lane attaches to a PocketIC sidecar (docker/pocketic-sidecar.mjs): a
+# wrapper answering /healthz and /descriptor in front of the pocket-ic server
+# that mops installs as a pinned toolchain. The lane never starts a replica of
+# its own — locally it skips without POCKETIC_SIDECAR_URL, in CI this workflow
+# is what hosts one.
 
 on:
   pull_request:
@@ -68,6 +72,53 @@ jobs:
           # One annotation per line, with the characters workflow commands use
           # as their own delimiters escaped back, so the message survives.
           tail -n 40 /tmp/mops-build.log | while IFS= read -r line; do
+            line="${line//%/%25}"
+            line="${line//$'\r'/%0D}"
+            line="${line//$'\n'/%0A}"
+            echo "::error::${line}"
+          done
+
+      # The lane's dependencies (vitest from src/frontend, @dfinity/pic from
+      # the root) are resolved by a workspace pnpm install. It must come AFTER
+      # the build: the lane refuses a stale wasm, and the install must not be
+      # able to make src/ newer than dist/.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install lane dependencies
+        run: pnpm install --prefer-offline
+
+      - name: Start the PocketIC sidecar
+        shell: bash
+        run: |
+          BIN="$(find "$HOME/.cache/mops" "$HOME/.mops" -type f -name 'pocket-ic*' -perm -u+x 2>/dev/null | head -n 1 || true)"
+          if [ -z "$BIN" ]; then
+            echo "::error::pocket-ic binary not found under $HOME/.cache/mops or $HOME/.mops"
+            exit 1
+          fi
+          echo "Using pocket-ic at $BIN"
+          POCKET_IC_BIN="$BIN" nohup bash docker/sidecar-entrypoint.sh > /tmp/sidecar.log 2>&1 &
+          for _ in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8090/healthz 2>/dev/null | grep -q '"ok":true'; then
+              echo "sidecar healthy on :8090"
+              exit 0
+            fi
+            sleep 0.5
+          done
+          echo "::error::the sidecar did not become healthy in 30s"
+          tail -n 20 /tmp/sidecar.log
+          exit 1
+
+      - name: Backend lane
+        shell: bash
+        run: set -o pipefail && POCKETIC_SIDECAR_URL=http://127.0.0.1:8090 pnpm test:backend 2>&1 | tee /tmp/lane.log
+
+      - name: Surface the lane error
+        if: failure()
+        shell: bash
+        run: |
+          [ -s /tmp/lane.log ] || { echo "::error::backend lane produced no output"; exit 0; }
+          tail -n 40 /tmp/lane.log | while IFS= read -r line; do
             line="${line//%/%25}"
             line="${line//$'\r'/%0D}"
             line="${line//$'\n'/%0A}"
