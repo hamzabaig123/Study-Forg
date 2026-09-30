@@ -1,3 +1,4 @@
+import { NumberTicker } from "@/components/motion/number-ticker";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import type { LucideIcon } from "lucide-react";
@@ -51,7 +52,16 @@ export function StatCard({
             {label}
           </p>
           <p className="numeric mt-3 text-3xl font-semibold leading-none text-foreground">
-            {value}
+            {/^\d+$/.test(value.trim()) ? (
+              // A bare count climbs instead of snapping: five numbers arriving
+              // one after another is the dashboard's own entrance, and the
+              // ticker renders the final value in the markup so a test, a
+              // screen reader and a reduced-motion visitor all read the number
+              // rather than a frame of it.
+              <NumberTicker value={Number(value)} duration={0.9} />
+            ) : (
+              value
+            )}
           </p>
           {hint ? (
             <p className="mt-2 text-xs leading-snug text-muted-foreground">

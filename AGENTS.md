@@ -264,6 +264,15 @@ The browser floor and the server floor are **one constant**: `src/frontend/src/l
 - Two floors set the tokens. `text-warning` is real text (`AttemptHistoryList` percentages, `ProgressHero` chips, `TestBuilder` hints) so `--warning` tops out near oklch L 0.53 in every light-canvas theme; every `--chart-*` needs 3:1 against its own card, which caps how light a series colour can be (L ≈ 0.64) — which is why the ramps are lightness ladders, not hue wheels, since `AccuracyChart` colours bars by palette slot and neighbours are compared side by side. `--warning-foreground` stays dark because warning is only ever a tint (`bg-warning/10`, `/15`, `.contrast-warning`) — there is no solid `bg-warning` in the app, so the pair that fails on paper (dark ink on a solid `--warning` fill) has no consumer.
 - Token values are measured, not remembered: `%TEMP%\sf-motion\theme-audit.mjs` paints every custom property into a 1×1 canvas on the running app, flattens alpha over the real backdrop, and prints each pair's ratio; `solve.mjs` then searches for the L that clears a named bar on that theme's own surface. Measured at 2026-09-29, all four themes: body ≥ 11.9:1, muted ≥ 5.1:1, action text on fill ≥ 4.53:1, `text-warning` ≥ 4.71:1, chart series ≥ 3:1 on card. `:root`'s `--warning` used to sit at 2.18:1 — a long-standing AA miss in the **light** theme, fixed by the same pass that set the other three floors, so a claim of an untouched light theme is no longer the truth.
 
+### Every shadow speaks its theme, and one class was hiding the whole ambient layer
+
+Elevation and background colour are tokens, not literals: `--shadow-xs`, `--shadow-subtle`, `--shadow-elevated`, `--shadow-inset`, `--action-aura`, `--tab-glow` and the two ambient colours `--ambient-a` / `--ambient-b` are declared in **all four** theme blocks, and `tailwind.config.js`'s `boxShadow` entries are `var(--shadow-*)` so `shadow-elevated` re-inks per theme. The built sheet still composes `--tw-ring-offset-shadow, --tw-ring-shadow, --tw-shadow`, so a utility that overrides one of those three keeps working.
+
+- **A hardcoded `oklch(…)` inside a `box-shadow` is the regression to watch for.** `.card-interactive` shipped with one for a month — every theme drew the same cold slate shadow, and on the light and Green canvases it read as dirt rather than depth.
+- The drifting orbs moved from `.frosted body::before/::after` to plain `body::before/::after` painted with `--ambient-a/--ambient-b`, so all four themes get their own wash. The trap that made this a two-hour hunt: **`AppLayout` and `PublicLayout` carried `bg-background`**, and an in-flow element with an opaque background paints *over* a negative-z pseudo-element of `body`. The entire ambient layer — including the Green theme's meadow gradient, which had shipped invisible — showed only on the public pages. No build error, no console message, no axe finding; the fix is that neither shell sets a background and `body` owns it. If a future shell div reaches for `bg-background`, it is deleting the theme's background again.
+- Reduced motion is verified, not assumed: `%TEMP%\sf-premium\probe-reduced.cjs` runs the same page twice under `reducedMotion: reduce` / `no-preference` and reports the orbs' computed `animation`, and the hovered card's `transform` and `box-shadow`. Measured 2026-09-30: orbs freeze (`1e-05s`, iteration 1), the hover lift goes to `transform: none`, and the shadow and background change stay — those read as the hover *state*, not the motion. The reduced-motion block therefore has to name `[data-slot="card"]:hover` and `[data-slot="button"].bg-primary:hover` beside `.card-interactive`; a lift that merely *snaps* is still a jump.
+- Contrast was re-measured after the pass from **screenshot pixels**, because Chromium serialises a computed oklch colour as `oklab(…)` and a canvas `fillStyle` will not normalise it — a computed-style probe reports `NaN:1` and tempts you into declaring the palette broken. `%TEMP%\sf-premium\shots.cjs` shoots four themes × six pages and reads each pair off the rasterised glyph; measured 2026-09-30, heading-on-canvas ≥ 11.67:1 and card text ≥ 12.25:1 in all four themes, with zero page errors.
+
 ### Narrow screens: what actually overflows
 
 Verified live at 259–1440 CSS px (the automation window is ~269, and offscreen iframes give the other widths). Three findings that no static read of the code predicts:
@@ -348,7 +357,13 @@ through its own forms; nothing is written into `localStorage` from outside.
   "the manage page opens from its secret token" failed on one run and passed the
   next on a byte-identical file. Every such assertion now goes through
   `untilText()`; the sleeps that remain sit only in front of an interaction that
-  already auto-waits (`clickOcid`, `inputValue`).
+  already auto-waits (`clickOcid`, `inputValue`). The whole-shell tour's
+  "renders its content" check was the same bug wearing a different hat: it slept
+  1.2 s per route, and `/ai-studio` — a lazy chunk that pulls pdf.js — was still
+  on its Suspense fallback, so the region's `innerText` was under the 60-character
+  bar. It failed once and passed the next run on an unchanged tree. It polls the
+  region for up to 12 s now, which keeps the assertion (a route that never fills
+  its content still fails) and drops the race.
 - **Polling across a navigation needs the read to swallow the destroyed context.**
   `/r/:code` calls `window.location.replace`, so a poll that starts on the app page
   and is meant to read the destination died with "Execution context was destroyed"

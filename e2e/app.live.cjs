@@ -134,8 +134,14 @@ async function main() {
       waitUntil: "domcontentloaded",
       timeout: 90_000,
     });
-    await page.waitForTimeout(1_200);
-    const main = await page.evaluate(() => {
+    // A lazy route can still be on its Suspense fallback a second after the
+    // document arrives — /ai-studio failed this tour on a fixed sleep while
+    // its chunk was being fetched, and passed on the next run. Poll the region
+    // instead, exactly as the analytics check above does; the assertion is
+    // unchanged, so a route that never fills its content still fails.
+    let main = { text: "", animated: false };
+    for (let waited = 0; waited < 12_000; waited += 400) {
+      main = await page.evaluate(() => {
       // /qr lives in the public shell, the rest in the signed-in shell —
       // either way the tour reads the routed content region, not the chrome.
       const region = document.querySelector(
@@ -167,7 +173,10 @@ async function main() {
         text: region ? region.innerText : "",
         animated: wrappers.some(isEntrance),
       };
-    });
+      });
+      if (main.text.trim().length > 60) break;
+      await page.waitForTimeout(400);
+    }
     check(main.text.trim().length > 60, `${route} renders its content`);
     check(main.animated, `${route} carries the entrance transition`);
   }

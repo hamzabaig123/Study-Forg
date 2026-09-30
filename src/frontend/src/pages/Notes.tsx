@@ -102,7 +102,7 @@ function NoteRow({
   return (
     <li
       data-ocid={`notes.item.${position}`}
-      className="group relative flex items-start gap-4 rounded-lg border border-border bg-card p-4 transition-smooth hover:border-primary/40 hover:shadow-sm"
+      className="card-interactive group relative flex items-start gap-4 rounded-lg border border-border bg-card p-4 hover:border-primary/40"
     >
       <span
         className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground"

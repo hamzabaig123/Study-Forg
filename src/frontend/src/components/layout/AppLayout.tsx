@@ -31,7 +31,11 @@ export function AppLayout() {
   });
 
   return (
-    <div className="flex min-h-dvh flex-col bg-background">
+    // No `bg-background` here on purpose. `body` already carries it, and an
+    // opaque shell div paints *over* the ambient layer the themes set on the
+    // body — the drifting orbs and the Green theme's meadow gradient were both
+    // invisible inside the app until this class came off.
+    <div className="flex min-h-dvh flex-col">
       <SkipLink />
       <Header
         showSidebarToggle={isMobile}
@@ -113,7 +117,8 @@ export function PublicLayout({ children }: { children?: ReactNode }) {
   });
   useCardSpotlight();
   return (
-    <div className="flex min-h-dvh flex-col bg-background">
+    // See `AppLayout`: the body owns the background so the ambient layer shows.
+    <div className="flex min-h-dvh flex-col">
       <SkipLink />
       <Header />
       <main

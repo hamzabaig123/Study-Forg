@@ -55,7 +55,7 @@ export function AnswerControls({
                 })
               }
               className={cn(
-                "group flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-smooth",
+                "group flex w-full items-center gap-3 rounded-lg border px-4 py-3 text-left transition-smooth active:scale-[0.995]",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 "disabled:cursor-not-allowed",
                 selected

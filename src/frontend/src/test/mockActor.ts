@@ -49,7 +49,12 @@ export function createMockActor(overrides: Partial<MockActor> = {}): MockActor {
     getClass: vi.fn(),
     getDashboardStats: vi.fn(),
     getLinkByToken: vi.fn(),
-    getMySettings: vi.fn(),
+    // `null` is the real "this account has never saved settings" answer, which
+    // is what the fallback path expects. Left as a bare `vi.fn()` it resolves
+    // `undefined` *after* the test's act scope closes, and every page that
+    // reads the display name — the header and the dashboard both do — prints a
+    // "not wrapped in act" warning for a state update no test asked for.
+    getMySettings: vi.fn().mockResolvedValue(null),
     getNote: vi.fn(),
     getRecentActivity: vi.fn(),
     getScanStats: vi.fn(),
