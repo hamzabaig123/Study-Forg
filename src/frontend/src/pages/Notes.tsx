@@ -119,7 +119,7 @@ function NoteRow({
             data-ocid={`notes.open_link.${position}`}
             className="block rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <h3 className="truncate font-display text-base font-semibold text-foreground group-hover:text-primary">
+            <h3 className="title-living truncate font-display text-base font-semibold text-foreground">
               {title}
             </h3>
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">

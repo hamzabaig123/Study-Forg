@@ -271,13 +271,13 @@ export default function Dashboard() {
                     key={action.to}
                     to={action.to}
                     data-ocid={action.ocid}
-                    className="flex items-center gap-3 rounded-lg px-3 py-3 transition-smooth hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="group flex items-center gap-3 rounded-lg px-3 py-3 transition-smooth hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
-                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                    <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary transition-transform duration-200 ease-out group-hover:scale-110">
                       <Icon className="size-4" aria-hidden="true" />
                     </span>
                     <span className="min-w-0">
-                      <span className="block text-sm font-medium text-foreground">
+                      <span className="block text-sm font-medium text-foreground transition-colors group-hover:text-primary">
                         {action.label}
                       </span>
                       <span className="block truncate text-xs text-muted-foreground">

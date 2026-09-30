@@ -79,7 +79,7 @@ export function ProgressHero({
             <Button
               asChild
               type="button"
-              className="shrink-0 gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
+              className="shrink-0 gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:shadow-elevated"
             >
               <Link to="/test-builder" data-ocid="dashboard.hero_build_button">
                 <ListChecks className="size-4" aria-hidden="true" />
@@ -152,7 +152,7 @@ export function ProgressHero({
               <Button
                 asChild
                 type="button"
-                className="shrink-0 gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:opacity-90"
+                className="shrink-0 gap-2 rounded-full bg-gradient-primary text-primary-foreground hover:shadow-elevated"
               >
                 <Link
                   to="/test-builder"

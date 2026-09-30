@@ -62,8 +62,13 @@ function NavLink({
         }}
         data-ocid={`nav.${entry.to.replace(/^\//, "").replace(/\//g, ".")}_link`}
       >
-        <Icon className="h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
-        <span className="truncate">{entry.label}</span>
+        <Icon
+          className="h-4 w-4 shrink-0 opacity-80 transition-[color,opacity,transform] duration-200 ease-out group-hover:translate-x-0.5 group-hover:text-primary group-hover:opacity-100"
+          aria-hidden="true"
+        />
+        <span className="truncate transition-transform duration-200 ease-out group-hover:translate-x-0.5">
+          {entry.label}
+        </span>
       </Link>
     </li>
   );

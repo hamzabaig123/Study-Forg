@@ -34,7 +34,7 @@ export function ClassCard({
         className="flex flex-1 flex-col gap-3 p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div className="flex items-start justify-between gap-3">
-          <h2 className="font-display text-lg leading-snug font-semibold text-foreground">
+          <h2 className="title-living font-display text-lg leading-snug font-semibold text-foreground">
             {classSummary.name}
           </h2>
           <span className="text-muted-foreground numeric shrink-0 text-xs">

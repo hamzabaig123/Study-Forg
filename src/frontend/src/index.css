@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+/* The forge beam's rotating angle. Registered at the TOP LEVEL on purpose:
+   @property inside a @layer is invalid, the registration would be dropped,
+   and an unregistered custom property cannot interpolate — the beam would
+   freeze at its initial angle. */
+@property --beam-angle {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 0deg;
+}
+
 /* ---------------------------------------------------------------------------
    StudyForge — "Forge & Ink"
    A warm action colour on a quiet two-tone canvas. Four themes:
@@ -1122,6 +1132,86 @@
     }
   }
 
+  /* Forge beam: once per hover-enter, a thin light traces the card border —
+     a rotating arc of the theme's own spotlight colour, masked to the border
+     ring by the padding/mask composite. It is the ::before pseudo, and like
+     the spotlight its content only exists under :hover, so an idle card has
+     no overlay for axe's color-contrast rule to reason about. One pass, not
+     a loop: the card answers the hand and settles. The --beam-angle
+     @property registration sits at the top level of this file (inside a
+     @layer it would be invalid and the angle would never interpolate).
+     The gradient carries a white-hot core inside the theme tint: a beam of
+     light reads as light, not as a coloured border. */
+  [data-slot="card"]::before {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    padding: 3px;
+    background: conic-gradient(
+      from var(--beam-angle),
+      transparent 0deg,
+      oklch(var(--primary) / 0.5) 30deg,
+      oklch(1 0 0 / 1) 55deg,
+      oklch(var(--primary) / 0.5) 80deg,
+      transparent 110deg
+    );
+    -webkit-mask: linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    mask-composite: exclude;
+    opacity: 0;
+  }
+
+  @keyframes beam-trace {
+    from {
+      --beam-angle: 0deg;
+      opacity: 0;
+    }
+    12% {
+      opacity: 1;
+    }
+    82% {
+      opacity: 1;
+    }
+    to {
+      --beam-angle: 360deg;
+      opacity: 0;
+    }
+  }
+
+  [data-slot="card"]:hover::before {
+    content: "";
+    animation: beam-trace 1.15s cubic-bezier(0.4, 0, 0.2, 1) 0.1s both;
+  }
+
+  @media (hover: none) {
+    [data-slot="card"]::before {
+      display: none;
+    }
+  }
+
+  /* Living serif: card titles are set in Fraunces, a variable font, so a
+     hover doesn't swap to a heavier cut — the same glyphs put on weight
+     along the wght axis (600 → 780 renders as true intermediate weights).
+     The italic lean is a transform, not font-style: a style flip cannot
+     animate, and the skew reads as the same italic while transitioning
+     smoothly. Colour follows the theme's action hue; titles are large text
+     and primary-on-hover-bg measures above the AA large bar in all themes. */
+  .title-living {
+    transition: font-weight 0.4s ease, color 0.4s ease, transform 0.4s
+      cubic-bezier(0.16, 1, 0.3, 1);
+    transform-origin: left bottom;
+  }
+
+  .group:hover .title-living,
+  .title-living:hover {
+    font-weight: 780;
+    color: oklch(var(--primary));
+    transform: skewX(-6deg);
+  }
+
   /* The score ring draws itself instead of blinking in: the keyframe only
      declares a start offset, so it animates from a full circle back to the
      inline (score-dependent) value that was already rendering. */
@@ -1230,6 +1320,13 @@ html.theme-switching *::after {
   }
 
   .sheen-host::before {
+    display: none !important;
+  }
+
+  /* The beam is a one-shot trace; under reduced motion it is simply absent —
+     a static arc of light frozen at a random angle is noise, not
+     information. */
+  [data-slot="card"]::before {
     display: none !important;
   }
 

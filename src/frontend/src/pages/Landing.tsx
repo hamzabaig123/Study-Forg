@@ -133,23 +133,29 @@ export default function Landing() {
                 <Button
                   asChild
                   size="lg"
-                  className="rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:opacity-90"
+                  className="group rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:shadow-elevated"
                 >
                   <Link to="/dashboard" data-ocid="landing.dashboard_button">
                     Go to your dashboard
-                    <ArrowRight className="size-4" aria-hidden="true" />
+                    <ArrowRight
+                      className="size-4 transition-transform group-hover:translate-x-1"
+                      aria-hidden="true"
+                    />
                   </Link>
                 </Button>
               ) : (
                 <Button
                   asChild
                   size="lg"
-                  className="rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:opacity-90"
+                  className="group rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:shadow-elevated"
                   data-ocid="landing.signin_button"
                 >
                   <Link to="/register">
                     Create your account
-                    <ArrowRight className="size-4" aria-hidden="true" />
+                    <ArrowRight
+                      className="size-4 transition-transform group-hover:translate-x-1"
+                      aria-hidden="true"
+                    />
                   </Link>
                 </Button>
               )}
@@ -245,13 +251,13 @@ export default function Landing() {
               <li key={level.label}>
                 <Card
                   data-ocid={`landing.hierarchy.item.${index + 1}`}
-                  className="h-full rounded-lg border-border shadow-none transition-smooth hover:border-primary/40"
+                  className="group h-full rounded-lg border-border shadow-none transition-smooth hover:border-primary/40"
                 >
                   <CardContent className="flex h-full flex-col gap-3">
                     <span className="numeric text-sm text-primary">
                       {String(index + 1).padStart(2, "0")}
                     </span>
-                    <h3 className="text-xl">{level.label}</h3>
+                    <h3 className="title-living text-xl">{level.label}</h3>
                     <p className="text-sm leading-relaxed text-muted-foreground">
                       {level.detail}
                     </p>
@@ -283,13 +289,13 @@ export default function Landing() {
               <Card
                 key={type.name}
                 data-ocid={`landing.question_type.item.${index + 1}`}
-                className="rounded-lg border-border shadow-none"
+                className="group rounded-lg border-border shadow-none transition-smooth hover:border-primary/40"
               >
                 <CardContent className="flex flex-col gap-3">
                   <span className="flex size-10 items-center justify-center rounded-full bg-primary/10 text-primary">
                     <type.icon className="size-5" aria-hidden="true" />
                   </span>
-                  <h3 className="text-lg">{type.name}</h3>
+                  <h3 className="title-living text-lg">{type.name}</h3>
                   <p className="text-sm leading-relaxed text-muted-foreground">
                     {type.detail}
                   </p>
@@ -321,14 +327,14 @@ export default function Landing() {
               <Card
                 key={feature.title}
                 data-ocid={`landing.feature.item.${index + 1}`}
-                className="rounded-lg border-border shadow-none transition-smooth hover:border-primary/40"
+                className="group rounded-lg border-border shadow-none transition-smooth hover:border-primary/40"
               >
                 <CardContent className="flex gap-4">
                   <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent">
                     <feature.icon className="size-5" aria-hidden="true" />
                   </span>
                   <div className="min-w-0">
-                    <h3 className="text-lg">{feature.title}</h3>
+                    <h3 className="title-living text-lg">{feature.title}</h3>
                     <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
                       {feature.detail}
                     </p>
@@ -401,26 +407,32 @@ export default function Landing() {
                   <Button
                     asChild
                     size="lg"
-                    className="rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:opacity-90"
+                    className="group rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:shadow-elevated"
                   >
                     <Link
                       to="/dashboard"
                       data-ocid="landing.cta_dashboard_button"
                     >
                       Go to your dashboard
-                      <ArrowRight className="size-4" aria-hidden="true" />
+                      <ArrowRight
+                        className="size-4 transition-transform group-hover:translate-x-1"
+                        aria-hidden="true"
+                      />
                     </Link>
                   </Button>
                 ) : (
                   <Button
                     asChild
                     size="lg"
-                    className="rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:opacity-90"
+                    className="group rounded-full bg-gradient-primary text-primary-foreground shadow-sm transition-smooth hover:shadow-elevated"
                     data-ocid="landing.cta_signin_button"
                   >
                     <Link to="/register">
                       Create your account
-                      <ArrowRight className="size-4" aria-hidden="true" />
+                      <ArrowRight
+                        className="size-4 transition-transform group-hover:translate-x-1"
+                        aria-hidden="true"
+                      />
                     </Link>
                   </Button>
                 )}
