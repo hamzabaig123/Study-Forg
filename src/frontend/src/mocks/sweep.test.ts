@@ -1318,6 +1318,9 @@ describe("sweep", () => {
     const names = Object.keys(record).filter(
       (key) => typeof record[key] === "function",
     );
-    expect(names).toHaveLength(77);
+    // 77 candid methods plus `rebuildIndexes` — the admin-gated canister
+    // index rebuild, a deliberate interface addition (2026-10-01) that the
+    // mock implements as a no-op.
+    expect(names).toHaveLength(78);
   });
 });
