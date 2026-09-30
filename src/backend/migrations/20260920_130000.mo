@@ -201,6 +201,8 @@ module {
     chapters : Map.Map<Id, Chapter>;
     topics : Map.Map<Id, Topic>;
     questions : Map.Map<Id, Question>;
+    questionsByTopic : Map.Map<Id, List.List<Id>>;
+    linksByCode : Map.Map<Text, Id>;
     aiKeys : Map.Map<Principal, Text>;
     drafts : Map.Map<Id, DraftQuestion>;
     sessions : Map.Map<Id, Session>;
@@ -220,7 +222,10 @@ module {
   // The canister has never been deployed, so this chain has no state to replay
   // from: one migration, from the empty actor to the full shape. Folding the
   // earlier 120000 file in here is what `mops check`'s stable-interface gate
-  // asked for ("2 pending migrations for check-limit=1").
+  // asked for ("2 pending migrations for check-limit=1"). The two index maps
+  // start empty on a fresh install and are maintained by the mutation points;
+  // `rebuildIndexes` recomputes them if a state that predates an index ever
+  // has to be upgraded.
   public func migration(_old : {}) : NewActor {
     {
       accessControlState = {
@@ -232,6 +237,8 @@ module {
       chapters = Map.empty();
       topics = Map.empty();
       questions = Map.empty();
+      questionsByTopic = Map.empty();
+      linksByCode = Map.empty();
       aiKeys = Map.empty();
       drafts = Map.empty();
       sessions = Map.empty();

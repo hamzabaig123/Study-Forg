@@ -27,6 +27,7 @@ import AnalyticsApi "mixins/analytics-api";
 import SharingApi "mixins/sharing-api";
 import NotesApi "mixins/notes-api";
 import QrLinksApi "mixins/qr-links-api";
+import MaintenanceApi "mixins/maintenance-api";
 import ApiDocMixin "mixins/api-doc";
 import RandomCodes "lib/random-codes";
 
@@ -87,6 +88,12 @@ actor {
   let topics : Map.Map<Common.Id, ContentTypes.Topic>;
   let questions : Map.Map<Common.Id, Common.Question>;
 
+  // ── Hot-path indexes (rebuildable via rebuildIndexes) ────────────────────
+  // Maintained at the question and link mutation points; every read that used
+  // to scan all questions for one topic's rows goes through these instead.
+  let questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>;
+  let linksByCode : Map.Map<Text, QrLinkTypes.LinkId>;
+
   // ── AI Studio ────────────────────────────────────────────────────────────
   let aiKeys : Map.Map<Principal, Text>;
   let drafts : Map.Map<Common.Id, Common.DraftQuestion>;
@@ -120,13 +127,14 @@ actor {
 
   include MixinAuthorization(accessControlState, null);
 
-  include ContentApi(classes, subjects, chapters, topics, questions, counters);
+  include ContentApi(classes, subjects, chapters, topics, questions, questionsByTopic, counters);
   include AiApi(aiKeys, drafts);
-  include SessionsApi(classes, subjects, chapters, topics, questions, sessions, sessionResults, sessionAnswers, counters);
-  include AnalyticsApi(classes, subjects, chapters, topics, questions, sessions, sessionResults);
-  include SharingApi(classes, subjects, chapters, topics, questions, shares, counters, tokenEntropy);
+  include SessionsApi(classes, subjects, chapters, topics, questions, questionsByTopic, sessions, sessionResults, sessionAnswers, counters);
+  include AnalyticsApi(classes, subjects, chapters, topics, questions, questionsByTopic, sessions, sessionResults);
+  include SharingApi(classes, subjects, chapters, topics, questions, questionsByTopic, shares, counters, tokenEntropy);
   include NotesApi(notes, noteShares, settings, counters, tokenEntropy);
-  include QrLinksApi(links, scans, abuseReports, linkCounters, tokenEntropy);
+  include QrLinksApi(links, linksByCode, scans, abuseReports, linkCounters, tokenEntropy);
+  include MaintenanceApi(accessControlState, questions, questionsByTopic, links, linksByCode);
   include ApiDocMixin();
 
   include Expose({

@@ -856,6 +856,16 @@ export interface backendInterface {
         err: NoteError;
     }>;
     /**
+     * / Recompute both hot-path indexes from the primary maps.
+     * /
+     * / The indexes are maintained by the ordinary mutation points (questions in
+     * / createQuestion/deleteQuestion/deleteQuestionsOfTopic, link codes in
+     * / createLink), so this only ever needs to run once — after an upgrade that
+     * / introduces an index onto a state that predates it. Admin-gated because
+     * / a full rebuild is the one O(n) operation the indexes exist to avoid.
+     */
+    rebuildIndexes(): Promise<void>;
+    /**
      * / Remove the caller's personal OpenAI key.
      */
     removeAiKey(): Promise<AiConfigStatus>;
@@ -1805,6 +1815,20 @@ export class Backend implements backendInterface {
         } else {
             const result = await this.actor.permanentlyDeleteNote(arg0);
             return from_candid_variant_n139(this._uploadFile, this._downloadFile, result);
+        }
+    }
+    async rebuildIndexes(): Promise<void> {
+        if (this.processError) {
+            try {
+                const result = await this.actor.rebuildIndexes();
+                return result;
+            } catch (e) {
+                this.processError(e);
+                throw new Error("unreachable");
+            }
+        } else {
+            const result = await this.actor.rebuildIndexes();
+            return result;
         }
     }
     async removeAiKey(): Promise<AiConfigStatus> {

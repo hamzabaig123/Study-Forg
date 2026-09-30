@@ -2072,4 +2072,9 @@ export const mockBackend = {
     persist();
     return { __kind__: "ok", ok: settingsView(row) };
   },
+
+  // The canister keeps per-topic question and per-code link indexes that a
+  // legacy upgrade may have to rebuild; the mock reads its maps directly, so
+  // there is nothing to rebuild here — the method answers like the canister.
+  async rebuildIndexes() {},
 } satisfies backendInterface;

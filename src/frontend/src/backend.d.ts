@@ -807,6 +807,16 @@ export interface backendInterface {
         err: NoteError;
     }>;
     /**
+     * / Recompute both hot-path indexes from the primary maps.
+     * /
+     * / The indexes are maintained by the ordinary mutation points (questions in
+     * / createQuestion/deleteQuestion/deleteQuestionsOfTopic, link codes in
+     * / createLink), so this only ever needs to run once — after an upgrade that
+     * / introduces an index onto a state that predates it. Admin-gated because
+     * / a full rebuild is the one O(n) operation the indexes exist to avoid.
+     */
+    rebuildIndexes(): Promise<void>;
+    /**
      * / Remove the caller's personal OpenAI key.
      */
     removeAiKey(): Promise<AiConfigStatus>;

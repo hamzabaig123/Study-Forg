@@ -1,4 +1,5 @@
 import Map "mo:core/Map";
+import List "mo:core/List";
 import Common "../types/common";
 import ContentTypes "../types/content";
 import SessionTypes "../types/sessions";
@@ -10,6 +11,7 @@ mixin (
   chapters : Map.Map<Common.Id, ContentTypes.Chapter>,
   topics : Map.Map<Common.Id, ContentTypes.Topic>,
   questions : Map.Map<Common.Id, Common.Question>,
+  questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>,
   sessions : Map.Map<Common.Id, SessionTypes.Session>,
   sessionResults : Map.Map<Common.Id, Common.SessionResult>,
 ) {
@@ -19,6 +21,7 @@ mixin (
     chapters;
     topics;
     questions;
+    questionsByTopic;
     sessions;
     sessionResults;
   };

@@ -82,6 +82,7 @@ export function createMockActor(overrides: Partial<MockActor> = {}): MockActor {
     renameNote: vi.fn(),
     renameSubject: vi.fn(),
     renameTopic: vi.fn(),
+    rebuildIndexes: vi.fn(),
     reportAbuse: vi.fn(),
     resolveCode: vi.fn(),
     restoreNote: vi.fn(),

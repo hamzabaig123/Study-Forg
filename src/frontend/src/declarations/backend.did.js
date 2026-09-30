@@ -532,6 +532,7 @@ export const idlService = IDL.Service({
       [IDL.Variant({ 'ok' : IDL.Null, 'err' : NoteError })],
       [],
     ),
+  'rebuildIndexes' : IDL.Func([], [], []),
   'removeAiKey' : IDL.Func([], [AiConfigStatus], []),
   'renameChapter' : IDL.Func(
       [Id, IDL.Text, IDL.Opt(IDL.Text)],
@@ -1139,6 +1140,7 @@ export const idlFactory = ({ IDL }) => {
         [IDL.Variant({ 'ok' : IDL.Null, 'err' : NoteError })],
         [],
       ),
+    'rebuildIndexes' : IDL.Func([], [], []),
     'removeAiKey' : IDL.Func([], [AiConfigStatus], []),
     'renameChapter' : IDL.Func(
         [Id, IDL.Text, IDL.Opt(IDL.Text)],

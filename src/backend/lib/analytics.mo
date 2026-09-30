@@ -14,6 +14,7 @@ module {
     chapters : Map.Map<Common.Id, ContentTypes.Chapter>;
     topics : Map.Map<Common.Id, ContentTypes.Topic>;
     questions : Map.Map<Common.Id, Common.Question>;
+    questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>;
     sessions : Map.Map<Common.Id, SessionTypes.Session>;
     sessionResults : Map.Map<Common.Id, Common.SessionResult>;
   };
@@ -70,10 +71,12 @@ module {
     var topicCount = 0;
     for (t in state.topics.values()) { if (t.owner == owner) { topicCount += 1 } };
     var questionCount = 0;
-    for (q in state.questions.values()) {
-      switch (state.topics.get(q.topicId)) {
-        case (?t) { if (t.owner == owner) { questionCount += 1 } };
-        case null {};
+    for (t in state.topics.values()) {
+      if (t.owner == owner) {
+        switch (state.questionsByTopic.get(t.id)) {
+          case (?l) { questionCount += l.size() };
+          case null {};
+        };
       };
     };
     { classCount; subjectCount; chapterCount; topicCount; questionCount };
@@ -102,14 +105,21 @@ module {
         items.add({ kind = "topic"; title = "Created topic \"" # t.name # "\""; at = t.createdAt });
       };
     };
-    for (q in state.questions.values()) {
-      switch (state.topics.get(q.topicId)) {
-        case (?t) {
-          if (t.owner == owner) {
-            items.add({ kind = "question"; title = "Added a question to \"" # t.name # "\""; at = q.createdAt });
+    for (t in state.topics.values()) {
+      if (t.owner == owner) {
+        switch (state.questionsByTopic.get(t.id)) {
+          case (?ids) {
+            for (qid in ids.values()) {
+              switch (state.questions.get(qid)) {
+                case (?q) {
+                  items.add({ kind = "question"; title = "Added a question to \"" # t.name # "\""; at = q.createdAt });
+                };
+                case null {};
+              };
+            };
           };
+          case null {};
         };
-        case null {};
       };
     };
     for (r in ownedResults(state, owner).values()) {

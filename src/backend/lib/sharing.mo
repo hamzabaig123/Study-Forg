@@ -17,6 +17,7 @@ module {
     chapters : Map.Map<Common.Id, ContentTypes.Chapter>;
     topics : Map.Map<Common.Id, ContentTypes.Topic>;
     questions : Map.Map<Common.Id, Common.Question>;
+    questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>;
     shares : Map.Map<Text, ShareTypes.Share>;
     counters : { var nextId : Common.Id };
     entropy : RandomCodes.Entropy;
@@ -74,9 +75,16 @@ module {
   };
 
   func questionsOfTopic(state : State, topicId : Common.Id) : [Common.Question] {
+    let ids = switch (state.questionsByTopic.get(topicId)) {
+      case (?l) { l };
+      case null { return [] };
+    };
     let out = List.empty<Common.Question>();
-    for (q in state.questions.values()) {
-      if (q.topicId == topicId) { out.add(q) };
+    for (id in ids.values()) {
+      switch (state.questions.get(id)) {
+        case (?q) { out.add(q) };
+        case null {};
+      };
     };
     let arr = out.toArray();
     arr.sort(func(a, b) = Int.compare(a.createdAt, b.createdAt));

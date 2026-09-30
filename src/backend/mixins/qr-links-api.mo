@@ -8,16 +8,20 @@ import QrLinksLib "../lib/qr-links";
 
 mixin (
   links : Map.Map<Types.LinkId, Types.ShortLink>,
+  linksByCode : Map.Map<Types.ShortCode, Types.LinkId>,
   scans : List.List<Types.ScanRecord>,
   abuseReports : List.List<Types.AbuseReport>,
   counters : { var nextId : Types.LinkId },
   entropy : RandomCodes.Entropy,
 ) {
   /// Rate-limit windows are transient: they are rebuilt after an upgrade and
-  /// are not part of the durable link state.
-  transient let createWindows : Map.Map<Text, { var windowStart : Int; var count : Nat }> = Map.empty();
-  transient let resolveWindows : Map.Map<Text, { var windowStart : Int; var count : Nat }> = Map.empty();
-  transient let reportWindows : Map.Map<Text, { var windowStart : Int; var count : Nat }> = Map.empty();
+  /// are not part of the durable link state. The fixed-window helper itself
+  /// lives in the library (`QrLinksLib.allow`), because the per-code window
+  /// in `resolveCode` runs after the code lookup and uses the same shape.
+  transient let createWindows : Map.Map<Text, QrLinksLib.RateWindow> = Map.empty();
+  transient let resolveWindows : Map.Map<Text, QrLinksLib.RateWindow> = Map.empty();
+  transient let reportWindows : Map.Map<Text, QrLinksLib.RateWindow> = Map.empty();
+  transient let codeWindows : Map.Map<Text, QrLinksLib.RateWindow> = Map.empty();
 
   /// Window length for creation rate limiting (one minute).
   transient let createWindowNanos : Int = 60_000_000_000;
@@ -42,32 +46,15 @@ mixin (
   transient let reportLimit : Nat = 20;
 
   /// Record one hit against a rate-limit window and report whether the caller
-  /// is still within the limit.
+  /// is still within the limit. Delegates to the library helper the per-code
+  /// window shares.
   func allow(
-    windows : Map.Map<Text, { var windowStart : Int; var count : Nat }>,
+    windows : Map.Map<Text, QrLinksLib.RateWindow>,
     key : Text,
     limit : Nat,
     windowNanos : Int,
   ) : Bool {
-    let now = Time.now();
-    switch (windows.get(key)) {
-      case null {
-        windows.add(key, { var windowStart = now; var count = 1 });
-        true;
-      };
-      case (?window) {
-        if (now - window.windowStart >= windowNanos) {
-          window.windowStart := now;
-          window.count := 1;
-          true;
-        } else if (window.count < limit) {
-          window.count += 1;
-          true;
-        } else {
-          false;
-        };
-      };
-    };
+    QrLinksLib.allow(windows, key, limit, windowNanos);
   };
 
   /// Create a short link for a target URL. Anonymous callers are allowed.
@@ -79,7 +66,7 @@ mixin (
     if (not allow(createWindows, caller.toText(), createLimit, createWindowNanos)) {
       return #err(#rateLimited);
     };
-    await QrLinksLib.createLink(links, counters, entropy, targetUrl);
+    await QrLinksLib.createLink(links, linksByCode, counters, entropy, targetUrl);
   };
 
   /// Resolve a short code for redirect. Anonymous callers are allowed.
@@ -92,7 +79,7 @@ mixin (
     if (not allow(resolveWindows, caller.toText(), resolveLimit, resolveWindowNanos)) {
       return #unavailable(#rateLimited);
     };
-    QrLinksLib.resolveCode(links, scans, code, device, country);
+    QrLinksLib.resolveCode(links, linksByCode, codeWindows, scans, code, device, country);
   };
 
   /// Fetch link details by secret edit token. Anonymous, token-gated.

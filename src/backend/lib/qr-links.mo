@@ -34,6 +34,46 @@ module {
   let maxAbuseReports : Nat = 5_000;
   let reportPruneHysteresis : Nat = 250;
 
+  /// Per-link resolve throttling: the shared anonymous caller window (in the
+  /// mixin) bounds global abuse, this one bounds a single link so one busy QR
+  /// code cannot exhaust the shared window. Postgres allows 60/min per IP.
+  public let maxResolvesPerCode : Nat = 60;
+  public let codeResolveWindowNanos : Int = 60_000_000_000;
+
+  /// One fixed-window rate-limit counter. Windows are transient state: they
+  /// are rebuilt empty after an upgrade and never touch stable memory.
+  public type RateWindow = { var windowStart : Int; var count : Nat };
+
+  /// Record one hit against a rate-limit window and report whether the key
+  /// is still within its limit. Shared by the mixin's caller windows and the
+  /// lib's per-code window.
+  public func allow(
+    windows : Map.Map<Text, RateWindow>,
+    key : Text,
+    limit : Nat,
+    windowNanos : Int,
+  ) : Bool {
+    let now = Time.now();
+    switch (windows.get(key)) {
+      case null {
+        windows.add(key, { var windowStart = now; var count = 1 });
+        true;
+      };
+      case (?window) {
+        if (now - window.windowStart >= windowNanos) {
+          window.windowStart := now;
+          window.count := 1;
+          true;
+        } else if (window.count < limit) {
+          window.count += 1;
+          true;
+        } else {
+          false;
+        };
+      };
+    };
+  };
+
   /// The path prefix the app serves short links under. A target pointing back
   /// at this prefix would create a redirect loop.
   let shortPathPrefix : Text = "/r/";
@@ -279,6 +319,7 @@ module {
   /// allowed; creation is rate limited.
   public func createLink(
     links : Map.Map<Types.LinkId, Types.ShortLink>,
+    linksByCode : Map.Map<Types.ShortCode, Types.LinkId>,
     counters : { var nextId : Types.LinkId },
     entropy : RandomCodes.Entropy,
     targetUrl : Text,
@@ -303,6 +344,9 @@ module {
       updatedAt = now;
     };
     links.add(id, link);
+    // A link's code never changes afterwards (updateTarget rewrites only the
+    // target), so this is the one place the code index is written.
+    linksByCode.add(code, id);
     #ok({
       id;
       code;
@@ -329,23 +373,30 @@ module {
 
   /// Resolve a short code for redirect. Records the scan (time, device,
   /// country only — never a raw IP) without blocking the redirect. Anonymous
-  /// callers are allowed; resolution is rate limited.
+  /// callers are allowed; the caller-level resolve is rate limited in the
+  /// mixin, and each individual link is rate limited here — checked only for
+  /// links that actually exist, so garbage codes cannot grow the window map.
   public func resolveCode(
     links : Map.Map<Types.LinkId, Types.ShortLink>,
+    linksByCode : Map.Map<Types.ShortCode, Types.LinkId>,
+    codeWindows : Map.Map<Types.ShortCode, RateWindow>,
     scans : List.List<Types.ScanRecord>,
     code : Types.ShortCode,
     device : Types.DeviceType,
     country : ?Text,
   ) : Types.ResolveResult {
-    var found : ?Types.ShortLink = null;
-    for ((_, link) in links.entries()) {
-      if (link.code == code) { found := ?link };
+    let found = switch (linksByCode.get(code)) {
+      case (?id) { links.get(id) };
+      case null { null };
     };
     switch (found) {
       case null { #unavailable(#notFound) };
       case (?link) {
         switch (link.status) {
           case (#active) {
+            if (not allow(codeWindows, code, maxResolvesPerCode, codeResolveWindowNanos)) {
+              return #unavailable(#rateLimited);
+            };
             scans.add({
               linkId = link.id;
               scannedAt = Time.now();

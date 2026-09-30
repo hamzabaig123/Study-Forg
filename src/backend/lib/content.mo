@@ -13,7 +13,28 @@ module {
     chapters : Map.Map<Common.Id, ContentTypes.Chapter>;
     topics : Map.Map<Common.Id, ContentTypes.Topic>;
     questions : Map.Map<Common.Id, Common.Question>;
+    questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>;
     counters : { var nextId : Common.Id };
+  };
+
+  /// Add `questionId` to its topic's index list, creating the list if this is
+  /// the topic's first question. Questions enter the `questions` map only in
+  /// `createQuestion` and leave only in `deleteQuestion` and
+  /// `deleteQuestionsOfTopic`, which keeps the index exact.
+  public func indexQuestion(
+    questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>,
+    topicId : Common.Id,
+    questionId : Common.Id,
+  ) {
+    let list = switch (questionsByTopic.get(topicId)) {
+      case (?l) { l };
+      case null {
+        let l = List.empty<Common.Id>();
+        questionsByTopic.add(topicId, l);
+        l;
+      };
+    };
+    list.add(questionId);
   };
 
   func nextId(state : State) : Common.Id {
@@ -70,9 +91,9 @@ module {
   };
 
   func topicSummary(state : State, t : ContentTypes.Topic) : Common.TopicSummary {
-    var count = 0;
-    for (q in state.questions.values()) {
-      if (q.topicId == t.id) { count += 1 };
+    let count = switch (state.questionsByTopic.get(t.id)) {
+      case (?l) { l.size() };
+      case null { 0 };
     };
     {
       id = t.id;
@@ -125,15 +146,18 @@ module {
     };
   };
 
-  /// Remove every question belonging to `topicId`.
+  /// Remove every question belonging to `topicId`. Reads the topic's index
+  /// list instead of scanning all questions, then drops the index entry
+  /// (the topic itself is being deleted by the caller).
   public func deleteQuestionsOfTopic(state : State, topicId : Common.Id) {
-    let doomed = List.empty<Common.Id>();
-    for (q in state.questions.values()) {
-      if (q.topicId == topicId) { doomed.add(q.id) };
+    let doomed = switch (state.questionsByTopic.get(topicId)) {
+      case (?l) { l.toArray() };
+      case null { return };
     };
     for (id in doomed.values()) {
       state.questions.remove(id);
     };
+    state.questionsByTopic.remove(topicId);
   };
 
   /// Remove every topic of `chapterId` together with its questions.
@@ -519,8 +543,15 @@ module {
     let out = List.empty<Common.Question>();
     switch (ownedTopic(state, owner, topicId)) {
       case (?_) {
-        for (q in state.questions.values()) {
-          if (q.topicId == topicId) { out.add(q) };
+        let ids = switch (state.questionsByTopic.get(topicId)) {
+          case (?l) { l };
+          case null { return [] };
+        };
+        for (id in ids.values()) {
+          switch (state.questions.get(id)) {
+            case (?q) { out.add(q) };
+            case null {};
+          };
         };
       };
       case null {};
@@ -553,6 +584,7 @@ module {
           updatedAt = now;
         };
         state.questions.add(q.id, q);
+        indexQuestion(state.questionsByTopic, q.topicId, q.id);
         ?q;
       };
       case null { null };
@@ -591,8 +623,12 @@ module {
   /// Delete a question.
   public func deleteQuestion(state : State, owner : Principal, questionId : Common.Id) : Bool {
     switch (ownedQuestion(state, owner, questionId)) {
-      case (?_) {
+      case (?q) {
         state.questions.remove(questionId);
+        switch (state.questionsByTopic.get(q.topicId)) {
+          case (?l) { l.retain(func id = id != questionId) };
+          case null {};
+        };
         true;
       };
       case null { false };

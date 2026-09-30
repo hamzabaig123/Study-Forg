@@ -145,6 +145,45 @@ describe("content hierarchy round-trip", () => {
     const classes = await actor.listClasses();
     expect(classes.map((c) => c.id)).not.toContain(klass.id);
   });
+
+  it("keeps question reads and counts honest through deletes", async () => {
+    // The per-topic question index backs listQuestions, the topic summaries
+    // and the dashboard count; this walks a topic through create/delete and
+    // checks every observable read stays exact.
+    const before = (await actor.getDashboardStats()).questionCount;
+    const klass = await actor.createClass("Index Class", []);
+    const subject = (await actor.createSubject(klass.id, "S", [])) as [{ id: bigint }];
+    const chapter = (await actor.createChapter(subject[0].id, "C", [])) as [{ id: bigint }];
+    const chapterId = chapter[0].id;
+    const topic = (await actor.createTopic(chapterId, "Indexed", [])) as [{ id: bigint }];
+    const topicId = topic[0].id;
+
+    await actor.createQuestion(topicId, "First?", { trueFalse: null }, { trueFalse: { correct: true } }, []);
+    const second = await actor.createQuestion(
+      topicId,
+      "Second?",
+      { trueFalse: null },
+      { trueFalse: { correct: false } },
+      [],
+    );
+    const secondId = (second as [{ id: bigint }])[0].id;
+
+    const summaries = (await actor.listTopics(chapterId)) as [{ id: bigint; questionCount: bigint }];
+    expect(summaries.find((t) => t.id === topicId)?.questionCount).toBe(2n);
+
+    await expect(actor.deleteQuestion(secondId)).resolves.toBe(true);
+    const remaining = await actor.listQuestions(topicId);
+    expect(remaining.map((q) => q.prompt)).toEqual(["First?"]);
+    const afterOne = (await actor.listTopics(chapterId)) as [{ id: bigint; questionCount: bigint }];
+    expect(afterOne.find((t) => t.id === topicId)?.questionCount).toBe(1n);
+
+    // Deleting the topic drops the remaining question with it, and the
+    // dashboard count returns to where it started.
+    await expect(actor.deleteTopic(topicId)).resolves.toBe(true);
+    await expect(actor.listQuestions(topicId)).resolves.toEqual([]);
+    const after = (await actor.getDashboardStats()).questionCount;
+    expect(after).toBe(before);
+  });
 });
 
 describe("questions of all three types", () => {
@@ -526,6 +565,24 @@ describe("dynamic QR links", () => {
         );
       }
       attempts += 1;
+    }
+    expect(refused).toBe(true);
+  });
+
+  it("rate limits resolves per code, not just per caller", async () => {
+    // The link is created by ALICE and hammered by the anonymous caller, who
+    // all share one global window (600/min): the per-code window refuses far
+    // sooner, so this proves the per-link bound exists at all.
+    const created = await actor.createLink("https://example.com/per-code");
+    const link = (created as { ok: CreatedLink }).ok;
+    actor.setPrincipal(Principal.anonymous());
+
+    let refused = false;
+    for (let i = 0; i < 70 && !refused; i += 1) {
+      const resolved = await actor.resolveCode(link.code, { desktop: null }, []);
+      if ("unavailable" in resolved && "rateLimited" in resolved.unavailable) {
+        refused = true;
+      }
     }
     expect(refused).toBe(true);
   });

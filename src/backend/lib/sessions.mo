@@ -16,6 +16,7 @@ module {
     chapters : Map.Map<Common.Id, ContentTypes.Chapter>;
     topics : Map.Map<Common.Id, ContentTypes.Topic>;
     questions : Map.Map<Common.Id, Common.Question>;
+    questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>;
     sessions : Map.Map<Common.Id, SessionTypes.Session>;
     sessionResults : Map.Map<Common.Id, Common.SessionResult>;
     /// Submitted answers per session, keyed by session id then question id.
@@ -84,10 +85,19 @@ module {
       };
     };
     let out = List.empty<Common.Question>();
-    for (q in state.questions.values()) {
-      if (topicIds.contains(q.topicId)) {
-        switch (ContentLib.ownedTopic(state, owner, q.topicId)) {
-          case (?_) { out.add(q) };
+    for (topicId in topicIds.values()) {
+      let ids = switch (state.questionsByTopic.get(topicId)) {
+        case (?l) { l };
+        case null { continue };
+      };
+      for (qid in ids.values()) {
+        switch (state.questions.get(qid)) {
+          case (?q) {
+            switch (ContentLib.ownedTopic(state, owner, q.topicId)) {
+              case (?_) { out.add(q) };
+              case null {};
+            };
+          };
           case null {};
         };
       };

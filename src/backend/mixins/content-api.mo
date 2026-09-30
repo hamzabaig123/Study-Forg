@@ -1,4 +1,5 @@
 import Map "mo:core/Map";
+import List "mo:core/List";
 import Common "../types/common";
 import ContentTypes "../types/content";
 import ContentLib "../lib/content";
@@ -9,9 +10,10 @@ mixin (
   chapters : Map.Map<Common.Id, ContentTypes.Chapter>,
   topics : Map.Map<Common.Id, ContentTypes.Topic>,
   questions : Map.Map<Common.Id, Common.Question>,
+  questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>,
   counters : { var nextId : Common.Id },
 ) {
-  transient let contentState : ContentLib.State = { classes; subjects; chapters; topics; questions; counters };
+  transient let contentState : ContentLib.State = { classes; subjects; chapters; topics; questions; questionsByTopic; counters };
 
   /// List every class owned by the caller.
   public shared ({ caller }) func listClasses() : async [Common.ClassSummary] {

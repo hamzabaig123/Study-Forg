@@ -1,4 +1,5 @@
 import Map "mo:core/Map";
+import List "mo:core/List";
 import Result "mo:core/Result";
 import RandomCodes "../lib/random-codes";
 import Common "../types/common";
@@ -12,11 +13,12 @@ mixin (
   chapters : Map.Map<Common.Id, ContentTypes.Chapter>,
   topics : Map.Map<Common.Id, ContentTypes.Topic>,
   questions : Map.Map<Common.Id, Common.Question>,
+  questionsByTopic : Map.Map<Common.Id, List.List<Common.Id>>,
   shares : Map.Map<Text, ShareTypes.Share>,
   counters : { var nextId : Common.Id },
   entropy : RandomCodes.Entropy,
 ) {
-  transient let sharingState : SharingLib.State = { classes; subjects; chapters; topics; questions; shares; counters; entropy };
+  transient let sharingState : SharingLib.State = { classes; subjects; chapters; topics; questions; questionsByTopic; shares; counters; entropy };
 
   /// Create (or return the existing) public read-only share link for a
   /// chapter or topic.

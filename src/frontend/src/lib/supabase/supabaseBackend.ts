@@ -43,6 +43,10 @@ export function createSupabaseBackend(
     ...createSharingSlice(transport),
     ...createLinksSlice(transport),
     ...createSystemSlice(transport),
+    // The canister's hot-path indexes are Motoko state a legacy upgrade might
+    // have to rebuild; Postgres answers the same reads with real table
+    // indexes, so there is nothing for this adapter to rebuild.
+    async rebuildIndexes() {},
   } satisfies backendInterface;
 }
 
