@@ -32,6 +32,15 @@ describe("contentSecurityPolicy", () => {
     expect(directive("connect-src")).not.toContain("https://*.supabase.co");
   });
 
+  it("lets a canister-mode deploy reach the IC boundary nodes", () => {
+    // agent-js is bundled, so this is connect-src only — a canister-mode
+    // frontend calls https://icp0.io for every actor call, and a policy that
+    // stopped there would break every read with what looks like a network
+    // error.
+    expect(directive("connect-src")).toContain("https://icp0.io");
+    expect(directive("script-src")).not.toContain("https://icp0.io");
+  });
+
   it("falls back to the platform wildcard when the build has no usable URL", () => {
     for (const supabaseUrl of [undefined, "", "not a url"]) {
       const fallback = contentSecurityPolicy({ supabaseUrl });

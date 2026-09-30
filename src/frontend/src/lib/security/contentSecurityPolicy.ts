@@ -23,6 +23,11 @@
 
 /** Origins this page has to be able to talk to, besides its own host. */
 const OUTBOUND_ORIGINS = [
+  // The IC boundary nodes a canister-mode frontend calls through. agent-js is
+  // bundled, so no remote script — but its HTTP calls leave the page, and a
+  // canister-mode deploy with `env.json` filled in is exactly the build this
+  // origin is for; on Supabase-only deploys it simply stays unused.
+  "https://icp0.io",
   // Gemini and OpenRouter are called straight from the browser (see
   // `lib/ai/providers.ts`); the canister's AI methods are not wired to anything.
   "https://generativelanguage.googleapis.com",

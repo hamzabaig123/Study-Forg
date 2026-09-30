@@ -1,0 +1,10 @@
+{
+  "canisters": {
+    "backend": {
+      "type": "custom",
+      "build": [],
+      "wasm": "src/backend/dist/backend.wasm",
+      "candid": "src/backend/dist/backend.did"
+    }
+  }
+}
