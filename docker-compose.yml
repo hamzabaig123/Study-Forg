@@ -1,0 +1,56 @@
+# Local Motoko toolchain, for the machine that cannot run `moc` natively.
+#
+# `moc` (the Motoko compiler) ships no Windows binary, so every backend command
+# is executed inside the `toolchain` service with this repository bind-mounted
+# at /repo. The `pocketic` service runs the PocketIC server the backend test
+# lane (test/pocketic/run-backend-lane.mjs) attaches to, so `pnpm test:backend`
+# can drive the real canister from the Windows host.
+#
+# First-time setup, run from the repository root:
+#   docker compose build
+#   docker compose run --rm toolchain mops install
+#   docker compose run --rm toolchain mops build      # downloads moc + pocket-ic
+#   docker compose up -d pocketic                     # the sidecar, on :8090
+#   # Windows host:
+#   set POCKETIC_SIDECAR_URL=http://127.0.0.1:8090
+#   pnpm test:backend
+#
+# The two named volumes carry mops' package cache and its downloaded
+# toolchains (moc, pocket-ic) across container runs; deleting them costs one
+# re-download, nothing else.
+
+services:
+  toolchain:
+    build:
+      context: ./docker
+      dockerfile: toolchain.Dockerfile
+    working_dir: /repo
+    volumes:
+      - .:/repo
+      - mops_home:/root/.mops
+      - mops_cache:/root/.cache
+    # The toolchain never needs to be reachable from outside; its own outbound
+    # fetches (mops registry, toolchain downloads) need no published ports.
+
+  pocketic:
+    build:
+      context: ./docker
+      dockerfile: toolchain.Dockerfile
+    working_dir: /
+    volumes:
+      - ./docker:/sidecar:ro
+      - mops_home:/root/.mops
+      - mops_cache:/root/.cache
+    command: ["bash", "/sidecar/sidecar-entrypoint.sh"]
+    # The sidecar outlives the terminal it was started from; stop it with
+    # `docker compose down`.
+    restart: unless-stopped
+    ports:
+      # The wrapper the lane's POCKETIC_SIDECAR_URL points at.
+      - "8090:8090"
+      # The PocketIC server itself, bound to 0.0.0.0 inside the container.
+      - "8091:8091"
+
+volumes:
+  mops_home:
+  mops_cache:

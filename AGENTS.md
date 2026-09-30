@@ -13,15 +13,16 @@
 - **lint fix**: `pnpm fix`
 - **build**: `pnpm build`
 
-**Backend** (run from `src/backend/`; see Learnings — these need `moc`, which ships no Windows binary, so on this machine `canister-build` in CI is the only place they actually run):
+**Backend** (run in the `toolchain` Docker container — `moc` has no Windows binary; see Learnings → *The Motoko toolchain runs in Docker*; full details in `docker/README.md`):
 
-- **install**: `mops install`
-- **typecheck**: `mops check --fix`
-- **build**: `mops build`
+- **setup**: `docker compose build`, then `docker compose run --rm toolchain mops install` (from the repository root)
+- **typecheck**: `docker compose run --rm toolchain mops check`
+- **build**: `docker compose run --rm toolchain mops build` (also boots the wasm on PocketIC via `check-deploy`)
+- **backend tests**: `docker compose up -d pocketic`, then on the Windows host set `POCKETIC_SIDECAR_URL=http://127.0.0.1:8090` and run `pnpm test:backend` — this drives the real canister through every test in `test/pocketic/backend.test.ts`
 
 **Backend and frontend integration** (run from root):
 
-- **generate bindings**: `pnpm bindgen` This step is necessary to ensure the frontend can call the backend methods.
+- **generate bindings**: `pnpm bindgen` needs the `caffeine-bindgen` binary, which is not on npm under that name. What works: after a container build produced `src/backend/dist/backend.did`, run `npx -y @caffeineai/bindgen@0.3.1 --did-file ./src/backend/dist/backend.did --out-dir ./src/frontend/src --actor-interface-file --force` on the Windows host. This step is necessary whenever the candid interface changes, so the frontend can call the new backend methods.
 
 ## Head Metadata (SEO and Link Previews)
 
@@ -59,18 +60,32 @@ When editing `index.html` (e.g. changing the title or favicon):
 - `verify.sql` item 16 wraps every privilege test in a `CASE` over `to_regclass`/`to_regfunction`: `has_*_privilege('…', 'a-name-that-does-not-exist', …)` **raises** rather than answering false, and CI runs that file with `ON_ERROR_STOP`, so an unapplied 0015 must show as `f`, not break the run.
 - `record_csp_violations` groups the batch before inserting because `insert … on conflict do update` that touches one target row twice is an error, and a browser may put two identical reports in one array. Whichever migration declares a helper last owns it, so the 0006/0008 grant lesson is restated in 0015: revokes after the creates, ending with `notify pgrst, 'reload schema'`.
 
-### Running the app without a replica
+### The Motoko toolchain runs in Docker
 
-The development machine has no virtualization (no WSL2, Docker, or Hyper-V), so `dfx`, `mops`, and the Rust toolchain cannot be installed and no local replica can be started. Consequences:
+Virtualization arrived on 2026-10-01 (WSL2 distros installed, Docker Desktop working), so the canister now **compiles, boots and serves locally**. `docker/` holds the setup and `docker/README.md` the procedures; the shape of it:
 
-- The `mops` commands above are the correct commands for a machine that has the platform toolchain; on this machine they cannot compile. Measured 2026-09-30 rather than assumed: the **CLI itself installs and runs** here (`npm install ic-mops` in a scratch folder outside the repo → `mops --version` answers `CLI 3.4.1`), and the very next step refuses — `mops build` stops with **"moc has no Windows build. Please use WSL."**, and `wsl -l -v` reports **no installed distribution**. So "mops does not run here" means *the compiler has no Windows binary and there is no Linux runtime to run the Linux one*, not that the Node CLI is missing. Do not spend time re-deriving that: `moc` is unavailable here, so Motoko edits are proven only by `canister-build`.
-- `src/backend/dist/` is gitignored — no wasm or `.most` snapshot is committed (the "ships in the repo" wasm was removed from the index when CI arrived). The canister is typechecked, built and PocketIC-booted by `.github/workflows/canister-build.yml` instead; Motoko edits here can be reviewed and reasoned about, but they cannot be compiled locally, and they do not reach the running app.
-- `pnpm bindgen` likewise needs the platform toolchain. The committed bindings in `src/frontend/src/backend.ts` are the contract the frontend builds against.
-- **What to do instead**: run the frontend against the localStorage mock backend (`src/frontend/src/mocks/backend.ts`), which implements the full 77-method canister interface. `pnpm dev` already does this because `.env.development` sets `VITE_USE_MOCK=true`. Data persists in the browser under the `studyforge.mock-backend.v1` key. Production builds (`pnpm build`) do not set the flag, so deployed output still targets the real canister.
+- **A `toolchain` compose service** (node:22-bookworm-slim + pinned `ic-mops`) runs every `mops` command with the repo bind-mounted at `/repo`. `mops install` fetches the toolchains pinned in `mops.toml` (`moc` 1.16.0, `pocket-ic` 15.0.0, `lintoko` 0.11.0) into shared named volumes on first use. `mops check` and `mops build` are green locally; `check-deploy = true` means the build itself boots the wasm on PocketIC inside the container.
+- **A `pocketic` compose service** stands in for the platform's PocketIC sidecar: `/healthz` and `/descriptor` on port 8090, the PocketIC server on 8091 (`--ip-addr 0.0.0.0` so the published port reaches it, and `--ttl 604800` because its own idle default is **60 seconds** — the sidecar otherwise "dies between runs" and the lane skips with `pocketic_sidecar_unreachable`). With `POCKETIC_SIDECAR_URL=http://127.0.0.1:8090` on the Windows host, `pnpm test:backend` runs the real lane: `test/pocketic/backend.test.ts` installs the freshly built wasm and calls the public API. **These tests ran for the first time anywhere on 2026-10-01** — CI has no sidecar (it only builds and uploads the wasm), so until then the lane was platform-only.
+- **`mops check` reads a stable baseline at `.old/src/backend/dist/backend.most`**, and the migration file takes `{}` as its old actor — which matches the **empty-actor baseline CI writes** (`printf '// Version: 1.0.0\nactor { }\n' > .old/src/backend/dist/backend.most`), not the real platform-delivered baseline that used to sit there. A real baseline records the deployed history (`OldActor__187271927`) and fails the same check; back such a file up before overwriting it (the 2026-09-22 snapshots are in `%TEMP%\sf-baseline-backup`).
+- **The `[moc]` args in `mops.toml` are strictness, not suppression**: `-W=` *enables* warnings, `-E=` promotes a warning to an error, `-A=` allows one, and `--implicit-package=core` is load-bearing (without it the mo:core method-call syntax the code is written against stops compiling). Keep them.
+- **`pnpm bindgen` works on the Windows host** via `npx @caffeineai/bindgen@<version>` once a container build produced `src/backend/dist/backend.did`; the root script's `caffeine-bindgen` name is not on npm. The generated `src/frontend/src/backend.ts` embeds the Motoko doc comments, so a comment-only source change regenerates a diff in it — that is the expected shape, and a types diff is the shape that means the candid interface actually changed.
+- **What is still true from the old world**: `src/backend/dist/` and `.old/` are gitignored; the frontend keeps running against the localStorage mock (`VITE_USE_MOCK=true` in `.env.development`) or Supabase; production builds target the real canister or Supabase, not a local replica. `dfx` was never needed — PocketIC covers the deploy smoke test and the lane covers the API.
 
-### CI is the only compiler, and its log is not readable
+#### What the local lane caught (fixed 2026-10-01)
 
-Both workflows are green as of `4509f9e` — the project's first green runs. Getting there is a procedure, not a story, because none of it is visible from a local run:
+The first local run turned "the backend is probably fine" into a list of real defects, all fixed and pinned in `backend.test.ts`:
+
+- **`lib/notes.mo` refused the fourth theme**: `allowedAppearances` was `["light", "dark", "frosted"]` while the product ships Maroon and `0012_maroon_appearance.sql` widened the Postgres CHECK — canister-mode settings saves of `maroon` failed. The list and its error message now carry all four values.
+- **`reportAbuse` was an existence oracle with no throttle**: an unknown code answered `#notFound` where a known one answered `#ok`, and the endpoint had no rate limit at all. It now answers `#ok` both ways (writing nothing for unknown codes) — the same rule 0013 applied to the Postgres path — and rides a 20/min caller window; the throttle signal is `#invalidInput` because `AbuseError` gains no variants. Create and resolve limits also moved to 20/min and 600/min (every anonymous caller is *one* principal on ICP, so the old 120/min resolve window was a global ceiling of two scans a second).
+- **`isPrivateHost` had an IPv6 gap and a hostname false positive**: bracketed literals (`[fc00::1]`, `[fe80::1]`, the dotted `::ffff:10.0.0.1` form) slipped past the private-host check, while any *domain* starting with `fc`/`fd`/`fe80` was refused as if it were an address. The ranges now apply only to literals (brackets stripped, IPv6 gated on `:`), and the frontend's `/r/` sink remains the second layer.
+- **Token generation cost one consensus round trip per character**: `Random.natRange` awaited the CSPRNG for every character, so one short link (10-char code + 32-char edit token) paid ~42 `raw_rand` calls — minutes of latency on a real subnet. `lib/random-codes.mo` draws 32 bytes per `Random.blob()` and derives characters locally with the same no-modulo-bias rejection rule as `tokens.ts`; its buffer is a `transient` actor field (modules cannot hold mutable state — M0014 — so the entropy lives in `main.mo` next to the counters and threads through the three mixins).
+- **`[Char].toText()` is a debug renderer, not a join**: any `[Char]` → `Text` conversion must go through `Text.fromArray`. `isPrivateHost`'s bracket strip, `ai.mo`'s `maskKey` (the key hint was garbled — the lane test now pins `sk-7890`) and `extractJsonObject` all used the wrong one.
+- **The canister's hand-rolled PDF counted characters where it needed bytes**: `/Length` and the xref offsets use `Text.size()`, but the caller wraps the string as UTF-8 — any non-ASCII title or prompt shifted the offsets and corrupted the file. `asciiFold` (control → space, non-ASCII → `?`, the rule `toWinAnsi` applies on the frontend) makes the stream pure ASCII so characters and bytes agree.
+- **The scan and abuse-report logs are capped** (20 000 + 1 000 hysteresis, 5 000 + 250): both are append-only lists written by anonymous endpoints, and nothing bounded them. `pruneLog` rebuilds from the newest slice, amortized O(1) per record.
+
+### CI is one compiler among two now, and its log is still not readable
+
+Both workflows are green as of `4509f9e` — the project's first green runs. The canister compiles locally now (see *The Motoko toolchain runs in Docker*), so CI's build is no longer the only proof of a Motoko edit — but its workflow mechanics are worth keeping, because none of them are visible from a local run:
 
 - **The job log 403s; the annotations do not.** `GET /repos/…/actions/jobs/{job_id}/logs` answers `403 Must have admin rights to Repository` **even on a public repo**, so a red step whose only annotation is "Process completed with exit code 1" is undiagnosable here. `canister-build` therefore pipes the build through `tee` (under `set -o pipefail`, so the step still fails) and re-emits the last 40 lines as `::error::` annotations on a `if: failure()` step — the annotations endpoint is reachable with no token, which is how the missing `pocket-ic` toolchain entry was ever named. Keep that step; a workflow whose failure you cannot read is a gate you cannot use.
 - **`gh` is not installed here.** Drive Actions with plain `curl` against the public API and parse with `node`: `/actions/runs?per_page=N` for status, `/actions/runs/{id}/jobs` for per-step conclusions, `/check-runs/{job_id}/annotations` for messages, `/actions/runs/{id}/artifacts` for the wasm's `size_in_bytes` and `digest` (that `digest` is the artifact hash the reports quote — no download, no token).

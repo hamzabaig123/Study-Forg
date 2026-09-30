@@ -1,10 +1,10 @@
 import Map "mo:core/Map";
 import List "mo:core/List";
 import Nat "mo:core/Nat";
-import Random "mo:core/Random";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
 import Result "mo:core/Result";
+import RandomCodes "random-codes";
 import Common "../types/common";
 import ContentTypes "../types/content";
 import ShareTypes "../types/sharing";
@@ -19,6 +19,7 @@ module {
     questions : Map.Map<Common.Id, Common.Question>;
     shares : Map.Map<Text, ShareTypes.Share>;
     counters : { var nextId : Common.Id };
+    entropy : RandomCodes.Entropy;
   };
 
   /// URL-safe alphabet for share tokens (no padding, no ambiguous separators).
@@ -28,16 +29,8 @@ module {
 
   /// Generate a long random URL-safe token. Uses the platform CSPRNG so a
   /// token cannot be guessed or enumerated from another one.
-  func newToken() : async Text {
-    let alphabet = tokenAlphabet.toArray();
-    var token = "";
-    var i = 0;
-    while (i < tokenLength) {
-      let index = await Random.natRange(0, alphabet.size());
-      token := token # Char.toText(alphabet[index]);
-      i += 1;
-    };
-    token;
+  func newToken(entropy : RandomCodes.Entropy) : async Text {
+    await RandomCodes.randomText(entropy, tokenAlphabet, tokenLength);
   };
 
   func ownedChapter(state : State, owner : Principal, chapterId : Common.Id) : ?ContentTypes.Chapter {
@@ -107,7 +100,7 @@ module {
     for (s in state.shares.values()) {
       if (s.owner == owner and targetKey(s.target) == key) { return #ok(toLink(s)) };
     };
-    let token = await newToken();
+    let token = await newToken(state.entropy);
     let share : ShareTypes.Share = { token; owner; target; createdAt = Time.now() };
     state.shares.add(token, share);
     #ok(toLink(share));
@@ -261,19 +254,43 @@ module {
     text.replace(#text "\\", "\\\\").replace(#text "(", "\\(").replace(#text ")", "\\)");
   };
 
+  /// Fold text to printable ASCII so the PDF's arithmetic is byte-exact.
+  ///
+  /// The content stream's `/Length` and the xref offsets here are computed
+  /// with `Text.size()`, which counts characters, while the string the caller
+  /// wraps in a Blob leaves the canister as UTF-8 bytes. Any code point above
+  /// 127 desynchronises the two and corrupts the file, so every control
+  /// character becomes a space (it would break the `Tj` line structure) and
+  /// every non-ASCII character becomes `?`. `questionExport.ts` runs the same
+  /// rule (`toWinAnsi`) on the frontend-exported PDF.
+  func asciiFold(text : Text) : Text {
+    var out = "";
+    for (c in text.toIter()) {
+      let code = c.toNat32().toNat();
+      if (code >= 0x20 and code <= 0x7E) {
+        out := out # c.toText();
+      } else if (code < 0x20) {
+        out := out # " ";
+      } else {
+        out := out # "?";
+      };
+    };
+    out;
+  };
+
   func pdfFor(title : Text, questions : [Common.Question]) : Text {
     let lines = List.empty<Text>();
-    lines.add(title);
+    lines.add(asciiFold(title));
     lines.add("");
     var index = 1;
     for (q in questions.values()) {
-      lines.add(index.toText() # ". " # q.prompt);
+      lines.add(asciiFold(index.toText() # ". " # q.prompt));
       lines.add("   Type: " # typeText(q));
       let opts = optionsText(q);
-      if (opts != "") { lines.add("   Options: " # opts) };
-      lines.add("   Answer: " # answerText(q));
+      if (opts != "") { lines.add(asciiFold("   Options: " # opts)) };
+      lines.add(asciiFold("   Answer: " # answerText(q)));
       switch (q.explanation) {
-        case (?e) { lines.add("   Explanation: " # e) };
+        case (?e) { lines.add(asciiFold("   Explanation: " # e)) };
         case null {};
       };
       lines.add("");

@@ -1,19 +1,16 @@
 import Map "mo:core/Map";
 import List "mo:core/List";
-import Random "mo:core/Random";
+import Int "mo:core/Int";
 import Text "mo:core/Text";
 import Nat "mo:core/Nat";
 import Time "mo:core/Time";
+import RandomCodes "random-codes";
 import Types "../types/qr-links";
 
 module {
   /// URL-safe alphabet for short codes and edit tokens. Lowercase
   /// alphanumerics only, so codes are unambiguous in print and in URLs.
-  let codeAlphabet : [Char] = [
-    'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-    'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
-  ];
+  let codeAlphabetText : Text = "abcdefghijklmnopqrstuvwxyz0123456789";
 
   /// Length of a generated short code. Ten characters of this alphabet is
   /// ~50 bits, matching `lib/supabase/tokens.ts` and the widened `link.code`
@@ -24,6 +21,18 @@ module {
 
   /// Length of a generated secret edit token.
   let tokenLength : Nat = 32;
+
+  /// The scan log is capped so anonymous traffic cannot grow the canister's
+  /// memory without bound. When the log passes the cap by the hysteresis
+  /// margin, the oldest records are dropped and only the newest `cap` remain;
+  /// the margin amortizes the rebuild to O(1) per scan.
+  let maxScanRecords : Nat = 20_000;
+  let scanPruneHysteresis : Nat = 1_000;
+
+  /// The abuse-report log is capped for the same reason: `reportAbuse` is an
+  /// anonymous endpoint and a report nobody reads still occupies memory.
+  let maxAbuseReports : Nat = 5_000;
+  let reportPruneHysteresis : Nat = 250;
 
   /// The path prefix the app serves short links under. A target pointing back
   /// at this prefix would create a redirect loop.
@@ -57,19 +66,12 @@ module {
     out;
   };
 
-  /// Build a random string of `length` characters from `codeAlphabet`. Uses
-  /// the platform CSPRNG so codes and secret edit tokens cannot be guessed
-  /// from previously issued ones; uniqueness is still enforced against
-  /// existing links.
-  func randomString(length : Nat) : async Text {
-    var out = "";
-    var i = 0;
-    while (i < length) {
-      let index = await Random.natRange(0, codeAlphabet.size());
-      out := out # codeAlphabet[index].toText();
-      i += 1;
-    };
-    out;
+  /// Build a random string of `length` characters from the short-code
+  /// alphabet. Uses the platform CSPRNG so codes and secret edit tokens
+  /// cannot be guessed from previously issued ones; uniqueness is still
+  /// enforced against existing links.
+  func randomString(entropy : RandomCodes.Entropy, length : Nat) : async Text {
+    await RandomCodes.randomText(entropy, codeAlphabetText, length);
   };
 
   /// True when `code` is already used by a stored link.
@@ -84,19 +86,20 @@ module {
   /// Generate a short code that is unique against the stored links.
   func generateCode(
     links : Map.Map<Types.LinkId, Types.ShortLink>,
+    entropy : RandomCodes.Entropy,
   ) : async Types.ShortCode {
-    var candidate = await randomString(codeLength);
+    var candidate = await randomString(entropy, codeLength);
     var attempts = 0;
     while (codeExists(links, candidate) and attempts < 100) {
-      candidate := await randomString(codeLength);
+      candidate := await randomString(entropy, codeLength);
       attempts += 1;
     };
     candidate;
   };
 
   /// Generate a fresh secret edit token.
-  func generateEditToken() : async Types.EditToken {
-    await randomString(tokenLength);
+  func generateEditToken(entropy : RandomCodes.Entropy) : async Types.EditToken {
+    await randomString(entropy, tokenLength);
   };
 
   /// Split a URL into its scheme and the remainder after `://`. Returns null
@@ -118,45 +121,79 @@ module {
     ?(scheme, remainder);
   };
 
-  /// True when `host` is a private, loopback, or link-local address literal.
-  func isPrivateHost(host : Text) : Bool {
-    let h = host.toLower();
-    // IPv6 loopback and unique-local / link-local ranges.
-    if (h == "::1" or h == "[::1]") { return true };
-    if (h.startsWith(#text "fc") or h.startsWith(#text "fd")) { return true };
-    if (h.startsWith(#text "fe80")) { return true };
-    // IPv4 literal ranges.
+  /// True when `host` is an IPv4 literal in a private, loopback, or
+  /// link-local range. Called only for hosts that are not IPv6 literals, so
+  /// the octet shape check is the gate.
+  func isPrivateIpv4(h : Text) : Bool {
     let octets = h.split(#text ".").toArray();
-    if (octets.size() == 4) {
-      switch (octets[0].toNat()) {
-        case (?first) {
-          if (first == 10) { return true };
-          if (first == 127) { return true };
-          if (first == 169) {
-            switch (octets[1].toNat()) {
-              case (?second) { if (second == 254) { return true } };
-              case null {};
-            };
-          };
-          if (first == 192) {
-            switch (octets[1].toNat()) {
-              case (?second) { if (second == 168) { return true } };
-              case null {};
-            };
-          };
-          if (first == 172) {
-            switch (octets[1].toNat()) {
-              case (?second) {
-                if (second >= 16 and second <= 31) { return true };
-              };
-              case null {};
-            };
+    if (octets.size() != 4) { return false };
+    switch (octets[0].toNat()) {
+      case (?first) {
+        if (first == 10) { return true };
+        if (first == 127) { return true };
+        if (first == 169) {
+          switch (octets[1].toNat()) {
+            case (?second) { if (second == 254) { return true } };
+            case null {};
           };
         };
-        case null {};
+        if (first == 192) {
+          switch (octets[1].toNat()) {
+            case (?second) { if (second == 168) { return true } };
+            case null {};
+          };
+        };
+        if (first == 172) {
+          switch (octets[1].toNat()) {
+            case (?second) {
+              if (second >= 16 and second <= 31) { return true };
+            };
+            case null {};
+          };
+        };
       };
+      case null {};
     };
     false;
+  };
+
+  /// True when `host` is a private, loopback, or link-local address literal.
+  ///
+  /// The checks apply to address literals only, never to hostnames: a domain
+  /// that happens to start with "fc" (fcbarcelona.com) is an ordinary public
+  /// host, and refusing it on a text prefix was a false positive in the
+  /// first version of this rule. IPv6 ranges are gated on the host actually
+  /// being an IPv6 literal (it contains `:`), IPv4 ranges on the four-octet
+  /// shape.
+  func isPrivateHost(host : Text) : Bool {
+    // A bracketed IPv6 literal arrives with its brackets (hostOf preserves
+    // them so the port split cannot eat the address); strip them so the
+    // checks below see the bare address.
+    let chars = host.toArray();
+    let h = if (chars.size() >= 2 and chars[0] == '[' and chars[chars.size() - 1] == ']') {
+      Text.fromArray(chars.sliceToArray(1, chars.size().toInt() - 1)).toLower();
+    } else {
+      host.toLower();
+    };
+    // IPv6 literal: loopback (::1), unique-local fc00::/7, link-local
+    // fe80::/10 (fe80 through febf), and the dotted form of IPv4-mapped
+    // ::ffff:0:0/96.
+    if (h.contains(#text ":")) {
+      if (h == "::1") { return true };
+      if (h.startsWith(#text "fc") or h.startsWith(#text "fd")) { return true };
+      for (prefix in ["fe8", "fe9", "fea", "feb"].values()) {
+        if (h.startsWith(#text prefix)) { return true };
+      };
+      let mappedPrefix = "::ffff:";
+      let hChars = h.toArray();
+      if (h.startsWith(#text mappedPrefix) and hChars.size() > mappedPrefix.size()) {
+        if (isPrivateIpv4(Text.fromArray(hChars.sliceToArray(mappedPrefix.size(), hChars.size())))) {
+          return true;
+        };
+      };
+      return false;
+    };
+    isPrivateIpv4(h);
   };
 
   /// Extract the host portion of a URL remainder (everything after `://`),
@@ -243,6 +280,7 @@ module {
   public func createLink(
     links : Map.Map<Types.LinkId, Types.ShortLink>,
     counters : { var nextId : Types.LinkId },
+    entropy : RandomCodes.Entropy,
     targetUrl : Text,
   ) : async { #ok : Types.CreatedLink; #err : Types.CreateLinkError } {
     switch (validateTargetUrl(targetUrl)) {
@@ -252,8 +290,8 @@ module {
     let now = Time.now();
     let id = counters.nextId;
     counters.nextId := id + 1;
-    let code = await generateCode(links);
-    let editToken = await generateEditToken();
+    let code = await generateCode(links, entropy);
+    let editToken = await generateEditToken(entropy);
     let normalized = trimWhitespace(targetUrl);
     let link : Types.ShortLink = {
       id;
@@ -275,6 +313,18 @@ module {
       status = #active;
       createdAt = now;
     });
+  };
+
+  /// Keep the newest `cap` records of an append-only log. Called after each
+  /// add; the hysteresis margin means the O(n) rebuild happens at most once
+  /// per `hysteresis` records.
+  func pruneLog<T>(records : List.List<T>, cap : Nat, hysteresis : Nat) {
+    let size = records.size();
+    if (size > cap + hysteresis) {
+      let keep = records.sliceToArray(size.toInt() - cap.toInt(), size.toInt());
+      records.clear();
+      for (record in keep.values()) { records.add(record) };
+    };
   };
 
   /// Resolve a short code for redirect. Records the scan (time, device,
@@ -302,6 +352,7 @@ module {
               device;
               country;
             });
+            pruneLog(scans, maxScanRecords, scanPruneHysteresis);
             #redirect({ targetUrl = link.targetUrl });
           };
           case (#paused) { #unavailable(#paused) };
@@ -510,6 +561,14 @@ module {
   };
 
   /// Record an abuse report for a short code.
+  ///
+  /// A code that was never issued answers `#ok` too, and writes nothing —
+  /// the same same-answer-either-way rule `supabase/migrations/
+  /// 0013_abuse_report_throttle_and_oracle.sql` applies to the Postgres path.
+  /// Distinguishing them turned this anonymous endpoint into a free
+  /// "which short codes exist?" oracle. The `#notFound` variant stays in the
+  /// result type because the candid interface is fixed, not because it is
+  /// ever produced.
   public func reportAbuse(
     links : Map.Map<Types.LinkId, Types.ShortLink>,
     reports : List.List<Types.AbuseReport>,
@@ -524,13 +583,14 @@ module {
       return #err(#invalidInput("Describe the problem with this link."));
     };
     if (not codeExists(links, code)) {
-      return #err(#notFound);
+      return #ok;
     };
     reports.add({
       code;
       reason = trimmedReason;
       reportedAt = Time.now();
     });
+    pruneLog(reports, maxAbuseReports, reportPruneHysteresis);
     #ok;
   };
 };

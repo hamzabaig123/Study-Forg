@@ -1,6 +1,7 @@
 import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Runtime "mo:core/Runtime";
+import RandomCodes "../lib/random-codes";
 import NotesLib "../lib/notes";
 import NotesTypes "../types/notes";
 
@@ -9,6 +10,7 @@ mixin (
   noteShares : Map.Map<Text, NotesTypes.NoteShare>,
   settings : Map.Map<Principal, NotesTypes.UserSettings>,
   counters : { var nextId : NotesTypes.Id },
+  entropy : RandomCodes.Entropy,
 ) {
   /// Reject anonymous callers. Every note and settings operation is private to
   /// a signed-in identity, so an anonymous principal never reaches the domain
@@ -121,7 +123,7 @@ mixin (
     if (not requireSignedIn(caller)) {
       return #err(#notAuthorized);
     };
-    await NotesLib.createNoteShare(notes, noteShares, caller, noteId);
+    await NotesLib.createNoteShare(notes, noteShares, entropy, caller, noteId);
   };
 
   /// List the caller's note share tokens.

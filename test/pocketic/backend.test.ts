@@ -374,7 +374,8 @@ describe("AI configuration", () => {
 
     const saved = await actor.saveAiKey("sk-test-1234567890");
     expect(saved.hasPersonalKey).toBe(true);
-    expect(saved.keyHint).not.toEqual([]);
+    // First three + last four characters, never the middle.
+    expect(saved.keyHint).toEqual(["sk-7890"]);
 
     const removed = await actor.removeAiKey();
     expect(removed.hasPersonalKey).toBe(false);
@@ -425,6 +426,22 @@ describe("dynamic QR links", () => {
     // Neither rejected attempt produced a resolvable link.
     const loopback = await actor.createLink("http://127.0.0.1:8080");
     expect(loopback).toHaveProperty("err");
+
+    // Bracketed IPv6 literals reach the private-host check too: unique-local
+    // and link-local addresses, and the dotted IPv4-mapped form.
+    const uniqueLocal = await actor.createLink("http://[fc00::1]/router");
+    expect(uniqueLocal).toHaveProperty("err");
+    const linkLocal = await actor.createLink("http://[fe80::1]/printer");
+    expect(linkLocal).toHaveProperty("err");
+    const mappedV4 = await actor.createLink("http://[::ffff:10.0.0.1]/");
+    expect(mappedV4).toHaveProperty("err");
+
+    // A hostname that merely starts with "fc" is an ordinary public host,
+    // not an IPv6 literal — the range checks must not refuse it.
+    const fcHostname = await actor.createLink(
+      "https://fcbarcelona.com/schedule",
+    );
+    expect(fcHostname).toHaveProperty("ok");
   });
 
   it("changes the target, pauses, and deletes a link by its secret token", async () => {
@@ -474,16 +491,43 @@ describe("dynamic QR links", () => {
     ).resolves.toEqual({ err: { notFound: null } });
   });
 
-  it("records an abuse report for a known code and rejects an unknown one", async () => {
+  it("answers an abuse report the same way whether the code exists or not", async () => {
     const created = await actor.createLink("https://example.com/report-me");
     const link = (created as { ok: CreatedLink }).ok;
 
+    // A known code records the report; an unknown one answers the same
+    // `{ ok: null }` and records nothing, so this anonymous endpoint is not
+    // a "which short codes exist?" oracle — the same rule the Postgres path
+    // applies in 0013_abuse_report_throttle_and_oracle.sql.
     await expect(
       actor.reportAbuse(link.code, "This is spam"),
     ).resolves.toEqual({ ok: null });
     await expect(
       actor.reportAbuse("missing", "This is spam"),
-    ).resolves.toEqual({ err: { notFound: null } });
+    ).resolves.toEqual({ ok: null });
+  });
+
+  it("rate limits link creation to the configured window", async () => {
+    // Anonymous callers all share one principal, so one window is one bucket.
+    // Nothing earlier in the file creates links anonymously, so this window
+    // starts fresh.
+    actor.setPrincipal(Principal.anonymous());
+
+    let refused = false;
+    let attempts = 0;
+    while (attempts < 30 && !refused) {
+      const created = await actor.createLink(
+        `https://example.com/burst-${attempts}`,
+      );
+      if ("err" in created) {
+        refused = true;
+        expect((created as { err: CreateLinkError }).err).toHaveProperty(
+          "rateLimited",
+        );
+      }
+      attempts += 1;
+    }
+    expect(refused).toBe(true);
   });
 });
 
@@ -624,6 +668,12 @@ describe("notes workspace", () => {
     const read = await actor.getMySettings();
     expect(read).not.toEqual([]);
     expect((read as [UserSettingsView])[0].displayName).toBe("Ada");
+
+    // The fourth theme is accepted and normalized, matching the widened
+    // appearance CHECK on the Postgres path (0012_maroon_appearance.sql).
+    await expect(
+      actor.saveMySettings("Ada", "", 20n, "Maroon"),
+    ).resolves.toHaveProperty("ok");
 
     // An out-of-range daily target is rejected.
     await expect(

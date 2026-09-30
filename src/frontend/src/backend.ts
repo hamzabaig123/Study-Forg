@@ -886,7 +886,11 @@ export interface backendInterface {
      */
     renameTopic(topicId: Id, name: string, description: string | null): Promise<TopicSummary | null>;
     /**
-     * / Report a short link as abusive.
+     * / Report a short link as abusive. Anonymous callers are allowed; the
+     * / report is rate limited per caller. The throttle rides `#invalidInput`
+     * / because that is the only `AbuseError` variant that carries a sentence —
+     * / the candid union is generated and gains no variants (the same rule the
+     * / Postgres path follows).
      */
     reportAbuse(code: ShortCode, reason: string): Promise<{
         __kind__: "ok";

@@ -640,7 +640,11 @@ export interface _SERVICE {
    */
   'renameTopic' : ActorMethod<[Id, string, [] | [string]], [] | [TopicSummary]>,
   /**
-   * / Report a short link as abusive.
+   * / Report a short link as abusive. Anonymous callers are allowed; the
+   * / report is rate limited per caller. The throttle rides `#invalidInput`
+   * / because that is the only `AbuseError` variant that carries a sentence —
+   * / the candid union is generated and gains no variants (the same rule the
+   * / Postgres path follows).
    */
   'reportAbuse' : ActorMethod<
     [ShortCode, string],

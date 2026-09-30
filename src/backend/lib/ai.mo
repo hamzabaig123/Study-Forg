@@ -2,6 +2,7 @@ import Map "mo:core/Map";
 import Principal "mo:core/Principal";
 import Result "mo:core/Result";
 import Runtime "mo:core/Runtime";
+import Text "mo:core/Text";
 
 import Common "../types/common";
 import AiTypes "../types/ai";
@@ -28,7 +29,7 @@ module {
     };
     let head = chars.sliceToArray(0, 3);
     let tail = chars.sliceToArray(size.toInt() - 4, size.toInt());
-    head.concat(tail).toText();
+    Text.fromArray(head.concat(tail));
   };
   /// The AI configuration state for `owner`. Never returns the key itself.
   public func getConfig(owner : Principal, aiKeys : Map.Map<Principal, Text>) : Common.AiConfigStatus {
@@ -106,7 +107,7 @@ module {
       case (?e) { e };
       case null { return null };
     };
-    ?chars.sliceToArray(from.toInt(), (to + 1).toInt()).toText();
+    ?Text.fromArray(chars.sliceToArray(from.toInt(), (to + 1).toInt()));
   };
 
   /// Parse one JSON question value into a `DraftQuestion`, or `null` when the

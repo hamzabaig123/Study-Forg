@@ -28,6 +28,7 @@ import SharingApi "mixins/sharing-api";
 import NotesApi "mixins/notes-api";
 import QrLinksApi "mixins/qr-links-api";
 import ApiDocMixin "mixins/api-doc";
+import RandomCodes "lib/random-codes";
 
 actor {
   func questionTypeText(qt : Common.QuestionType) : Text {
@@ -112,15 +113,20 @@ actor {
   // ── Counters ─────────────────────────────────────────────────────────────
   let counters : { var nextId : Common.Id };
 
+  // Batched CSPRNG for share tokens, short codes, and edit tokens. Transient:
+  // the buffer resets on an upgrade and is refilled from the CSPRNG on the
+  // next draw, so it never reaches the stable layout.
+  transient let tokenEntropy : RandomCodes.Entropy = RandomCodes.newEntropy();
+
   include MixinAuthorization(accessControlState, null);
 
   include ContentApi(classes, subjects, chapters, topics, questions, counters);
   include AiApi(aiKeys, drafts);
   include SessionsApi(classes, subjects, chapters, topics, questions, sessions, sessionResults, sessionAnswers, counters);
   include AnalyticsApi(classes, subjects, chapters, topics, questions, sessions, sessionResults);
-  include SharingApi(classes, subjects, chapters, topics, questions, shares, counters);
-  include NotesApi(notes, noteShares, settings, counters);
-  include QrLinksApi(links, scans, abuseReports, linkCounters);
+  include SharingApi(classes, subjects, chapters, topics, questions, shares, counters, tokenEntropy);
+  include NotesApi(notes, noteShares, settings, counters, tokenEntropy);
+  include QrLinksApi(links, scans, abuseReports, linkCounters, tokenEntropy);
   include ApiDocMixin();
 
   include Expose({

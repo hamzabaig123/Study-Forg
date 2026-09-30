@@ -2,9 +2,9 @@ import Int "mo:core/Int";
 import Map "mo:core/Map";
 import Nat "mo:core/Nat";
 import Principal "mo:core/Principal";
-import Random "mo:core/Random";
 import Text "mo:core/Text";
 import Time "mo:core/Time";
+import RandomCodes "random-codes";
 import NotesTypes "../types/notes";
 
 module {
@@ -42,16 +42,8 @@ module {
 
   /// Generate a long random URL-safe token. Uses the platform CSPRNG so a
   /// token cannot be guessed from another one.
-  func newToken() : async Text {
-    let alphabet = tokenAlphabet.toArray();
-    var token = "";
-    var i = 0;
-    while (i < tokenLength) {
-      let index = await Random.natRange(0, alphabet.size());
-      token := token # Char.toText(alphabet[index]);
-      i += 1;
-    };
-    token;
+  func newToken(entropy : RandomCodes.Entropy) : async Text {
+    await RandomCodes.randomText(entropy, tokenAlphabet, tokenLength);
   };
 
   func toView(note : Note) : NoteView {
@@ -79,8 +71,12 @@ module {
     };
   };
 
-  /// The appearance values the settings surface accepts.
-  let allowedAppearances : [Text] = ["light", "dark", "frosted"];
+  /// The appearance values the settings surface accepts. `maroon` is the
+  /// fourth theme the product ships (ThemeSwitcher, SettingsPage) and the
+  /// value `supabase/migrations/0012_maroon_appearance.sql` admitted on the
+  /// Postgres path; the canister validates the same set so a saved theme
+  /// survives whichever backend the app runs on.
+  let allowedAppearances : [Text] = ["light", "dark", "frosted", "maroon"];
   /// The largest daily study target accepted, in questions per day.
   let maxDailyTarget : Nat = 1000;
   /// The largest display name accepted, in characters.
@@ -344,6 +340,7 @@ module {
   public func createNoteShare(
     notes : Map.Map<Id, Note>,
     noteShares : Map.Map<Text, NoteShare>,
+    entropy : RandomCodes.Entropy,
     owner : Principal,
     noteId : Id,
   ) : async { #ok : NoteShareLink; #err : NoteShareError } {
@@ -353,7 +350,7 @@ module {
         if (note.deletedAt != null) {
           #err(#notFound);
         } else {
-          let token = await newToken();
+          let token = await newToken(entropy);
           let share : NoteShare = {
             token;
             noteId;
@@ -469,7 +466,7 @@ module {
     };
     let theme = appearance.trim(#predicate(func c = c == ' ')).toLower();
     if (not allowedAppearances.contains(theme)) {
-      return #err(#invalidInput("Appearance must be one of: light, dark, frosted"));
+      return #err(#invalidInput("Appearance must be one of: light, dark, frosted, maroon"));
     };
     let saved : UserSettings = {
       owner;
