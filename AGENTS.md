@@ -19,6 +19,7 @@
 - **typecheck**: `docker compose run --rm toolchain mops check`
 - **build**: `docker compose run --rm toolchain mops build` (also boots the wasm on PocketIC via `check-deploy`)
 - **backend tests**: `docker compose up -d pocketic`, then on the Windows host set `POCKETIC_SIDECAR_URL=http://127.0.0.1:8090` and run `pnpm test:backend` — this drives the real canister through every test in `test/pocketic/backend.test.ts`
+- **mainnet deploy** (prep done; run when identity + cycles exist): `docker compose run --rm toolchain bash scripts/deploy-mainnet.sh --yes` — see `docs/CANISTER-DEPLOY.md`; CI runs the same lane since the sidecar step landed in `canister-build.yml`
 
 **Backend and frontend integration** (run from root):
 
@@ -82,6 +83,15 @@ The first local run turned "the backend is probably fine" into a list of real de
 - **`[Char].toText()` is a debug renderer, not a join**: any `[Char]` → `Text` conversion must go through `Text.fromArray`. `isPrivateHost`'s bracket strip, `ai.mo`'s `maskKey` (the key hint was garbled — the lane test now pins `sk-7890`) and `extractJsonObject` all used the wrong one.
 - **The canister's hand-rolled PDF counted characters where it needed bytes**: `/Length` and the xref offsets use `Text.size()`, but the caller wraps the string as UTF-8 — any non-ASCII title or prompt shifted the offsets and corrupted the file. `asciiFold` (control → space, non-ASCII → `?`, the rule `toWinAnsi` applies on the frontend) makes the stream pure ASCII so characters and bytes agree.
 - **The scan and abuse-report logs are capped** (20 000 + 1 000 hysteresis, 5 000 + 250): both are append-only lists written by anonymous endpoints, and nothing bounded them. `pruneLog` rebuilds from the newest slice, amortized O(1) per record.
+
+### Two hot-path indexes, and CI now runs the lane
+
+2026-10-01, second pass — the four gaps between "tests green" and a 10:
+
+- **`questionsByTopic` and `linksByCode`** (stable maps, declared in `main.mo`, listed in the migration's `NewActor`, empty on a fresh install) back every read that used to scan all questions or all links: `listQuestions`, topic summaries, session `poolFor`, shared/exported questions, dashboard `questionCount` and activity. The invariant that keeps them exact: **questions enter the map only in `createQuestion` and leave only in `deleteQuestion`/`deleteQuestionsOfTopic`, and `updateQuestion` never moves `topicId`** — if a future change breaks one of those three points, the index silently drifts, so touch them together. `rebuildIndexes` (admin-gated via `AccessControl.isAdmin`) recomputes both; it is the one deliberate candid-interface addition, which is why `src/frontend/src/backend.ts` regenerated and `mockActor.ts`, `mocks/backend.ts` and `supabaseBackend.ts` each grew a `rebuildIndexes` stub.
+- **Per-code resolve windows**: the shared anonymous caller window bounds global abuse, but every anonymous caller is the *same principal* on ICP — one busy QR link could exhaust it for everyone. `resolveCode` now enforces 60/min per code **after** the lookup, so garbage codes never create window entries. `allow()` moved to the library so the mixin's caller windows and the lib's per-code window share one implementation.
+- **CI runs the backend lane**: `canister-build.yml` installs workspace deps *after* the wasm build (the lane refuses a stale wasm), starts `docker/sidecar-entrypoint.sh` against the pocket-ic mops already downloaded, polls `/healthz`, and runs `pnpm test:backend` with the log tee'd into `::error::` annotations. The entrypoint searches `$HOME` as well as `/root` (a CI runner is not root). The wasm artifact uploads only if the lane is green.
+- **Deploy prep lives in `docs/CANISTER-DEPLOY.md`** with `scripts/deploy-mainnet.sh` (preflight prints the wasm sha256 and identity; `--yes` creates + fresh-installs) and dfx 0.32.0 in the toolchain image. Two traps the image build taught: the dfxvm installer hard-requires a TTY and must be driven with `DFXVM_INIT_YES=1` (piping stdin does not survive its download step), and its current build needs **glibc 2.39+** — hence the toolchain base is `node:22-trixie-slim`, not bookworm. The CSP carries `https://icp0.io` in `connect-src` (pinned, and both `vercel.json` snapshots re-synced) because a canister-mode deploy would otherwise break every actor call against its own policy. Production stays on Supabase until a cutover is chosen: the canister starts empty.
 
 ### CI is one compiler among two now, and its log is still not readable
 
