@@ -416,6 +416,53 @@ describe("registering", () => {
     expect(redirects).toEqual([expected, expected]);
   });
 
+  it("addresses each registration's mail to the account being created", async () => {
+    // Two accounts, signed up one after the other through the same store. The
+    // failure this pins is the second request going out with the first address
+    // on it — a stale recipient would be invisible on a single-account run, and
+    // it is the shape that makes every verification email arrive at one inbox.
+    const fake = fakeClient();
+    const store = createSessionStore(fake.client);
+    const password = "studyforge-per-person";
+    await store.register({
+      name: "Ada",
+      email: "ada@example.com",
+      password,
+      passwordConfirmation: password,
+    });
+    await store.register({
+      name: "Bo",
+      email: "bo@example.com",
+      password,
+      passwordConfirmation: password,
+    });
+    await store.resendConfirmation("bo@example.com");
+
+    const sent = fake.calls
+      .filter((call) => call.name === "signUp" || call.name === "resend")
+      .map((call) => {
+        const args = call.args as {
+          email: string;
+          options?: { emailRedirectTo?: string };
+        };
+        return { email: args.email, redirectTo: args.options?.emailRedirectTo };
+      });
+    expect(sent).toEqual([
+      {
+        email: "ada@example.com",
+        redirectTo: `${window.location.origin}/verify-email?email=ada%40example.com`,
+      },
+      {
+        email: "bo@example.com",
+        redirectTo: `${window.location.origin}/verify-email?email=bo%40example.com`,
+      },
+      {
+        email: "bo@example.com",
+        redirectTo: `${window.location.origin}/verify-email?email=bo%40example.com`,
+      },
+    ]);
+  });
+
   it("leaves the browser a visitor when the address still needs confirming", async () => {
     const fake = fakeClient();
     fake.reply.signUp = ok(user(), false);

@@ -453,6 +453,60 @@ async function sendEmail(
   throw new Error(attempts.join(" | "));
 }
 
+/**
+ * Is this address something a mail transport can be asked to deliver to?
+ *
+ * The recipient is never supplied by a caller: it is the account's own sign-in
+ * address, read from GoTrue for an app-triggered send and from `auth.users` by
+ * `due_reminders()` for a tick. What it *can* be is empty — `getAuthUser`
+ * answers `payload.email ?? ""` for an account that signs in some other way —
+ * and an empty `to` reaching a transport comes back as a provider validation
+ * error that reads like a broken mailer rather than like an account with no
+ * address. Naming it here keeps `reminder_log` honest.
+ */
+function recipientProblem(to: string): string | null {
+  const value = to.trim();
+  if (value === "") return "this sign-in method has no email address to mail";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(value)) {
+    return "the email address stored on this account is not deliverable";
+  }
+  return null;
+}
+
+/**
+ * The provider's own refusal, in terms the account owner can act on.
+ *
+ * Two of them are worth translating because both look like "the app mailed the
+ * wrong person": a test-mode transport that quietly refuses every recipient
+ * except the one that owns the account, and a sender address the provider has
+ * never verified. Everything else passes through as it arrived.
+ */
+function explainTransportError(
+  provider: string,
+  body: string,
+  status: number,
+): string {
+  const detail = body.trim().slice(0, 200) || `HTTP ${status}`;
+  if (/only send testing emails|testing emails to your own/i.test(detail)) {
+    return (
+      `${provider}: this sender is still in test mode, so the provider will ` +
+      "deliver only to the address that owns the sending account. Verify a " +
+      "domain and set RESEND_FROM (or BREVO_FROM) to send to other members."
+    );
+  }
+  if (
+    /sender.*(not|is not) validated|unverified sender|invalid sender/i.test(
+      detail,
+    )
+  ) {
+    return (
+      `${provider}: the configured sender address is not verified on that mail ` +
+      "account, so no message can leave under it."
+    );
+  }
+  return `${provider}: ${detail}`;
+}
+
 async function sendViaBrevo(
   to: string,
   subject: string,
@@ -484,9 +538,7 @@ async function sendViaBrevo(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(
-      `brevo: ${body.trim().slice(0, 200) || `HTTP ${res.status}`}`,
-    );
+    throw new Error(explainTransportError("brevo", body, res.status));
   }
   return "brevo";
 }
@@ -520,9 +572,7 @@ async function sendViaResend(
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new Error(
-      `resend: ${body.trim().slice(0, 200) || `HTTP ${res.status}`}`,
-    );
+    throw new Error(explainTransportError("resend", body, res.status));
   }
   return "resend";
 }
@@ -871,6 +921,19 @@ async function deliver(
     if (pushFailure === null) {
       await logAttempt(setting.user_id, kind, "sent", `${subject} [via push]`);
       return null;
+    }
+    // Push could not carry it, so the address is needed — and it is the one
+    // thing here that must be right, because mailing the wrong account somebody
+    // else's study numbers is the failure this function cannot afford.
+    const badRecipient = recipientProblem(setting.email);
+    if (badRecipient) {
+      await logAttempt(
+        setting.user_id,
+        kind,
+        "failed",
+        `${subject} [${badRecipient}] [push skipped: ${pushFailure}]`,
+      );
+      return badRecipient;
     }
     const via = await sendEmail(
       setting.email,

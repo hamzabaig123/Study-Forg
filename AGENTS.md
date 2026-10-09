@@ -213,6 +213,48 @@ The backend session contract is fixed (`startSession` takes one `topic`/`chapter
 
 A browser app cannot send mail, so the digest is delivered server-side: `startReminderScheduler` (mounted from `AppLayout` via `useReminderScheduler`) ticks once a minute and, at the configured local time, POSTs the signed-in user's access token to the `reminder-sender` Edge Function (`supabase/functions/reminder-sender/`), which reads the numbers from `reminder_digest` — since `0010_digest_counts_every_test.sql` that helper sums `result` **and** `custom_session`, because a Test Builder run is mirrored into `custom_session` and the email used to report "0%, 0 answered" for a day the dashboard reported as 50% over 20 questions —, mails them through **Resend** to the sign-in address, and records every attempt in `reminder_log` (Settings → Reminders shows the recent ones, failures included). EmailJS is gone entirely — `contentSecurityPolicy.test.ts` pins `emailjs.com` **out** of `connect-src`. The function needs project secrets: `RESEND_API_KEY` (required), `APP_URL` (the email's CTA and the push's landing URL — `appOrigin()` resolves it, then the request's `Origin`, then the production origin, and **never** `SUPABASE_URL`, which used to send every reader to `<ref>.supabase.co/dashboard`), optional `RESEND_FROM`, and `CRON_SECRET` for the optional pg_cron tick that covers closed-app days — the tick is scheduled by hand, the SQL lives in `supabase/README.md` → The reminder pipeline. On the mock backend the same copy is a browser **Notification** instead. Device-local settings stay in `studyforge.reminders.v1` (in `deviceCache.ts` EXACT_KEYS) and mirror to the `reminder_settings` table (`lib/supabase/reminders.ts`) so the preference follows the account; `studyforge.custom-sessions.v1` is deliberately **not** in deviceCache (attempt history is account content, like the mock db). The digest copy (`buildDigest`) reads live progress through `hooks/useReminders.ts`. Settings → **Reminders** (`components/settings/RemindersSection.tsx`) is the config surface.
 
+### The mail recipient is never written down, so "only my address gets it" is a config story
+
+Reported as a code bug twice: "verification and analytics emails go only to
+`mmhb112010@gmail.com`." Grepping the repository finds that address in **docs and
+in `supabase/.env` as `SMTP_USER`/`SMTP_FROM` — the *sender*** — and nowhere in
+routing: GoTrue addresses verification mail from the signup request
+(`session.ts` passes the entered address and its own `?email=` back through
+`emailRedirectTo`), and the digest takes the account's address from GoTrue's
+`/auth/v1/user` or from `due_reminders()`' join on `auth.users`. Do not "fix" a
+hardcoded recipient that does not exist; read README.md → *When every mail looks
+like it arrives at one address* and check, in order: the dashboard's **Send test
+email** button (it mails the sender address by design — this is what the symptom
+usually is), a test-mode transport (Resend's `onboarding@resend.dev` delivers
+only to the account owner until `RESEND_FROM` names a verified domain; Brevo
+needs `BREVO_FROM` verified or the chain falls into that), GoTrue's masked send
+failure (`smtp-relay-check.mjs`, then Authentication → Logs), and Spam.
+
+- `reminder-sender` now says which of those it hit: `explainTransportError`
+  turns "only send testing emails…" and an unverified-sender refusal into a
+  sentence in `reminder_log` (Settings → Reminders), and `recipientProblem`
+  refuses an account with no usable address **before** either transport is
+  called, so an empty `to` reads as "this sign-in method has no email address"
+  rather than as a broken mailer.
+- `edgeFunctions.contract.test.ts` pins the recipient chain rather than trusting
+  it: the digest's recipient is `setting.email` / `user!.email` / the `to`
+  variable, every `@`-address literal in **code** (comments stripped) must be in
+  a two-item sender allowlist (`onboarding@resend.dev`, the VAPID `sub`), the
+  guard runs before `sendEmail`, and no `logAttempt` may name anything but
+  `setting.user_id`. Its negative control plants a real address literal and
+  demands the test notice. `session.test.ts` adds the two-account case: register
+  A then B and the recorded `signUp`/`resend` calls must carry each account's own
+  address, so a stale recipient fails instead of passing on a single account.
+- The live half is `supabase/e2e/mail-recipient-check.mjs`: two throwaway
+  `@example.com` accounts, `POST /auth/v1/admin/generate_link` (returns the
+  signup token **instead of mailing it**), tokens differ, verifying B leaves A
+  unverified while A's link still works, replay and invented tokens refused, an
+  unconfirmed account refused at the password grant with the same body for a
+  duplicate resend. `--digest` adds the analytics recipient. Hand-run like
+  `auth-flow.mjs` (it needs the service key); **not yet executed** here.
+- Regexes over these function sources must tolerate CRLF (`\(\s+`, not `\(\n`),
+  and the mask assertion is `$1***$2` — three stars.
+
 ### The exported PDF is designed
 
 `src/lib/questionExport.ts` writes a real document: brand band + title header on page 1, Helvetica (base-14, never embedded) with AFM-measured line wrapping, numbered ember chips per question, hairline rules, footer with page numbers, and a **separated two-column answer key** with explanations. Everything is folded to ASCII in `toWinAnsi` (NFD + `\p{M}` strip + punctuation map) because `ExportFile.content` is a string the caller wraps in a Blob — any code point above 127 becomes UTF-8 bytes, shifts the xref offsets, and corrupts the file. Keep it ASCII-exact. Verify visual changes by generating a sample and rasterising with pdf.js in headless Edge.

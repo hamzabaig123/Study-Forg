@@ -32,6 +32,36 @@ const sender = source("reminder-sender");
 const collector = source("csp-collector");
 
 /**
+ * Every address literal in a function's **code**, comments stripped.
+ *
+ * A recipient is never written down here: the digest goes to the account's own
+ * sign-in address, and verification mail is addressed by GoTrue from the
+ * registration request. So an address literal in these files is either a sender
+ * (the `From` identity, which is legitimately a fixed address) or the bug the
+ * owner of this project was chasing when every member's mail appeared to go to
+ * one person. `SENDER_IDENTITIES` is the honest list of the first kind, and it
+ * is a list rather than a pattern so a new one has to be argued into it.
+ *
+ * Comments are stripped because the deploy notes in these headers quote example
+ * senders (`notices@yourdomain.com`), which are prose, not routing.
+ */
+const ADDRESS_LITERAL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+\.[A-Za-z0-9.-]{2,}/g;
+const SENDER_IDENTITIES = [
+  // Resend's sandbox sender, used only when `RESEND_FROM` is unset.
+  "onboarding@resend.dev",
+  // The VAPID `sub` claim: who the push service shows the message *from*.
+  "studyforge@users.noreply.github.com",
+];
+
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+}
+
+function addressLiterals(text: string): string[] {
+  return [...stripComments(text).matchAll(ADDRESS_LITERAL)].map((m) => m[0]);
+}
+
+/**
  * The report fields the collector is allowed to forward.
  *
  * A CSP report also carries `user_agent` (a fingerprint), `originalPolicy` (a
@@ -90,6 +120,24 @@ const rules = {
   testSendCapped: (text: string) =>
     /recentTestSends\(user!\.id\)/.test(text) &&
     /alreadySent >= TEST_SEND_LIMIT/.test(text),
+  /**
+   * The digest's recipient is the account's own address, taken from that
+   * account's record: GoTrue's `email` for an app-triggered send, `auth.users`
+   * joined on `user_id` for a tick, and the `to` variable in both transports.
+   */
+  recipientIsTheAccount: (text: string) =>
+    /email: user!\.email/.test(text) &&
+    /sendEmail\(\s+setting\.email,/.test(text) &&
+    /to: \[\{ email: to \}\]/.test(text) &&
+    /to: \[to\]/.test(text),
+  /** An address that cannot be delivered to never reaches a transport. */
+  recipientValidated: (text: string) =>
+    /const badRecipient = recipientProblem\(setting\.email\);/.test(text) &&
+    /if \(badRecipient\) \{/.test(text),
+  /** A sandboxed transport's "only your own address" refusal is translated. */
+  namesTestModeSender: (text: string) =>
+    /only send testing emails\|testing emails to your own/.test(text) &&
+    /this sender is still in test mode/.test(text),
   dailyPathUncapped: (text: string) =>
     /if \(!isCron && !wantsDaily\)/.test(text),
   wildcardCors: (text: string) =>
@@ -206,6 +254,88 @@ describe("reminder-sender request handling", () => {
     expect(sender).toMatch(
       /rest\/v1\/reminder_log\?select=id[\s\S]*?kind=eq\.test/,
     );
+  });
+});
+
+describe("who each mail is addressed to", () => {
+  it("sends the digest to the account's own sign-in address", () => {
+    expect(rules.recipientIsTheAccount(sender)).toBe(true);
+
+    // The regression this exists to catch: a recipient written down instead of
+    // read from the account. This is the shape that makes every member's mail
+    // appear to go to one inbox.
+    const hardcoded = sender.replace(
+      "email: user!.email,",
+      'email: "someone@example.com",',
+    );
+    expect(hardcoded).not.toBe(sender);
+    expect(rules.recipientIsTheAccount(hardcoded)).toBe(false);
+
+    // ... and the same mistake one layer down, in the transport call.
+    const wrongArgument = sender.replace(
+      /const via = await sendEmail\(\s+setting\.email,/,
+      'const via = await sendEmail(\n      "someone@example.com",',
+    );
+    expect(wrongArgument).not.toBe(sender);
+    expect(rules.recipientIsTheAccount(wrongArgument)).toBe(false);
+  });
+
+  it("puts no address literal in any function's code", () => {
+    // `SENDER_IDENTITIES` is the whole honest list: a `From` address and the
+    // VAPID `sub`. Anything else that appears is a recipient somebody typed.
+    for (const [name, text] of [
+      ["ai-proxy", proxy],
+      ["reminder-sender", sender],
+      ["csp-collector", collector],
+    ]) {
+      expect(
+        addressLiterals(text).filter((a) => !SENDER_IDENTITIES.includes(a)),
+        name,
+      ).toEqual([]);
+    }
+    // The control: a real recipient literal is caught, not waved through.
+    const regressed = sender.replace(
+      /const via = await sendEmail\(/,
+      'const owner = "mmhb112010@gmail.com";\n    const via = await sendEmail(',
+    );
+    expect(regressed).not.toBe(sender);
+    expect(addressLiterals(regressed)).toContain("mmhb112010@gmail.com");
+  });
+
+  it("refuses an undeliverable recipient before either transport runs", () => {
+    expect(rules.recipientValidated(sender)).toBe(true);
+    expect(sender.indexOf("recipientProblem(setting.email)")).toBeLessThan(
+      sender.indexOf("await sendEmail("),
+    );
+    const unchecked = sender.replace(
+      /const badRecipient = recipientProblem\(setting\.email\);[\s\S]*?\r?\n {4}\}\r?\n/,
+      "",
+    );
+    expect(unchecked).not.toBe(sender);
+    expect(rules.recipientValidated(unchecked)).toBe(false);
+  });
+
+  it("says so when a transport is still in test mode", () => {
+    expect(rules.namesTestModeSender(sender)).toBe(true);
+    const opaque = sender.replace(
+      "this sender is still in test mode",
+      "the provider refused the send",
+    );
+    expect(opaque).not.toBe(sender);
+    expect(rules.namesTestModeSender(opaque)).toBe(false);
+  });
+
+  it("never logs a full address", () => {
+    // The reply body masks the local part to two characters, and the log records
+    // the user id rather than the address.
+    expect(sender).toMatch(/setting\.email\.replace\(/);
+    expect(sender).toMatch(/\$1\*{2,}\$2/);
+    expect(sender).not.toMatch(/logAttempt\(\s*\r?\n?\s*setting\.email/);
+    for (const match of sender.matchAll(/await logAttempt\(\s*(\S+)/g)) {
+      expect(match[1], "a log attempt must name the account by id").toBe(
+        "setting.user_id,",
+      );
+    }
   });
 });
 

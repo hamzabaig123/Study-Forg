@@ -630,6 +630,64 @@ address), and the recovery link returned **303** to the deployed origin with
 `/reset-password`. Nothing about that needed a code change; the relay was the
 only thing that was broken.
 
+## When every mail looks like it arrives at one address
+
+Symptom worth stating plainly, because it reads like a code bug and is not one:
+"I registered a second account and only my own Gmail ever got the verification
+mail." Recipients are not written down anywhere in this repository — `grep` for
+an address in `src/` or `supabase/functions/` finds only senders. The whole
+recipient chain is:
+
+| Mail | Who picks the recipient | Where |
+| --- | --- | --- |
+| Verification, reset, magic link | GoTrue, from the address in the signup/recovery request | the auth server; never this repo |
+| Daily digest, test send | the account's own sign-in address — `auth.users.email` joined on `user_id` by `due_reminders()` (0006) for a tick, GoTrue's `/auth/v1/user` for an app-triggered send | `functions/reminder-sender/index.ts` |
+| Web push | the account's `push_subscriptions` rows | same function |
+
+So when mail appears to go to one person, the causes are these four, in the
+order they are actually found:
+
+1. **You are looking at the sender, not the recipient.** `SMTP_USER` /
+   `SMTP_FROM` (`supabase/.env`) and `BREVO_FROM` / `RESEND_FROM` are the
+   *From* identity, and `docs/AUTHENTICATION.md` records why the From address is
+   pinned to the Gmail account: Gmail refuses a `MAIL FROM` for anything else.
+   Supabase's **Authentication → SMTP settings → "Send test email"** button
+   mails the *sender* address by design, so a dashboard test always lands at the
+   one inbox and never at the account you are registering.
+2. **The transport is still in test mode.** With the default
+   `onboarding@resend.dev` sender, Resend delivers **only to the address that
+   owns the Resend account** and refuses every other recipient with "You can
+   only send testing emails to your own email address" — see the secret table
+   above. The digest chain is push → Brevo → Resend, so an unverified
+   `BREVO_FROM` falls through into exactly this. Both refusals now arrive in
+   `reminder_log` (Settings → Reminders) as a sentence naming the fix rather
+   than as a provider blob.
+3. **The send failed and GoTrue hid it.** It answers the client with
+   `unexpected_failure` and keeps the relay's `535`/`550`/`429` line in
+   Dashboard → Authentication → Logs. `e2e/smtp-relay-check.mjs` asks the relay
+   directly and sends nothing; the timing split (a fast refusal versus a 35 s
+   hang then HTTP 504) tells you whether the credentials or the connection is
+   the problem.
+4. **Gmail filed it as Spam.** A personal Gmail account mailing HTML with a link
+   to a `*.vercel.app` target is a plausible spam shape. Read *Show original →
+   Encryption and delivery* on the message rather than guessing.
+
+`e2e/mail-recipient-check.mjs` is the guard for the part that *is* code, and it
+needs no mailbox: it creates two throwaway accounts at reserved
+`@example.com` addresses, mints each one's signup token with
+`POST /auth/v1/admin/generate_link` (which returns the link **instead of**
+mailing it), and asserts the two tokens differ, that verifying B leaves A
+unverified, that A's link still works afterwards, and that a replayed or
+invented token is refused. `--digest` adds the recipient check for the analytics
+mail. It sends mail only to reserved addresses, and only on that flag.
+
+```bash
+SUPABASE_URL=https://<ref>.supabase.co \
+SUPABASE_ANON_KEY=<publishable key> \
+SUPABASE_SERVICE_ROLE_KEY=<secret key> \
+node supabase/e2e/mail-recipient-check.mjs
+```
+
 ## Status of `qjoijoxmnliarlyaqmoz`
 
 Applied on 2026-09-27 and verified against the live database, through a direct
