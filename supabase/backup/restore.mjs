@@ -385,11 +385,50 @@ async function preflight() {
     );
   }
 
-  // The FK every app row carries: public.owner_id -> auth.users.id.
+  // Every account reference the rows carry, not just `owner_id`. Three tables
+  // point at auth.users through `user_id` instead — `reminder_log`,
+  // `reminder_settings` and `push_subscriptions` — so an account that set a
+  // reminder but owns no content is invisible to an owner_id-only scan, is never
+  // created by --create-missing-users, and fails the FK on the first reminder
+  // row. This was measured against a real snapshot on 2026-10-10: a fourth
+  // account appeared only in reminder_log.user_id. Discover the referencing
+  // columns from the target's own catalog rather than naming them, and always
+  // seed `owner_id` so a target whose catalog cannot be read still restores the
+  // common case.
+  const accountColumns = new Map(); // table -> Set(column)
+  const addAccountColumn = (table, column) => {
+    if (!accountColumns.has(table)) accountColumns.set(table, new Set());
+    accountColumns.get(table).add(column);
+  };
+  for (const table of Object.keys(snapshot.tables))
+    addAccountColumn(table, "owner_id");
+  try {
+    // pg_constraint, not information_schema.constraint_column_usage: the latter
+    // returned zero rows for these cross-schema (public -> auth.users) foreign
+    // keys on a real target, so it cannot be trusted to discover them.
+    const fks = await query(
+      `select cl.relname as table_name, att.attname as column_name
+         from pg_constraint con
+         join pg_class cl on cl.oid = con.conrelid
+         join pg_namespace nsp on nsp.oid = cl.relnamespace
+         join pg_class fcl on fcl.oid = con.confrelid
+         join pg_namespace fnsp on fnsp.oid = fcl.relnamespace
+         cross join lateral unnest(con.conkey) as k(attnum)
+         join pg_attribute att on att.attrelid = con.conrelid and att.attnum = k.attnum
+        where con.contype = 'f'
+          and nsp.nspname = 'public'
+          and fnsp.nspname = 'auth'
+          and fcl.relname = 'users';`,
+    );
+    for (const fk of fks) addAccountColumn(fk.table_name, fk.column_name);
+  } catch {
+    // A target whose catalog cannot be read still restores by owner_id alone.
+  }
   const owners = new Set();
-  for (const rows of Object.values(snapshot.tables)) {
+  for (const [table, rows] of Object.entries(snapshot.tables)) {
     for (const row of rows)
-      if (typeof row.owner_id === "string") owners.add(row.owner_id);
+      for (const column of accountColumns.get(table) ?? [])
+        if (typeof row[column] === "string") owners.add(row[column]);
   }
   let absent = [...owners];
   if (owners.size > 0) {
@@ -401,13 +440,13 @@ async function preflight() {
   }
   console.log(
     owners.size === 0
-      ? "accounts   : the snapshot holds no owner_id"
-      : `accounts   : ${owners.size} owner(s), ${absent.length} missing from auth.users`,
+      ? "accounts   : the snapshot holds no account reference"
+      : `accounts   : ${owners.size} account(s), ${absent.length} missing from auth.users`,
   );
   if (absent.length > 0 && !CREATE_USERS && !DRY_RUN) {
     refuse(
       `${absent.length} account(s) the rows belong to do not exist in this project ` +
-        `(${absent.slice(0, 3).join(", ")}${absent.length > 3 ? ", …" : ""}). owner_id references ` +
+        `(${absent.slice(0, 3).join(", ")}${absent.length > 3 ? ", …" : ""}). Their rows reference ` +
         `auth.users, so the first insert fails. Pass --create-missing-users to make them ` +
         `(rows only: no password, no identity, nobody can sign in as them).`,
     );

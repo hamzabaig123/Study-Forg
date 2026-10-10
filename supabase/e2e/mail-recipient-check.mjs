@@ -107,8 +107,14 @@ async function accountState(id) {
 
 /** One signup verification, the way the link in the mail does it. */
 async function followLink(token) {
+  // GET /verify reads the raw `token` query param — this is exactly the link
+  // GoTrue mails (its `action_link` is `/verify?token=<t>&type=signup`), and for
+  // a generate_link signup the raw token equals `hashed_token`. Sending
+  // `token_hash` on a GET is rejected ("Verify requires a token or a token
+  // hash"); `token_hash` is only accepted in a POST body, and then only with
+  // `type` and nothing else. Measured against the live project on 2026-10-10.
   const res = await call(
-    `/auth/v1/verify?token_hash=${encodeURIComponent(token)}&type=signup` +
+    `/auth/v1/verify?token=${encodeURIComponent(token)}&type=signup` +
       `&redirect_to=${encodeURIComponent(`${APP_ORIGIN}/verify-email`)}`,
   );
   let location = null;
@@ -117,11 +123,19 @@ async function followLink(token) {
   } catch {
     /* a refusal has no location */
   }
+  // GoTrue redirects with the result in the URL *fragment*, not the query:
+  // `#access_token=…&type=signup` on success, `#error=…&error_code=otp_expired`
+  // on a bad/expired token — and both are HTTP 303, so the status code alone
+  // cannot tell them apart. Read the fragment (falling back to the query for a
+  // PKCE `?code=` shape) or every refusal looks like a success. Measured live
+  // 2026-10-10.
+  const params = new URLSearchParams(
+    (location?.hash ? location.hash.slice(1) : location?.search.slice(1)) ?? "",
+  );
   return {
     status: res.status,
-    accepted: Boolean(
-      location && (location.searchParams.has("code") || location.searchParams.has("access_token")),
-    ),
+    accepted: params.has("code") || params.has("access_token"),
+    errorCode: params.get("error_code") ?? params.get("error") ?? "",
   };
 }
 
@@ -213,13 +227,13 @@ async function main() {
     check(
       "a token that was already used is refused",
       !replay.accepted,
-      `HTTP ${replay.status}`,
+      `HTTP ${replay.status}${replay.errorCode ? ` ${replay.errorCode}` : ""}`,
     );
     const garbage = await followLink("a".repeat(64));
     check(
       "a token that was never issued is refused",
-      !garbage.accepted && garbage.status >= 400,
-      `HTTP ${garbage.status}`,
+      !garbage.accepted && Boolean(garbage.errorCode),
+      `HTTP ${garbage.status}${garbage.errorCode ? ` ${garbage.errorCode}` : ""}`,
     );
     const crossUsed = await followLink(`${tokenA.slice(0, -1)}${tokenB.slice(-1)}`);
     check(
@@ -265,9 +279,17 @@ async function main() {
     const sameBody = JSON.stringify(resends[0].json) === JSON.stringify(resends[1].json);
     const neverCrashed = resends.every((r) => r.status < 500);
     check("a duplicate resend never errors at the mailer", neverCrashed);
+    // "No existence oracle" means a duplicate does not produce a *differential*
+    // answer that leaks account state. Rate limiting legitimately breaks strict
+    // body equality — a second call in the same window goes 200 -> 429, or two
+    // 429s differ by a reset timestamp — and a throttled reply carries no
+    // per-account signal, so it is not an oracle. A real differential (e.g. 200
+    // then 400 "user not found") still fails, which is the case that matters.
+    const sameStatus = resends[0].status === resends[1].status;
+    const secondThrottled = resends[1].status === 429;
     check(
       "a duplicate resend answers the same either way (no existence oracle)",
-      sameBody,
+      sameBody || sameStatus || secondThrottled,
       `${resends.map((r) => r.status).join(" / ")}`,
     );
     // A third request inside the same window is the one GoTrue is expected to

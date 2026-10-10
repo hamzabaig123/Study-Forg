@@ -246,8 +246,25 @@ async function runPracticeSession(page, base) {
     break;
   }
   await page.waitForURL("**/custom-results/**", { timeout: 30_000 });
-  await sleep(page, 1200);
-  return { answered, results: await textOf(page) };
+  // The score is an animated NumberTicker (duration 1.1s) that counts up from 0,
+  // so a single innerText read — or a poll that returns on the *first* number it
+  // sees — catches it mid-count (measured: "24%" while the same page already said
+  // "5 of 5 correct" and "Outstanding", i.e. percent was 100). Wait for the
+  // ticker to settle: two equal reads of the score span at least 1.3s in.
+  const scoreSpan = page.locator('[data-ocid="custom.score"]');
+  let results = "";
+  let previous = null;
+  for (let waited = 0; waited < 15_000; waited += 250) {
+    const current =
+      (await scoreSpan.count()) > 0
+        ? (await scoreSpan.first().innerText()).trim()
+        : null;
+    if (waited >= 1300 && current !== null && current === previous) break;
+    previous = current;
+    await sleep(page, 250);
+  }
+  results = await textOf(page);
+  return { answered, results };
 }
 
 /**

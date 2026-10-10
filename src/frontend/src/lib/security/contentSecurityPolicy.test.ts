@@ -350,5 +350,41 @@ describe("vercel.json", () => {
         expect(permissions, feature).not.toContain(feature);
       }
     });
+
+    it(`${label} caches hashed assets immutably and revalidates the entry points`, () => {
+      // The generated `_headers` policy has carried these Cache-Control blocks
+      // all along, but Vercel reads only this JSON — so a sync that copied just
+      // the `/*` block shipped hashed bundles with `max-age=0`, making every
+      // returning visit re-fetch a file whose name already pins its contents.
+      const config = JSON.parse(readFileSync(path, "utf8")) as {
+        headers?: {
+          source: string;
+          headers: { key: string; value: string }[];
+        }[];
+      };
+      const cacheControl = (source: string): string | undefined =>
+        config.headers
+          ?.find((entry) => entry.source === source)
+          ?.headers.find((header) => header.key === "Cache-Control")?.value;
+      // Vercel matches path-to-regexp, so the glob `/assets/*` arrives as
+      // `/assets/(.*)`; `vercelSource()` in the sync script does the translation.
+      expect(
+        cacheControl("/assets/(.*)"),
+        `${label} does not cache hashed assets immutably`,
+      ).toBe("public, max-age=31536000, immutable");
+      expect(
+        cacheControl("/index.html"),
+        `${label} caches the entry point`,
+      ).toBe("no-cache");
+      expect(cacheControl("/sw.js"), `${label} caches the service worker`).toBe(
+        "no-cache",
+      );
+      // The security rule must stay the first entry: the assertions above read
+      // `headers[0]` for the policy, and a cache rule hoisted above it would
+      // silently drop `frame-ancestors` from the checked block.
+      expect(config.headers?.[0]?.source, `${label} reordered its rules`).toBe(
+        "/(.*)",
+      );
+    });
   }
 });

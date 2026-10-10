@@ -824,22 +824,30 @@ credential:
   tick was scheduled and exercised live earlier the same week; the `cron` schema
   is not reachable over PostgREST from this machine, so re-confirm with
   `select * from cron.job` in the SQL editor if in doubt.
-- **Both function sources are ahead of what is deployed.** Since version 10 the
-  repository added, to `reminder-sender`: a 16 KiB body cap enforced *while
-  reading* (`readBody`, answered `413`) rather than after `request.json()` has
-  buffered the payload; `secretsMatch`, which XOR-accumulates over equal-length
-  UTF-8 buffers instead of `===`, so the tick bearer's reply time says nothing
-  about how much of a guess matched; and a per-account cap of five "send one
-  now" presses an hour, counted from `reminder_log` — the table every send
-  already writes — and answered `429`. The app's own scheduler and the cron tick
-  both ask for `daily`, so neither is counted. To `ai-proxy`: the per-account
-  request cap moved out of the isolate and into Postgres, one
-  `enforce_rate_limit('ai_proxy:<user id>', 20, 60)` per request over
-  PostgREST with the service key (`enforce_rate_limit`'s live ACL already reads
-  `postgres` + `service_role`, so no migration is needed for it), failing
-  **open** if the counter cannot be reached — a broken limiter must not turn the
-  AI Studio off; and the same streaming body cap, at 8 MB. Neither is live until
-  `supabase functions deploy` runs again.
+- **All three functions are deployed and match current source** (re-verified live
+  over the Management API on 2026-10-10: `reminder-sender` v12, `ai-proxy` v7,
+  `csp-collector` v1 — each byte-identical to this repository's
+  `supabase/functions/<name>/index.ts`, so the older "sources are ahead of what
+  is deployed" note is no longer true and has been retired). The guards that note
+  described are therefore **live**, not pending. In `reminder-sender`: a 16 KiB
+  body cap enforced *while reading* (`readBody`, answers `413`) rather than after
+  `request.json()` has buffered the payload; `secretsMatch`, which
+  XOR-accumulates over equal-length UTF-8 buffers instead of `===`, so the tick
+  bearer's reply time says nothing about how much of a guess matched; and a
+  per-account cap of five "send one now" presses an hour, counted from
+  `reminder_log` — the table every send already writes — answered `429`. The
+  app's own scheduler and the cron tick both ask for `daily`, so neither is
+  counted. In `ai-proxy`: the per-account request cap lives in Postgres, one
+  `enforce_rate_limit('ai_proxy:<user id>', 20, 60)` per request over PostgREST
+  with the service key (`enforce_rate_limit`'s live ACL already reads `postgres` +
+  `service_role`, so no migration is needed for it), failing **open** if the
+  counter cannot be reached — a broken limiter must not turn the AI Studio off;
+  and the same streaming body cap, at 8 MB. A live probe on 2026-10-10 confirmed
+  the deployed surface without spending a key: `ai-proxy` answers `401` to an
+  unauthenticated caller, `403` to a request from a disallowed `Origin` with no
+  `access-control-allow-origin` for that origin, and echoes the exact production
+  origin; `reminder-sender` answers `401` with its own message; `csp-collector`
+  answers `204` for an allowed origin and `403` for a disallowed one.
   `src/lib/supabase/edgeFunctions.contract.test.ts` pins all of it against the
   source text (with the regression each guard rejects), because no frontend gate
   otherwise reads `supabase/functions/`, and the behaviour is proven by

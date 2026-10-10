@@ -29,24 +29,46 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install postgres client
+      # The distro `postgresql-client` on ubuntu-latest is pg_dump 16, and the
+      # project runs PostgreSQL 17 (measured: `select version()` → 17.6). A 16
+      # client refuses with "aborting because of server version mismatch" — that
+      # is what failed every run from 2026-09-28 to 2026-10-09. PGDG publishes
+      # the versioned client; install 17 explicitly rather than tracking the
+      # distro default, and the preflight below names any future drift.
+      - name: Install postgres client 17 (PGDG)
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends postgresql-client
+          sudo apt-get install -y --no-install-recommends curl ca-certificates gnupg
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt noble-pgdg main" | sudo tee /etc/apt/sources.list.d/pgdg.list
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+
+      - name: Fail loudly on missing configuration
+        run: |
+          [ -n "$PROJECT_REF" ] || { echo "::error::vars.SUPABASE_PROJECT_REF is not set"; exit 1; }
+          [ -n "$DB_PASSWORD" ] || { echo "::error::secrets.SUPABASE_DB_PASSWORD is not set"; exit 1; }
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       # Never echo this URL: it carries the password.
       - name: Build the connection string
         run: |
           echo "PGURL=postgresql://postgres.${PROJECT_REF}:${DB_PASSWORD}@${DB_HOST:-db.${PROJECT_REF}.supabase.co}:5432/postgres" >> "$GITHUB_ENV"
 
+      # One cheap round trip so an auth, DNS or TLS problem is named by psql
+      # instead of surfacing as a bare "exit code 1" from the dump.
+      - name: Preflight the connection
+        run: /usr/lib/postgresql/17/bin/psql "$PGURL" -v ON_ERROR_STOP=1 -Atc "select 1" > /dev/null
+
       - name: Dump
         run: |
           stamp="$(date -u +%Y-%m-%dT%H%M%SZ)"
           echo "STAMP=${stamp}" >> "$GITHUB_ENV"
-          pg_dump --format=custom --file="backup-${stamp}.dump" --no-owner --no-privileges "$PGURL"
+          /usr/lib/postgresql/17/bin/pg_dump --format=custom --file="backup-${stamp}.dump" --no-owner --no-privileges "$PGURL"
 
       - name: Verify the dump is readable
-        run: pg_restore --list "backup-${STAMP}.dump" > /dev/null
+        run: /usr/lib/postgresql/17/bin/pg_restore --list "backup-${STAMP}.dump" > /dev/null
 
       - uses: actions/upload-artifact@v4
         with:

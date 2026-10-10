@@ -18,11 +18,72 @@ Service role key | GitHub secrets named `SUPABASE_*_SERVICE_ROLE_KEY` **only**, 
 DB password | `supabase/.env` as `DB_PASSWORD` (git-ignored), `SUPABASE_DB_PASSWORD` secret for the backup workflow | `pg_dump` / `pg_restore` / psql only |
 `SUPABASE_ACCESS_TOKEN` | the environment for a run, and a GitHub secret | the Management API: `e2e/apply-migration.mjs` locally, `supabase link` / `db push` / `functions deploy` in CI. It administers every project on the account, so it belongs to a run, not to a file
 Gemini / OpenRouter keys (for `ai-proxy`) | `supabase secrets set` on the project | the Edge Function's environment. Not readable from the browser |
+SMTP relay (`SMTP_USER` / `SMTP_PASS` / `SMTP_FROM`) | `supabase/.env` (git-ignored) and the project's GoTrue auth config | the sender for verification/recovery mail. `SMTP_PASS` is a provider **app password**, not the mailbox password |
+`CRON_SECRET` | `supabase/.env` and the `reminder-sender` function secret | bearer for the scheduled digest tick. Anyone holding it can trigger a send |
+Resend / Brevo API key | `reminder-sender` function secret (`RESEND_API_KEY` / `BREVO_API_KEY`) | spends the mail account's quota and can send as the verified domain |
+VAPID keypair (`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`) | `reminder-sender` function secrets | signs web-push deliveries. The public half ships to browsers by design; the private half must not |
+Turnstile secret key | the project's auth config server-side; the **site** key is `VITE_TURNSTILE_SITE_KEY` | the site key is public by design; the secret key validates tokens server-side |
 
 If a service role key or the DB password has ever been pasted into a chat, a
 commit message, or a `VITE_` variable, treat it as leaked: rotate it in the
 dashboard (or `supabase management database keys update`) before the next
 deploy, then re-run the restore drill below against the new value.
+
+### Rotation procedure (per service, no value is ever written down here)
+
+Rotate in this order — highest blast radius first — and after each step re-run the
+probe that exercises it, so a rotation is proven rather than assumed:
+
+1. **`SUPABASE_ACCESS_TOKEN`** (administers *every* project on the account):
+   Supabase dashboard → Account → **Access tokens** → revoke the leaked token and
+   generate a new one. Update the GitHub secret and any local run environment.
+   Prove: `curl -H "Authorization: Bearer <new>" api.supabase.com/v1/projects`
+   returns 200; the revoked token returns 401.
+2. **Service role key**: dashboard → Project Settings → **API** → rotate the
+   `service_role` / `sb_secret` key. Update the `SUPABASE_*_SERVICE_ROLE_KEY`
+   GitHub secrets and the `ai-proxy` / `reminder-sender` function secrets that use
+   it (`supabase secrets set`), then redeploy those functions. Prove:
+   `supabase/e2e/security-battery.mjs` and `mail-recipient-check.mjs --digest`.
+3. **DB password**: dashboard → Project Settings → **Database** → reset the
+   database password. Update `supabase/.env` (`DB_PASSWORD`) and the
+   `SUPABASE_DB_PASSWORD` workflow secret. Prove: the backup workflow's psql
+   preflight and one nightly run go green; re-run the restore drill below.
+4. **SMTP app password**: create a new app password at the mail provider (Gmail →
+   Security → App passwords; Brevo → SMTP key), set it in `supabase/.env`
+   (`SMTP_PASS`) and the project's GoTrue auth config, revoke the old one. Prove:
+   `supabase/e2e/auth-mail-brand.mjs` and the dashboard "Send test email".
+5. **`CRON_SECRET`, Resend/Brevo, VAPID**: `supabase secrets set` the new value
+   on the project and `supabase functions deploy reminder-sender`. Prove: a tick
+   carrying the new `CRON_SECRET` answers `{"ok":true,…}`; the old one 401s.
+6. **Gemini / OpenRouter**: revoke at the provider, `supabase secrets set` on the
+   project, redeploy `ai-proxy`. Prove: the ai-proxy CORS/401 probe (no key spent).
+
+### Exposure review — 2026-10-10
+
+A pass over the repository and this machine, recorded because "it looks clean" is
+not evidence:
+
+- **The tracked tree is clean.** `git grep` for secret shapes (`sbp_…`, `sk-…`,
+  `eyJhbGciOi…` JWTs, `xox…`, PEM private keys) over every tracked file — tests
+  and docs included — found none. `src/frontend/.env.development` (tracked) holds
+  only `VITE_USE_MOCK=true`; `.env.example` is a template. Both real env files
+  (`supabase/.env`, `src/frontend/.env.local`) are git-ignored, confirmed with
+  `git check-ignore`. The publishable key in `.env.local` is public by design (it
+  ships in the browser bundle; RLS is the control).
+- **One credential was pasted into a chat this engagement: the `sbp_` access
+  token.** By the rule at the top of this section that makes it leaked — it
+  administers every project on the account, the widest reach of any secret here.
+  It also landed in a scratch file outside the repo (`/tmp/sf-mapi-token`).
+  **Rotate it (step 1) — approval-gated; it has not been rotated here.**
+- **Scratch files in `/tmp` hold live secrets in plaintext on this machine**:
+  `sf-mapi-token` (the access token), `sf-service-key` (service role),
+  `sf-anon-key` (publishable), `sf-battery-env.txt`. They are outside the repo and
+  never staged, but they should be deleted once the probes that need them are
+  done. Nothing secret-named appears in `git status`.
+- **Not reproduced anywhere:** no password, key, token, verification link, or
+  recipient address is printed in this file, the probes' output, or the grading
+  report. The mail probe masks recipients (`re***@example.com`) and uses only
+  RFC-2606 reserved `@example.com` throwaways, so no real user was mailed.
 
 ## Backups
 
