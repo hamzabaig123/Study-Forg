@@ -1,5 +1,73 @@
 # StudyForge — Grading Report
 
+## Regrade — 2026-10-10
+
+*Grading the tree at `0be00e4`. This pass is different from the ones below: it
+moved several "written but unproven" claims to **executed** — the restore reached
+a real disposable database, the no-mail recipient probe ran live for the first
+time, the deployed Edge Functions were compared byte-for-byte against source, and
+the seeded browser E2E completed — and it corrected two records that had gone
+stale (the backup root cause, and the "function sources are ahead of deployed"
+claim). It also opened work that is genuinely unfinished and gates it behind your
+approval. Where a claim is not backed by a command run today, it says so.*
+
+### Gates, run on this tree (2026-10-10)
+
+| Gate | Result |
+| --- | --- |
+| `pnpm typecheck` | exit 0 |
+| `pnpm exec biome check src scripts` | 235 files, no fixes, 0 errors |
+| `pnpm test` (jsdom) | **64 files, 585 tests passed** (663 s). Includes the new `backupRestore.contract.test.ts` (3) and the expanded `contentSecurityPolicy.test.ts` (28, which now pins the Vercel cache rules) |
+| `pnpm build` | exit 0; CSP `<meta>` stamped into `dist/index.html`; `_headers` correctly absent (it is `EMIT_HEADERS=1` opt-in) |
+| `SEED_LOCAL=1 … node e2e/app.live.cjs` (mock, real Edge) | **71 checks passed, 0 failed, zero page errors** across the seed, ten-route tour, QR link lifecycle, share, CSV+PDF export, profile edit/persist, and theme switch/persist |
+| `node supabase/e2e/mail-recipient-check.mjs --digest` (live) | **19/19** — recipient correctness, token isolation, cross-account confirmation, replay/garbage/cross-token refusal, no resend oracle. No real mail sent (RFC-2606 `@example.com` throwaways) |
+| Restore drill (`node supabase/backup/restore.mjs` into a disposable DB) | **PASSED** end-to-end after fixing a real `restore.mjs` defect — a fourth account reachable only through `reminder_log/reminder_settings.user_id` was skipped by the owner_id-only collection; now every account column is discovered through `pg_constraint` FKs. Restored integrity read back: 72 functions, 0 `anon` grants, 23 RLS-forced tables; live cross-tenant RLS confirms owner A sees 5 own classes and 0 of owner B's |
+| Deployed Edge Functions vs source (Management API) | **all three match current source**: `reminder-sender` v12, `ai-proxy` v7, `csp-collector` v1; live probes: `ai-proxy` 401 unauth / 403 evil-origin / exact ACAO; `reminder-sender` 401 own message; `csp-collector` 204 allowed / 403 disallowed |
+| Production response headers (live origin) | CSP + `Report-To` + HSTS + `X-Frame-Options: DENY` + `nosniff` + `Referrer-Policy` + `Permissions-Policy` **all served on the deployed origin** (vercel.json is read, as AGENTS.md requires) |
+| `run-backend-lane.mjs` | **not re-run this session** — no Motoko file changed, so the lane result from `4509f9e` (CI green, `backend.wasm` produced) stands; re-stating it as fresh would be false |
+
+### Scorecard — 2026-10-10
+
+| Area | Grade | Fresh evidence / what keeps it from higher |
+| --- | --- | --- |
+| Frontend correctness | **A** | 585 unit/contract + 71 browser checks green; entrance/theme/persistence verified live |
+| Authentication & credentials | **A-** | Protocol proven 19/19 live; Turnstile seam + password floor pinned. Held at A-: the `sbp_` access-token exposure is documented but **not yet rotated** (approval-gated) |
+| Database & RLS | **A** | 22 tables, RLS forced, 0 anon grants, cross-tenant isolation measured live; migration contract test green |
+| Security posture | **A-** | Every header live on the origin, CSP report path wired, abuse oracle closed. Held at A-: `ai-proxy` limiter **fails open** against the owner's server-side keys — a real, low-probability residual risk; hardening is offered, not applied |
+| Backup & recovery | **B+** | Root cause found (pg_dump 16 vs PG 17.6) and the workflow fixed + Docker-proven; restore drill genuinely passes. Held at B+: a **green nightly CI run has not happened** — it needs `SUPABASE_PROJECT_REF`/`DB_HOST`/`DB_PASSWORD` set by you and a scheduled/dispatch run |
+| Performance | **A-** | Lab-measured: TTFB ≈0.2 s, critical path ≈324 KB brotli; closed a real gap (hashed assets were `max-age=0` on Vercel because the sync dropped the `/assets/*` block). Held at A-: Lighthouse lab score not run (not installed) and Vercel Speed Insights **RUM not readable from this machine** |
+| Edge Functions | **A-** | Deployed == source, CORS/auth/body-cap/secret-comparison all pinned by the contract test and probed live. Held at A- for the same fail-open limiter |
+| Accessibility | **B+** | Theme persistence and zero page errors re-verified today; contrast/keyboard/narrow-screen/axe findings rest on the **2026-09-29/30** measurements, not re-run this pass |
+| Operations & docs | **A-** | OPERATIONS.md now carries a full credential inventory + per-service rotation procedure + a 2026-10-10 exposure review; README stale claims corrected. Held at A-: backup secrets, the Vercel cache deploy, and rotations are all still **approval-gated** |
+| Backend (canister) | **A-** | Unchanged since the 2026-10-01 lane (indexes, throttles, PDF/random fixes). No Motoko touched this pass; not re-compiled here |
+
+### Remaining blockers, tradeoffs, and actions needing your approval
+
+Nothing below was executed unilaterally:
+
+1. **Backup CI is not yet green (you must set, then I verify):** the fixed
+   `.github/workflows/supabase-backup.yml` needs `vars.SUPABASE_PROJECT_REF`,
+   optional `vars.SUPABASE_DB_HOST` (the pooler host — `db.<ref>.supabase.co` does
+   not resolve here), and `secrets.SUPABASE_DB_PASSWORD`; ideally
+   `secrets.SLACK_WEBHOOK`. Until those exist, a schedule cannot pass.
+2. **Rotate the leaked `sbp_` access token** — it was pasted into chat and is
+   therefore treated as leaked; it administers every project on the account.
+   Procedure: OPERATIONS.md → "Rotation procedure", step 1. Not done.
+3. **Deploy the Vercel cache change** — `vercel.json` now emits immutable asset
+   caching; it only takes effect on the next deploy, and needs re-verification on
+   the live origin after.
+4. **`/tmp` scratch credentials** (`sf-mapi-token`, `sf-service-key`,
+   `sf-anon-key`, `sf-battery-env.txt`) still hold live values in plaintext on
+   this machine; say the word and I delete them.
+5. **Optional `ai-proxy` fail-open hardening** — turn "a broken counter admits
+   everyone" into a bounded fallback. Deliberately not applied to a working
+   billing control that cannot be executed locally (no Deno).
+6. **`0be00e4` is committed but NOT pushed**, and no Supabase/Vercel function was
+   deployed. Pushing and deploying are separate approvals.
+
+*The 2026-09-30 and 2026-09-29 passes below are kept exactly as written; this
+section supersedes only where a gate changed state, and does not rewrite them.*
+
 ## Regrade — 2026-09-30
 
 *Grading the tree at `4509f9e`. This section exists because one gate changed
