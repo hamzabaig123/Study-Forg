@@ -156,7 +156,7 @@ set local request.jwt.claims = '{"role":"authenticated","sub":"22222222-2222-422
 
 do $$
 begin
-  insert into abuse_report (code, reason) values ('abcd234', 'direct write must not be possible');
+  insert into abuse_report (code, reason) values ('abcd234567', 'direct write must not be possible');
   raise exception 'FAIL(abuse-deny): authenticated wrote abuse_report directly';
 exception
   when insufficient_privilege then null; -- implicit deny: pass
@@ -169,7 +169,7 @@ $$;
 do $$
 declare r jsonb;
 begin
-  r := report_link_abuse('nosuch99', 'unknown code');
+  r := report_link_abuse('zzzz999999', 'unknown code');
   if r is distinct from '{"ok": null}'::jsonb then
     raise exception 'FAIL(abuse-oracle): report_link_abuse answered a never-issued code with % — it must answer the same {"ok":null} a real code gets, or the public report endpoint tells a caller which short codes exist', r;
   end if;
@@ -186,7 +186,7 @@ set local request.jwt.claims = '{"role":"authenticated","sub":"11111111-1111-411
 do $$
 declare r jsonb;
 begin
-  r := create_link('https://example.com/a', 'abcd234', 'rls-test-edit-token-0000000001');
+  r := create_link('https://example.com/a', 'abcd234567', 'rls-test-edit-token-0000000001');
   if not (r ? 'ok') then
     raise exception 'FAIL(link-create): create_link refused a valid request: %', r;
   end if;
@@ -231,7 +231,7 @@ $$;
 do $$
 declare r jsonb;
 begin
-  r := resolve_link('abcd234', 'mobile');
+  r := resolve_link('abcd234567', 'mobile');
   if r ->> 'targetUrl' <> 'https://example.com/a' then
     raise exception 'FAIL(anon-resolve): resolve_link answered %', r;
   end if;
@@ -276,16 +276,16 @@ declare
   v_seen   int;
   v_unseen int;
 begin
-  v_real  := report_link_abuse('abcd234', 'a report against a live code');
-  v_ghost := report_link_abuse('nosuch99', 'a report against a live code');
+  v_real  := report_link_abuse('abcd234567', 'a report against a live code');
+  v_ghost := report_link_abuse('zzzz999999', 'a report against a live code');
   if v_real is distinct from v_ghost then
     raise exception 'FAIL(abuse-oracle): the two replies differ — % for a code that exists, % for one that does not', v_real, v_ghost;
   end if;
-  select count(*) into v_seen from abuse_report where code = 'abcd234';
+  select count(*) into v_seen from abuse_report where code = 'abcd234567';
   if v_seen <> 1 then
     raise exception 'FAIL(abuse-record): a real code''s report wrote % rows, expected 1', v_seen;
   end if;
-  select count(*) into v_unseen from abuse_report where code = 'nosuch99';
+  select count(*) into v_unseen from abuse_report where code = 'zzzz999999';
   if v_unseen <> 0 then
     raise exception 'FAIL(abuse-record): % rows filed for a code that exists nowhere', v_unseen;
   end if;
