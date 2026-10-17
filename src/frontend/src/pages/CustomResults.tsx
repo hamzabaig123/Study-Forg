@@ -6,7 +6,7 @@ import { scorePercent } from "@/lib/format";
 import { getLocalSession, subscribeLocalSessions } from "@/lib/localSessions";
 import { type QuestionResult, SessionMode } from "@/types";
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowRight, RotateCcw } from "lucide-react";
+import { ArrowRight, History, RotateCcw } from "lucide-react";
 import { useSyncExternalStore } from "react";
 
 const MARKER = "custom_results";
@@ -118,6 +118,11 @@ export default function CustomResults() {
         >
           <Link to="/test-builder" data-ocid={`${MARKER}.again_button`}>
             <RotateCcw className="size-4" /> Build another test
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/history" data-ocid={`${MARKER}.history_link`}>
+            <History className="size-4" aria-hidden="true" /> Test history
           </Link>
         </Button>
         <Button asChild variant="outline">

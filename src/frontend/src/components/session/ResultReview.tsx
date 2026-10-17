@@ -12,6 +12,9 @@ interface ResultReviewProps {
   results: QuestionResult[];
   /** Deterministic-test marker prefix, e.g. `results`. */
   marker: string;
+  /** Printed question numbers, one per result, when the list is a filtered
+      view of a longer test. Defaults to 1, 2, 3… */
+  numbers?: readonly number[];
 }
 
 const TYPE_LABELS: Record<QuestionType, string> = {
@@ -65,7 +68,7 @@ function describeAnswer(
  * Per-question review list: the prompt, the submitted answer, the correct
  * answer, and the explanation for each question in a completed session.
  */
-export function ResultReview({ results, marker }: ResultReviewProps) {
+export function ResultReview({ results, marker, numbers }: ResultReviewProps) {
   return (
     <ol data-ocid={`${marker}.review_list`} className="stagger grid gap-3">
       {results.map((result, index) => {
@@ -84,24 +87,39 @@ export function ResultReview({ results, marker }: ResultReviewProps) {
           : undefined;
         const submitted = describeAnswer(result.submitted, optionTextById);
         const correctAnswer = describeAnswer(result.correctAnswer);
-        const Icon = result.correct ? Check : X;
+        const number = numbers?.[index] ?? index + 1;
+        // Graded wrong with nothing on record means the question was left blank.
+        const status = result.correct
+          ? "correct"
+          : result.submitted
+            ? "wrong"
+            : "skipped";
+        const Icon =
+          status === "correct" ? Check : status === "wrong" ? X : Minus;
 
         return (
           <li
-            key={result.questionId.toString()}
-            data-ocid={`${marker}.review_item.${index + 1}`}
+            key={`${result.questionId.toString()}:${number}`}
+            data-ocid={`${marker}.review_item.${number}`}
+            data-status={status}
             className={cn(
               "rounded-lg border bg-card p-4 shadow-subtle transition-smooth sm:p-5",
-              result.correct ? "border-success/40" : "border-destructive/40",
+              status === "correct"
+                ? "border-success/40"
+                : status === "wrong"
+                  ? "border-destructive/40"
+                  : "border-border",
             )}
           >
             <div className="flex items-start gap-3">
               <span
                 className={cn(
                   "mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full",
-                  result.correct
+                  status === "correct"
                     ? "bg-success/15 text-success"
-                    : "bg-destructive/15 text-destructive",
+                    : status === "wrong"
+                      ? "bg-destructive/15 text-destructive"
+                      : "bg-muted text-muted-foreground",
                 )}
                 aria-hidden="true"
               >
@@ -110,7 +128,7 @@ export function ResultReview({ results, marker }: ResultReviewProps) {
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-muted-foreground numeric text-xs font-medium">
-                    Q{index + 1}
+                    Q{number}
                   </span>
                   <Badge variant="outline" className="font-normal">
                     {TYPE_LABELS[result.questionType]}
@@ -118,14 +136,25 @@ export function ResultReview({ results, marker }: ResultReviewProps) {
                   <span
                     className={cn(
                       "text-xs font-semibold",
-                      result.correct ? "text-success" : "text-destructive",
+                      status === "correct"
+                        ? "text-success"
+                        : status === "wrong"
+                          ? "text-destructive"
+                          : "text-muted-foreground",
                     )}
                   >
-                    {result.correct ? "Correct" : "Incorrect"}
+                    {status === "correct"
+                      ? "Correct"
+                      : status === "wrong"
+                        ? "Incorrect"
+                        : "Skipped"}
                   </span>
                 </div>
 
-                <p className="mt-2 text-sm leading-relaxed font-medium break-words">
+                <p
+                  dir="auto"
+                  className="mt-2 text-sm leading-relaxed font-medium break-words"
+                >
                   {result.prompt}
                 </p>
 
@@ -134,7 +163,7 @@ export function ResultReview({ results, marker }: ResultReviewProps) {
                     <dt className="text-muted-foreground text-[0.65rem] font-medium tracking-wider uppercase">
                       Your answer
                     </dt>
-                    <dd className="mt-0.5 break-words">
+                    <dd dir="auto" className="mt-0.5 break-words">
                       {submitted ?? (
                         <span className="text-muted-foreground inline-flex items-center gap-1">
                           <Minus className="size-3" /> Not answered
@@ -146,7 +175,7 @@ export function ResultReview({ results, marker }: ResultReviewProps) {
                     <dt className="text-muted-foreground text-[0.65rem] font-medium tracking-wider uppercase">
                       Correct answer
                     </dt>
-                    <dd className="mt-0.5 break-words font-medium">
+                    <dd dir="auto" className="mt-0.5 break-words font-medium">
                       {correctAnswer ?? "—"}
                     </dd>
                   </div>
@@ -157,7 +186,10 @@ export function ResultReview({ results, marker }: ResultReviewProps) {
                     <p className="text-muted-foreground text-[0.65rem] font-medium tracking-wider uppercase">
                       Explanation
                     </p>
-                    <p className="mt-0.5 text-sm leading-relaxed break-words">
+                    <p
+                      dir="auto"
+                      className="mt-0.5 text-sm leading-relaxed break-words"
+                    >
                       {result.explanation}
                     </p>
                   </div>

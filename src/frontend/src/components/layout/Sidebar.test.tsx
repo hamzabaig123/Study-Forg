@@ -20,6 +20,7 @@ describe("Sidebar", () => {
       ["Classes", "/classes"],
       ["AI Studio", "/ai-studio"],
       ["Analytics", "/analytics"],
+      ["Test history", "/history"],
       ["Share", "/share"],
       ["Export", "/export"],
     ];

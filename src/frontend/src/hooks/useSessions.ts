@@ -72,6 +72,9 @@ export function useCompleteSession() {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.analytics.breakdown,
       });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.testHistory.remote,
+      });
     },
   });
 }

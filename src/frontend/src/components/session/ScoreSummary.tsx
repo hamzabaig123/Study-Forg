@@ -16,6 +16,8 @@ interface ScoreSummaryProps {
   message?: string;
   /** Deterministic-test marker. */
   marker?: string;
+  /** Confetti for a strong score; off when revisiting an old result. */
+  celebrate?: boolean;
 }
 
 /**
@@ -29,12 +31,13 @@ export function ScoreSummary({
   durationSeconds,
   message,
   marker = "results",
+  celebrate = true,
 }: ScoreSummaryProps) {
   return (
     <div className="relative flex flex-col items-center gap-6 sm:flex-row sm:items-center sm:gap-8">
       {/* 75 is where `scoreMessage` starts saying "strong work", so the paper
           and the words celebrate the same result or neither does. */}
-      {percent >= 75 ? <ConfettiBurst /> : null}
+      {celebrate && percent >= 75 ? <ConfettiBurst /> : null}
       <div className="flex flex-col items-center">
         <div className="relative flex size-32 items-center justify-center">
           <svg

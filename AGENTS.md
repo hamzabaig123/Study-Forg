@@ -58,7 +58,7 @@ When editing `index.html` (e.g. changing the title or favicon):
 - It is **unauthenticated on purpose**: a signed-out visitor on `/r/:code` meets violations too. Its defence is bounds, not identity — a 32 KiB streaming body cap, 20 reports per batch, 512 characters per field, and a `204` whatever the RPC answered (a forged batch learns nothing about the ceiling). `edgeFunctions.contract.test.ts` reads the source and pins all of that, including the **whitelist as an ordered list** rather than "no forbidden field appears", because that kind of guard passes on a name nobody thought to forbid.
 - The collector repeats the four-default origin list rather than importing it: each function deploys alone and imports nothing, so a shared module would have to be published to every deploy. The `Origin` check is a **browser** filter — a caller with no `Origin` (curl, a script) is not a cross-site request and is stopped by the table's bounds instead. Say it that way; "this endpoint is public" with a CORS guard described as authentication is the 0006 mistake in a new costume.
 - `csp_violation` has **no policies** and is `service_role`-only, so a client can neither read it nor write it; `hits` counts arriving reports on a `(directive, blocked_host, route, disposition)` key, which means it is **not** a count of people or of violations. Nothing identifying a visitor is stored — no `user_agent`, no `originalPolicy`, no referrer, blocked URL reduced to a host, and `/r/…`, `/manage/…`, `/shared/…` routes collapsed to `/(id)`. Reading it is `supabase/README.md` → Reading the violation table.
-- `verify.sql` item 16 wraps every privilege test in a `CASE` over `to_regclass`/`to_regfunction`: `has_*_privilege('…', 'a-name-that-does-not-exist', …)` **raises** rather than answering false, and CI runs that file with `ON_ERROR_STOP`, so an unapplied 0015 must show as `f`, not break the run.
+- `verify.sql` item 16 wraps every privilege test in a `CASE` over `to_regclass`/`to_regprocedure`: `has_*_privilege('…', 'a-name-that-does-not-exist', …)` **raises** rather than answering false, and CI runs that file with `ON_ERROR_STOP`, so an unapplied 0015 must show as `f`, not break the run.
 - `record_csp_violations` groups the batch before inserting because `insert … on conflict do update` that touches one target row twice is an error, and a browser may put two identical reports in one array. Whichever migration declares a helper last owns it, so the 0006/0008 grant lesson is restated in 0015: revokes after the creates, ending with `notify pgrst, 'reload schema'`.
 
 ### The Motoko toolchain runs in Docker
@@ -208,6 +208,21 @@ The backend session contract is fixed (`startSession` takes one `topic`/`chapter
 - `/test-builder` (`pages/TestBuilder.tsx`) is the builder; `/custom-test/$id` runs the session (practice grades per question via `isCorrectAnswer`, timed runs `CountdownTimer` and auto-finishes, rejoining an expired test finishes it); `/custom-results/$id` renders the result. Results pages also accept backend ids — `pages/SessionResults.tsx` (backend) and `pages/CustomResults.tsx` (local) share `components/session/ScoreSummary.tsx`.
 - The dashboard's **Accuracy + Day streak** hero (`components/insights/ProgressHero.tsx`) and the Analytics page are computed over **merged history**: `hooks/useStudyProgress.ts` folds backend `getAttemptHistory()` rows and completed local sessions into one list (`useStudyProgress`) and into the accuracy buckets (`useMergedBreakdown`; local tests carry class/subject labels captured at build time). Streak/accuracy math lives in `src/lib/progress.ts` (`computeStreak` counts a day when any attempt completed; a streak stays alive through today-if-yesterday-counts).
 - Topic/Chapter page "Practice"/"Timed test" buttons now link into `/test-builder?topic=…|chapter=…&mode=practice|timed` (preselect, no fixed 10-minute launch). `/share` accepts the same preselect params.
+
+### Test history (`/history`, `/history/$kind/$id`)
+
+- One list for every finished test: `lib/testHistory.ts` normalises both sources into `TestAttempt` (`kind: "session" | "custom"`, string `id`) and `mergeAttempts` lets the device's copy win over the server's. On Supabase the list and the review come from the `test_history` / `test_history_detail` RPCs (migration 0016); on the mock and the canister from `getAttemptHistory` / `getSessionResult`, which carry no subjects, classes or answered count.
+- **There is no backfill of device-only runs to the server.** A backfill would resurrect a run deleted on another device. `customSync` mirrors each run as it finishes; that is the only write.
+- Deleting: `delete_test_attempt` on Supabase (server first, then the device copy, so a surviving mirror cannot bring it back). Off Supabase only Test Builder runs can be deleted — the canister has no delete — and `canDeleteAttempt` hides the button for the rest.
+- A graded-wrong question with nothing submitted is **skipped**, not wrong (`itemStatus`); `ResultReview` shows it that way on every results page. Seed rows carry `correct: true` with `submitted: null`, which counts as answered.
+- Titles, subjects and prompts can be Urdu: anything user-written gets `dir="auto"`.
+
+### SQL lessons from the 0016/0017 run (2026-10-18)
+
+- `to_regfunction` does not exist in Postgres; the function-name probe is `to_regprocedure('public.name(argtypes)')`. `verify.sql` item 16 used the wrong one and had never actually run.
+- In a Postgres regex `\b` is a **backspace**; the word boundary is `\y`.
+- Supabase's default privileges grant every new `public` table to `anon` and `authenticated`. A table meant to be server-only needs `revoke all … from anon, authenticated` in its own migration — 0015 missed it and 0017 fixes it.
+- The repo was moved from `D:\class 11 app\study fork` to `D:\study forg\study fork`; pnpm's `node_modules` links pointed at the old path, so `tsc` could not find `vite/client`. `CI=true pnpm install --frozen-lockfile --prefer-offline` in the repo root relinks without touching the lockfile.
 
 ### Daily email reminder + analytics report
 

@@ -181,6 +181,17 @@ export function completeLocalSession(
 // hand back the same array reference until the store actually changes.
 let completedCache: { source: StoreShape; value: LocalSession[] } | null = null;
 
+/** Remove one finished run from this device. True when it was here. */
+export function deleteLocalSession(id: string): boolean {
+  const current = load();
+  const sessions = current.sessions.filter(
+    (session) => !(session.id === id && session.status === "completed"),
+  );
+  if (sessions.length === current.sessions.length) return false;
+  persist({ version: 1, sessions });
+  return true;
+}
+
 export function listCompletedLocalSessions(): LocalSession[] {
   const source = load();
   if (!completedCache || completedCache.source !== source) {

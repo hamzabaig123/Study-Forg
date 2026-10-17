@@ -7,7 +7,7 @@ import { useSessionResult } from "@/hooks/useSessions";
 import { scorePercent } from "@/lib/format";
 import { type Id, SessionMode } from "@/types";
 import { Link, useParams } from "@tanstack/react-router";
-import { ArrowRight, RotateCcw } from "lucide-react";
+import { ArrowRight, History, RotateCcw } from "lucide-react";
 
 const MARKER = "results";
 
@@ -143,6 +143,11 @@ export default function SessionResults() {
         >
           <Link to="/dashboard" data-ocid={`${MARKER}.primary_button`}>
             <RotateCcw className="size-4" /> Practice again
+          </Link>
+        </Button>
+        <Button asChild variant="outline">
+          <Link to="/history" data-ocid={`${MARKER}.history_link`}>
+            <History className="size-4" aria-hidden="true" /> Test history
           </Link>
         </Button>
         <Button asChild variant="outline">

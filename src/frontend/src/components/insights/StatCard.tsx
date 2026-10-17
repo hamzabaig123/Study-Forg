@@ -12,6 +12,8 @@ interface StatCardProps {
   /** Emphasise the first card in a row with the ember gradient. */
   featured?: boolean;
   index: number;
+  /** data-ocid prefix; the index is appended. */
+  marker?: string;
 }
 
 /**
@@ -26,10 +28,11 @@ export function StatCard({
   hint,
   featured = false,
   index,
+  marker = "dashboard.stat_card",
 }: StatCardProps) {
   return (
     <Card
-      data-ocid={`dashboard.stat_card.${index}`}
+      data-ocid={`${marker}.${index}`}
       className={cn(
         // The lift, shadow and hover wash come from the global card hover
         // rules in index.css — this card only adds its featured accent.

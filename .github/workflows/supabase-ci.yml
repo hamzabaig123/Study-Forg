@@ -112,6 +112,9 @@ jobs:
       - name: Cross-tenant RLS checks
         run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/rls_cross_tenant.sql
 
+      - name: Test-history behaviour checks
+        run: psql "$PGURL" -v ON_ERROR_STOP=1 -f supabase/tests/test_history.sql
+
       - uses: supabase/setup-cli@v1
         with:
           version: latest

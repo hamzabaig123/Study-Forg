@@ -37,6 +37,12 @@ export const queryKeys = {
       ["sessions", "result", sessionId.toString()] as const,
     history: ["sessions", "history"] as const,
   },
+  testHistory: {
+    all: ["test-history"] as const,
+    remote: ["test-history", "remote"] as const,
+    detail: (kind: string, id: string) =>
+      ["test-history", "detail", kind, id] as const,
+  },
   analytics: {
     breakdown: ["analytics", "breakdown"] as const,
   },

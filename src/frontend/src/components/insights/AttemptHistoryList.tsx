@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 import { SessionMode } from "@/types";
 import type { AttemptSummary } from "@/types";
 import { Link } from "@tanstack/react-router";
-import { History, Timer, Trophy } from "lucide-react";
+import { ArrowRight, History, Timer, Trophy } from "lucide-react";
 
 interface AttemptHistoryListProps {
   attempts: AttemptSummary[];
@@ -53,9 +53,22 @@ export function AttemptHistoryList({
           Attempt history
         </CardTitle>
         {attempts.length > 0 ? (
-          <span className="numeric text-xs text-muted-foreground">
-            {attempts.length} {attempts.length === 1 ? "attempt" : "attempts"}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="numeric text-xs text-muted-foreground">
+              {attempts.length} {attempts.length === 1 ? "attempt" : "attempts"}
+            </span>
+            <Button
+              asChild
+              variant="ghost"
+              size="sm"
+              className="h-7 rounded-full text-xs"
+            >
+              <Link to="/history" data-ocid="analytics.history_link">
+                Review tests{" "}
+                <ArrowRight className="size-3.5" aria-hidden="true" />
+              </Link>
+            </Button>
+          </div>
         ) : null}
       </CardHeader>
       <CardContent className="px-0 py-0">

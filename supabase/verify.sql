@@ -13,7 +13,8 @@
 -- the rate limiter that 0006's own blanket grant undid. Number 13 is about
 -- 0009_push_subscriptions.sql, number 14 about
 -- 0011_trusted_client_address.sql, number 15 about 0013_abuse_report_throttle.sql
--- and number 16 about 0015_csp_violation_reports.sql.
+-- number 16 about 0015_csp_violation_reports.sql and number 17 about
+-- 0016_test_history.sql.
 --
 -- Run every number, not just the ones with a script behind them: item 11 carried
 -- a `column reference "attnum" is ambiguous` parse error from the day it was
@@ -334,9 +335,11 @@ select invariant, ok
 
 -- 15. The abuse-report invariants 0013 promises, read out of the stored function
 --     definition. The header comments of the migration file are not part of it,
---     and the body's own comments are worded so that none of them names the
---     variant this file removed — otherwise the second line below would be
---     satisfied or failed by documentation rather than by code.
+--     but the body's comments are, and one of them names the removed variant in
+--     backticks — so the second line looks for it as the quoted SQL literal the
+--     old code returned, not as a bare word. Word boundaries are `\y`: in a
+--     Postgres regex `\b` is a backspace, and the third line read `f` for that
+--     reason alone until 2026-10-18.
 select invariant, ok
   from (values
     ('the public report endpoint is throttled',
@@ -350,14 +353,14 @@ select invariant, ok
                     join pg_namespace n on n.oid = p.pronamespace
                    where n.nspname = 'public'
                      and p.proname = 'report_link_abuse'
-                     and pg_get_functiondef(p.oid) like '%notFound%')),
+                     and pg_get_functiondef(p.oid) like '%''notFound''%')),
     ('a row is filed only for a code that exists',
       exists (select 1 from pg_proc p
                 join pg_namespace n on n.oid = p.pronamespace
                where n.nspname = 'public'
                  and p.proname = 'report_link_abuse'
                  and pg_get_functiondef(p.oid)
-                     ~* '\bif[[:space:]]+found[[:space:]]+then\b'
+                     ~* '\yif[[:space:]]+found[[:space:]]+then\y'
                  and pg_get_functiondef(p.oid) like '%insert into abuse_report%')),
     ('and the report form is still reachable without signing in',
       has_function_privilege('anon', 'report_link_abuse(text, text)', 'EXECUTE'))
@@ -374,7 +377,7 @@ select invariant, ok
 --     pages break on other people's browsers.
 --
 --     Every privilege test is wrapped in a CASE over `to_regclass`/
---     `to_regfunction`, because `has_*_privilege` with a name that resolves to
+--     `to_regprocedure`, because `has_*_privilege` with a name that resolves to
 --     nothing does not answer false — it raises, and CI runs this file with
 --     ON_ERROR_STOP. A project that has not applied 0015 yet therefore reports
 --     `f (0015 not applied)` and keeps checking, which is the honest answer and
@@ -400,7 +403,7 @@ select invariant, ok
                      or has_table_privilege(client_role.name, 'public.csp_violation', 'DELETE'))
       end),
     ('only the delivery function executes the writer',
-      case when to_regfunction('public.record_csp_violations(jsonb)') is null then false
+      case when to_regprocedure('public.record_csp_violations(jsonb)') is null then false
            else has_function_privilege('service_role', 'record_csp_violations(jsonb)', 'EXECUTE')
                 and not has_function_privilege('anon', 'record_csp_violations(jsonb)', 'EXECUTE')
                 and not has_function_privilege('authenticated', 'record_csp_violations(jsonb)', 'EXECUTE')
@@ -438,5 +441,54 @@ select invariant, ok
                where n.nspname = 'public'
                  and p.proname = 'record_csp_violations'
                  and pg_get_functiondef(p.oid) like '%r|manage|shared%'))
+  ) as checks(invariant, ok)
+ order by 1;
+
+-- 17. The test-history invariants 0016 promises. The four functions read and
+--     delete nothing but the caller's own rows, and they get that from RLS, not
+--     from a WHERE clause: they run as the caller. A definer here would read every
+--     account's tests, so `prosecdef` is the row to read first. Expected: every
+--     row `t`; `f` everywhere means 0016 is not applied yet.
+--     tests/test_history.sql is the behaviour half: two accounts, a deleted
+--     topic, and the deletes.
+select invariant, ok
+  from (values
+    ('all four history functions exist',
+      (select count(*) from pg_proc p
+         join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in ('test_attempts', 'test_history',
+                            'test_history_detail', 'delete_test_attempt')) = 4),
+    ('none of them is a definer, so RLS decides whose tests they see',
+      not exists (select 1 from pg_proc p
+                    join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public'
+                     and p.proname in ('test_attempts', 'test_history',
+                                       'test_history_detail', 'delete_test_attempt')
+                     and p.prosecdef)),
+    ('every one of them pins search_path',
+      not exists (select 1 from pg_proc p
+                    join pg_namespace n on n.oid = p.pronamespace
+                   where n.nspname = 'public'
+                     and p.proname in ('test_attempts', 'test_history',
+                                       'test_history_detail', 'delete_test_attempt')
+                     and not exists (select 1 from unnest(p.proconfig) as cfg(x)
+                                      where cfg.x like 'search_path=%'))),
+    ('a signed-in account can list, open and delete its tests',
+      case when to_regprocedure('public.test_history()') is null
+             or to_regprocedure('public.test_history_detail(text, text)') is null
+             or to_regprocedure('public.delete_test_attempt(text, text)') is null
+           then false
+           else has_function_privilege('authenticated', 'test_history()', 'EXECUTE')
+                and has_function_privilege('authenticated', 'test_history_detail(text, text)', 'EXECUTE')
+                and has_function_privilege('authenticated', 'delete_test_attempt(text, text)', 'EXECUTE')
+      end),
+    ('anon executes none of them',
+      case when to_regprocedure('public.test_attempts()') is null then false
+           else not has_function_privilege('anon', 'test_attempts()', 'EXECUTE')
+                and not has_function_privilege('anon', 'test_history()', 'EXECUTE')
+                and not has_function_privilege('anon', 'test_history_detail(text, text)', 'EXECUTE')
+                and not has_function_privilege('anon', 'delete_test_attempt(text, text)', 'EXECUTE')
+      end)
   ) as checks(invariant, ok)
  order by 1;

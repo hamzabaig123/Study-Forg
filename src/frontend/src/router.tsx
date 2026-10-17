@@ -126,6 +126,14 @@ const TestBuilder = lazyPage(
   () => import("@/pages/TestBuilder"),
   "Loading the test builder…",
 );
+const TestHistory = lazyPage(
+  () => import("@/pages/TestHistory"),
+  "Loading your test history…",
+);
+const TestHistoryDetail = lazyPage(
+  () => import("@/pages/TestHistoryDetail"),
+  "Loading the test…",
+);
 const TimedTest = lazyPage(
   () => import("@/pages/TimedTest"),
   "Loading your test…",
@@ -403,6 +411,19 @@ const resultsRoute = createRoute({
   component: SessionResults,
 });
 
+/** Every finished test, and one test reopened for review. */
+const historyRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/history",
+  component: TestHistory,
+});
+
+const historyDetailRoute = createRoute({
+  getParentRoute: () => appRoute,
+  path: "/history/$kind/$id",
+  component: TestHistoryDetail,
+});
+
 const analyticsRoute = createRoute({
   getParentRoute: () => appRoute,
   path: "/analytics",
@@ -486,6 +507,8 @@ const routeTree = rootRoute.addChildren([
     customTestRoute,
     customResultsRoute,
     resultsRoute,
+    historyRoute,
+    historyDetailRoute,
     analyticsRoute,
     shareRoute,
     exportRoute,
