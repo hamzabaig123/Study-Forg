@@ -12,7 +12,7 @@ and the AI proxy stay on Supabase; Vercel only serves the app.
 and `master` is in sync with it, so this section is only for a fresh clone:
 
 ```bash
-cd "D:\class 11 app\study fork"
+cd "D:\study forg\study fork"
 git remote add origin https://github.com/<your-username>/studyforge.git
 git push -u origin master
 ```
